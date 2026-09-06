@@ -19,6 +19,9 @@ export function createDb(dbPath: string): { db: DB; sqlite: Database.Database } 
   const sqlite = new Database(dbPath)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
+  // Si otro proceso (p. ej. el respaldo) tiene la BD tomada, esperar en vez de fallar.
+  sqlite.pragma('busy_timeout = 5000')
+  sqlite.pragma('synchronous = NORMAL')
   const db = drizzle(sqlite, { schema })
   return { db, sqlite }
 }

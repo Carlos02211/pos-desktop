@@ -13,6 +13,13 @@ const METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'TRANSFER', label: 'Transferencia' }
 ]
 
+/** Montos sugeridos: el exacto y los siguientes billetes redondos. */
+function quickAmounts(total: number): number[] {
+  const rounded = Math.ceil(total / 100) * 100 || 100
+  const options = new Set<number>([total, rounded, rounded + 100, rounded + 400])
+  return [...options].filter((n) => n >= total).sort((a, b) => a - b)
+}
+
 export function CobroModal({
   total,
   onClose,
@@ -80,7 +87,7 @@ export function CobroModal({
         </div>
 
         {method === 'CASH' && (
-          <div className="space-y-1">
+          <div className="space-y-2">
             <label className="block text-sm font-medium">Monto recibido</label>
             <input
               autoFocus
@@ -90,6 +97,19 @@ export function CobroModal({
               placeholder={total.toFixed(2)}
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
             />
+            {/* Atajos para operar con el ratón, sin teclado. */}
+            <div className="flex flex-wrap gap-1.5">
+              {quickAmounts(total).map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setPaidText(String(amount))}
+                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium transition hover:bg-secondary"
+                >
+                  {amount === total ? 'Exacto' : money(amount)}
+                </button>
+              ))}
+            </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Cambio</span>
               <span className={cashShort ? 'text-pos-danger' : 'font-semibold text-pos-success'}>
