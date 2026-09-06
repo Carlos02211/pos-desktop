@@ -6,7 +6,16 @@ import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getConfigMap } from '../services/config'
 import { printTicket } from '../services/printer'
-import { createSale, getSaleWithItems } from '../services/ventas'
+import { createSale, getSaleWithItems, listSales } from '../services/ventas'
+
+const salesQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional(),
+  from: z.coerce.number().int().nonnegative().optional(),
+  to: z.coerce.number().int().nonnegative().optional(),
+  userId: z.coerce.number().int().positive().optional(),
+  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER']).optional()
+})
 
 const createSaleSchema = z.object({
   items: z
@@ -43,7 +52,17 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ ...sale, print })
   })
 
-  // Reimpresión desde el historial (Sprint 5 expone la UII de historial).
+  // Historial de ventas (paginado + filtros).
+  app.get('/api/ventas', { preHandler: requireRole('ADMIN') }, async (request) => {
+    return listSales(getDb(), parse(salesQuerySchema, request.query))
+  })
+
+  app.get('/api/ventas/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
+    const { id } = parse(idParam, request.params)
+    return getSaleWithItems(getDb(), id)
+  })
+
+  // Reimpresión desde el historial.
   app.post(
     '/api/ventas/:id/reimprimir',
     { preHandler: requireRole('ADMIN') },

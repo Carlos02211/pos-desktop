@@ -7,8 +7,11 @@ import Activation from '@/pages/Activation'
 import Login from '@/pages/Login'
 import AdminLayout from '@/pages/admin/AdminLayout'
 import Categorias from '@/pages/admin/Categorias'
+import Cortes from '@/pages/admin/Cortes'
 import Dashboard from '@/pages/admin/Dashboard'
 import Productos from '@/pages/admin/Productos'
+import Usuarios from '@/pages/admin/Usuarios'
+import Ventas from '@/pages/admin/Ventas'
 import CajaApertura from '@/pages/cobrador/CajaApertura'
 import CajaCierre from '@/pages/cobrador/CajaCierre'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
@@ -77,6 +80,9 @@ function App(): React.JSX.Element {
             <Route index element={<Dashboard />} />
             <Route path="productos" element={<Productos />} />
             <Route path="categorias" element={<Categorias />} />
+            <Route path="usuarios" element={<Usuarios />} />
+            <Route path="ventas" element={<Ventas />} />
+            <Route path="cortes" element={<Cortes />} />
           </Route>
         </Route>
         <Route path="*" element={<RootRedirect />} />

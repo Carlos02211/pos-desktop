@@ -1,5 +1,5 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–3).
+ * Verificación de backend sin GUI (Sprints 0–5).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
@@ -9,6 +9,7 @@
  *   5. Sprint 2 — catálogo, apertura de caja y registro de ventas (folio, cambio, snapshot).
  *   6. Sprint 3 — resumen de turno, cierre de caja (esperado/diferencia) + respaldo, reimpresión.
  *   7. Sprint 4 — CRUD de categorías y productos + subida de imagen (roles, soft delete).
+ *   8. Sprint 5 — usuarios (bcrypt, no self-deactivate), historial de ventas y cortes de caja.
  *
  * Uso:  pnpm verify:backend
  */
@@ -24,6 +25,7 @@ import { startServer } from '../src/main/server'
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
 import type {
   CashSession,
+  CashSessionListItem,
   CashSessionSummary,
   Category,
   CategoryWithCount,
@@ -32,7 +34,9 @@ import type {
   LoginResponse,
   PingResponse,
   ProductWithCategory,
-  SaleWithItems
+  SalesPage,
+  SaleWithItems,
+  UserListItem
 } from '../src/shared/types'
 
 const MIGRATIONS = join(process.cwd(), 'resources', 'migrations')
@@ -390,7 +394,96 @@ async function main(): Promise<void> {
       'categoría inactiva: no aparece para el cobrador'
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–4 OK')
+    // ---- Sprint 5: usuarios, historial de ventas y cortes de caja (ADMIN) ----
+    const usersList = (await (await asAdmin('/api/usuarios')).json()) as UserListItem[]
+    assert(usersList.length === 2, `usuarios: 2 en la lista (got ${usersList.length})`)
+    assert(!('password' in usersList[0]), 'usuarios: la lista no expone el hash de contraseña')
+    assert(
+      (await asCajero('/api/usuarios')).status === 403,
+      'usuarios: cobrador no puede listar (403)'
+    )
+
+    const nuevoU = await asAdmin('/api/usuarios', 'POST', {
+      username: 'cajero2',
+      password: 'secreto123',
+      role: 'COBRADOR'
+    })
+    assert(nuevoU.status === 201, `crear usuario -> 201 (status: ${nuevoU.status})`)
+    const cajero2 = (await nuevoU.json()) as UserListItem
+    const dupU = await asAdmin('/api/usuarios', 'POST', {
+      username: 'cajero2',
+      password: 'otracosa',
+      role: 'COBRADOR'
+    })
+    assert(dupU.status === 409, `usuario duplicado -> 409 (status: ${dupU.status})`)
+    const shortPw = await asAdmin('/api/usuarios', 'POST', {
+      username: 'x3y',
+      password: 'corta',
+      role: 'COBRADOR'
+    })
+    assert(shortPw.status === 400, `contraseña corta -> 400 (status: ${shortPw.status})`)
+
+    const loginU2 = await (await login('cajero2', 'secreto123')).json()
+    assert(
+      (loginU2 as LoginResponse).user?.role === 'COBRADOR',
+      'usuarios: el nuevo usuario puede iniciar sesión (bcrypt en el backend)'
+    )
+
+    const selfOff = await asAdmin('/api/usuarios/1', 'PUT', { active: false })
+    assert(
+      selfOff.status === 400,
+      `admin no puede desactivarse a sí mismo -> 400 (${selfOff.status})`
+    )
+    const selfDel = await asAdmin('/api/usuarios/1', 'DELETE')
+    assert(selfDel.status === 400, `admin no puede borrarse a sí mismo -> 400 (${selfDel.status})`)
+
+    const delU2 = await asAdmin(`/api/usuarios/${cajero2.id}`, 'DELETE')
+    assert(delU2.status === 204, `desactivar usuario -> 204 (status: ${delU2.status})`)
+    const usersAfter = (await (await asAdmin('/api/usuarios')).json()) as UserListItem[]
+    assert(
+      usersAfter.find((u) => u.id === cajero2.id)?.active === 0,
+      'usuarios: desactivado queda con active=0'
+    )
+
+    // Historial de ventas — hay 2 ventas (efectivo 50 folio1, tarjeta 25 folio2), ambas del cajero.
+    const ventasPage = (await (await asAdmin('/api/ventas')).json()) as SalesPage
+    assert(ventasPage.total === 2, `ventas: total 2 (got ${ventasPage.total})`)
+    assert(
+      ventasPage.rows[0].ticketNumber === 2 && ventasPage.rows[0].itemCount === 1,
+      'ventas: orden por fecha desc y itemCount calculado'
+    )
+    const ventasCash = (await (await asAdmin('/api/ventas?paymentMethod=CASH')).json()) as SalesPage
+    assert(
+      ventasCash.total === 1,
+      `ventas: filtro por método CASH -> total 1 (got ${ventasCash.total})`
+    )
+    const ventasAdminUser = (await (await asAdmin('/api/ventas?userId=1')).json()) as SalesPage
+    assert(ventasAdminUser.total === 0, 'ventas: filtro por cobrador sin ventas -> total 0')
+
+    const detalle = (await (await asAdmin('/api/ventas/1')).json()) as SaleWithItems
+    assert(
+      detalle.ticketNumber === 1 && detalle.items.length === 1,
+      'ventas: detalle de una venta con sus líneas'
+    )
+    assert(
+      (await asCajero('/api/ventas')).status === 403,
+      'ventas: cobrador no puede ver el historial (403)'
+    )
+
+    const cortes = (await (await asAdmin('/api/caja/historial')).json()) as CashSessionListItem[]
+    assert(cortes.length === 1, `cortes: 1 sesión en el historial (got ${cortes.length})`)
+    assert(
+      cortes[0].userName === 'cajero' &&
+        cortes[0].status === 'CLOSED' &&
+        cortes[0].difference === -10,
+      'cortes: nombre del cobrador, estado y diferencia'
+    )
+    assert(
+      (await asCajero('/api/caja/historial')).status === 403,
+      'cortes: cobrador no puede ver el historial (403)'
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–5 OK')
   } finally {
     if (server) await server.close()
     closeDb()

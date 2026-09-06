@@ -1,10 +1,18 @@
 import type {
+  CashHistoryQuery,
+  CashSessionListItem,
   Category,
   CategoryInput,
   CategoryWithCount,
+  CreateUserInput,
   Product,
   ProductInput,
-  ProductWithCategory
+  ProductWithCategory,
+  SaleWithItems,
+  SalesPage,
+  SalesQuery,
+  UpdateUserInput,
+  UserListItem
 } from '@shared/types'
 import { api } from './client'
 
@@ -48,4 +56,42 @@ export function subirImagenProducto(id: number, file: File): Promise<{ path: str
   const form = new FormData()
   form.append('file', file)
   return api.post<{ path: string }>(`/api/productos/${id}/imagen`, form)
+}
+
+/* ---- Usuarios ---- */
+
+export function listUsuarios(): Promise<UserListItem[]> {
+  return api.get<UserListItem[]>('/api/usuarios')
+}
+
+export function crearUsuario(input: CreateUserInput): Promise<UserListItem> {
+  return api.post<UserListItem>('/api/usuarios', input)
+}
+
+export function actualizarUsuario(id: number, input: UpdateUserInput): Promise<UserListItem> {
+  return api.put<UserListItem>(`/api/usuarios/${id}`, input)
+}
+
+export function desactivarUsuario(id: number): Promise<void> {
+  return api.delete<void>(`/api/usuarios/${id}`)
+}
+
+/* ---- Historial de ventas ---- */
+
+export function listVentas(query: SalesQuery): Promise<SalesPage> {
+  return api.get<SalesPage>('/api/ventas', { query: { ...query } })
+}
+
+export function getVentaDetalle(id: number): Promise<SaleWithItems> {
+  return api.get<SaleWithItems>(`/api/ventas/${id}`)
+}
+
+export function reimprimirTicket(id: number): Promise<{ ok: boolean }> {
+  return api.post<{ ok: boolean }>(`/api/ventas/${id}/reimprimir`)
+}
+
+/* ---- Cortes de caja ---- */
+
+export function listCortes(query: CashHistoryQuery): Promise<CashSessionListItem[]> {
+  return api.get<CashSessionListItem[]>('/api/caja/historial', { query: { ...query } })
 }

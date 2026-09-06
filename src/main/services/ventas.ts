@@ -1,5 +1,5 @@
-import { eq, inArray, sql } from 'drizzle-orm'
-import type { CreateSaleInput, SaleWithItems } from '../../shared/types'
+import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../../shared/types'
 import type { DB } from '../db'
 import { products, saleItems, sales, users } from '../db/schema'
 import { HttpError } from '../lib/http-error'
@@ -96,6 +96,48 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
 
     return { ...sale, items, userName: user?.username ?? '' }
   })
+}
+
+const MAX_PAGE_SIZE = 100
+
+/** Historial de ventas paginado con filtros (panel de administración). */
+export function listSales(db: DB, query: SalesQuery): SalesPage {
+  const page = Math.max(1, query.page ?? 1)
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, query.pageSize ?? 50))
+
+  const conditions = [
+    query.from != null ? gte(sales.createdAt, query.from) : undefined,
+    query.to != null ? lte(sales.createdAt, query.to) : undefined,
+    query.userId != null ? eq(sales.userId, query.userId) : undefined,
+    query.paymentMethod ? eq(sales.paymentMethod, query.paymentMethod) : undefined
+  ].filter(Boolean)
+  const where = conditions.length ? and(...conditions) : undefined
+
+  const [{ total }] = db.select({ total: count() }).from(sales).where(where).all()
+
+  const rows = db
+    .select({
+      id: sales.id,
+      ticketNumber: sales.ticketNumber,
+      cashSessionId: sales.cashSessionId,
+      userId: sales.userId,
+      userName: users.username,
+      total: sales.total,
+      paymentMethod: sales.paymentMethod,
+      amountPaid: sales.amountPaid,
+      change: sales.change,
+      createdAt: sales.createdAt,
+      itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+    })
+    .from(sales)
+    .innerJoin(users, eq(users.id, sales.userId))
+    .where(where)
+    .orderBy(desc(sales.createdAt), desc(sales.id))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize)
+    .all()
+
+  return { rows, total, page, pageSize }
 }
 
 /** Carga una venta con sus líneas y el nombre del cobrador (para reimpresión). */

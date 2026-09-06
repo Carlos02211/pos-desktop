@@ -75,6 +75,19 @@ lógica de negocio.
 | Modales de alta/edición con preview de imagen                                 | ✅     |
 | Emite `producto:update` → el cobrador recarga el grid sin refrescar           | ✅     |
 
+### Sprint 5 — Panel Admin: Usuarios, Ventas y Cortes ✅
+
+| Entregable                                                           | Estado |
+| -------------------------------------------------------------------- | ------ |
+| CRUD usuarios: `GET`/`POST`/`PUT`/`DELETE /api/usuarios` (ADMIN)     | ✅     |
+| Contraseña en texto plano desde el form → bcrypt en el backend       | ✅     |
+| El ADMIN no puede desactivarse/borrarse ni cambiarse el rol          | ✅     |
+| `GET /api/ventas` — paginado (50) + filtros fecha/cobrador/método    | ✅     |
+| `GET /api/ventas/:id` — detalle con líneas + reimpresión             | ✅     |
+| `GET /api/caja/historial` — cortes con nombre del cobrador y filtros | ✅     |
+| Pantallas `Usuarios`, `Ventas` (modal de detalle), `Cortes`          | ✅     |
+| Diferencia de caja en verde (sobrante) / rojo (faltante)             | ✅     |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -109,9 +122,10 @@ pnpm verify:backend
 ```
 
 Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
-flujo completo: `/api/ping` + Zod, licencia por hardware (estado, clave inválida → 403,
-clave válida → activa) y auth (login ok/ko, JWT en `/api/auth/me`, roles). Se ejecuta con
-Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
+flujo completo de los Sprints 0–5 (~100 comprobaciones): ping + Zod, licencia por hardware,
+auth y roles, catálogo, apertura/venta/cierre de caja con folio y cambio, respaldo,
+CRUD de productos/categorías/usuarios con subida de imagen, e historial de ventas y cortes.
+Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
 ## Otros comandos
 
@@ -161,8 +175,8 @@ src/
 │   ├── socket-events.ts   Constantes de eventos (Fase 2-ready)
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
 │   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
-│   ├── routes/            ping · license · auth · productos · categorias · caja · ventas
-│   ├── services/          license · auth · productos · categorias · caja · ventas · printer · backup · config
+│   ├── routes/            ping · license · auth · usuarios · productos · categorias · caja · ventas
+│   ├── services/          license · auth · usuarios · productos · categorias · caja · ventas · printer · backup · config
 │   ├── middleware/        auth (requireAuth / requireRole)
 │   └── lib/               validate (Zod) · store · jwt · http-error · money
 ├── renderer/src/          React
@@ -170,8 +184,8 @@ src/
 │   ├── assets/main.css    Tailwind v4 + tema claro (admin) / oscuro (cobrador)
 │   ├── lib/               utils (cn) · routing · format (money) · socket (socket.io-client)
 │   ├── stores/            auth.store · license.store · cart.store (Zustand)
-│   ├── components/        ProtectedRoute · AuthShell · SessionBar · Modal · ProductoBtn · CarritoItem · CobroModal · admin/{ProductoFormModal,CategoriaFormModal}
-│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura,CajaCierre} · admin/{Layout,Dashboard,Productos,Categorias}
+│   ├── components/        ProtectedRoute · AuthShell · SessionBar · Modal · ProductoBtn · CarritoItem · CobroModal · admin/{ProductoFormModal,CategoriaFormModal,UsuarioFormModal,VentaDetalleModal}
+│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura,CajaCierre} · admin/{Layout,Dashboard,Productos,Categorias,Usuarios,Ventas,Cortes}
 │   └── App.tsx            HashRouter + arranque (consulta licencia)
 └── shared/types.ts        Contrato de tipos Main ↔ Renderer
 ```
