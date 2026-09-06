@@ -4,20 +4,36 @@ Sistema de Punto de Venta de escritorio para Windows 10/11 (Electron + React + F
 Arquitectura preparada para migrar en Fase 2 a un servidor local multicajero sin reescribir la
 lógica de negocio.
 
-## Estado — Sprint 0 ✅
+## Estado
 
-| Entregable                                                  | Estado |
-| ----------------------------------------------------------- | ------ |
-| Scaffold electron-vite (React + TypeScript)                 | ✅     |
-| Tailwind CSS v4 + tokens de marca + base shadcn/ui          | ✅     |
-| Drizzle ORM + better-sqlite3 + `schema.ts` (8 tablas)       | ✅     |
-| Primera migración (`resources/migrations/0000_*.sql`)       | ✅     |
-| Servidor Fastify en el Main Process (`localhost:3001`)      | ✅     |
-| Socket.io montado sobre el mismo servidor HTTP              | ✅     |
-| Endpoint `/api/ping` (Renderer → Fastify → SQLite)          | ✅     |
-| Seed idempotente: `admin / admin123` + categoría + producto | ✅     |
-| `electron-builder.yml` (NSIS x64, español)                  | ✅     |
-| Estructura de carpetas del árbol del proyecto               | ✅     |
+### Sprint 0 — Scaffold ✅
+
+| Entregable                                             | Estado |
+| ------------------------------------------------------ | ------ |
+| Scaffold electron-vite (React + TypeScript)            | ✅     |
+| Tailwind CSS v4 + tokens de marca + base shadcn/ui     | ✅     |
+| Drizzle ORM + better-sqlite3 + `schema.ts` (8 tablas)  | ✅     |
+| Primera migración (`resources/migrations/0000_*.sql`)  | ✅     |
+| Servidor Fastify en el Main Process (`localhost:3001`) | ✅     |
+| Socket.io montado sobre el mismo servidor HTTP         | ✅     |
+| Endpoint `/api/ping` (Renderer → Fastify → SQLite)     | ✅     |
+| `electron-builder.yml` (NSIS x64, español)             | ✅     |
+
+### Sprint 1 — Licencia + Autenticación ✅
+
+| Entregable                                                         | Estado |
+| ------------------------------------------------------------------ | ------ |
+| Fingerprint SHA-256 del hardware (`systeminformation`)             | ✅     |
+| Licencia offline por HMAC, store cifrado (`electron-store`)        | ✅     |
+| Pantalla de activación `/activation` (muestra el ID del equipo)    | ✅     |
+| `GET /api/licencia/estado` · `POST /api/licencia/activar`          | ✅     |
+| Login bcrypt + JWT (8 h), secreto por instalación                  | ✅     |
+| `POST /api/auth/login` · `/logout` · `GET /api/auth/me`            | ✅     |
+| `requireAuth` / `requireRole` (ADMIN pasa siempre)                 | ✅     |
+| Pantalla `/login`, `auth.store` (token en memoria)                 | ✅     |
+| `ProtectedRoute` + guards de rol (`/cobrador`, `/admin`)           | ✅     |
+| Seed: `admin / admin123` (ADMIN) · `cajero / cajero123` (COBRADOR) | ✅     |
+| Generador de claves `pnpm license:gen`                             | ✅     |
 
 ## Requisitos
 
@@ -35,7 +51,12 @@ pnpm dev               # arranca Electron + Vite (HMR) + Fastify :3001
 ```
 
 Al primer arranque se crea la base de datos en `app.getPath('userData')/pos.db`, se aplican
-las migraciones y se ejecuta el seed. Credenciales por defecto: **admin / admin123**.
+las migraciones y se ejecuta el seed.
+
+- **Login**: `admin / admin123` (administrador) · `cajero / cajero123` (cobrador)
+- **Activación**: la app arranca en `/activation`. Copia el _ID de este equipo_ que muestra
+  la pantalla y genera su clave con `pnpm license:gen <ID>` (en el equipo del proveedor, con
+  el mismo `POS_VENDOR_SECRET`). Pega la clave para activar.
 
 > **Nota pnpm**: los scripts de instalación están autorizados en `pnpm-workspace.yaml`
 > (`allowBuilds`). Si `pnpm install` avisa de _ignored build scripts_, ejecuta
@@ -47,9 +68,10 @@ las migraciones y se ejecuta el seed. Credenciales por defecto: **admin / admin1
 pnpm verify:backend
 ```
 
-Levanta SQLite + migraciones + seed + Fastify en un entorno temporal y valida `/api/ping`,
-el seed y la validación Zod. Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para
-usar el mismo ABI nativo de `better-sqlite3` que la app.
+Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
+flujo completo: `/api/ping` + Zod, licencia por hardware (estado, clave inválida → 403,
+clave válida → activa) y auth (login ok/ko, JWT en `/api/auth/me`, roles). Se ejecuta con
+Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
 ## Otros comandos
 
@@ -59,6 +81,7 @@ pnpm lint              # ESLint + Prettier
 pnpm build             # typecheck + bundles de producción en out/
 pnpm build:win         # build + instalador NSIS en dist-electron/
 pnpm db:studio         # Drizzle Studio contra .data/pos.dev.db
+pnpm license:gen <fp>  # genera la clave de licencia para un fingerprint (uso interno)
 ```
 
 ## Arquitectura
@@ -92,26 +115,24 @@ impresión (fallback), licencia y rutas del sistema de archivos.
 ```
 src/
 ├── main/                  Proceso principal (Node.js)
-│   ├── index.ts           Entry point: arranca backend + ventana
+│   ├── index.ts           Entry point: store + backend + ventana
 │   ├── server.ts          Fastify (CORS, error handler, rutas)
 │   ├── socket.ts          Socket.io + helper emit()
 │   ├── socket-events.ts   Constantes de eventos (Fase 2-ready)
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
-│   ├── db/
-│   │   ├── schema.ts      8 tablas Drizzle (SQLite)
-│   │   ├── index.ts       createDb / initDb (migrador en runtime) / getDb
-│   │   └── seed.ts        Seed idempotente
-│   ├── routes/            index.ts + ping.ts (auth, productos, ... en próximos sprints)
-│   ├── lib/               validate.ts (helpers Zod)
-│   ├── services/          printer, license, backup, reportes (próximos sprints)
-│   └── middleware/        auth (Sprint 1)
+│   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
+│   ├── routes/            ping · license · auth  (productos, caja… en próximos sprints)
+│   ├── services/          license (fingerprint + HMAC) · auth (login)
+│   ├── middleware/        auth (requireAuth / requireRole)
+│   └── lib/               validate (Zod) · store (electron-store) · jwt · http-error
 ├── renderer/src/          React
-│   ├── api/               client.ts (fetch + token) + ping.ts
+│   ├── api/               client (fetch + token + 401) · auth · license · ping
 │   ├── assets/main.css    Tailwind v4 + tema claro (admin) / oscuro (cobrador)
-│   ├── lib/utils.ts       cn() de shadcn/ui
-│   ├── stores/            Zustand (Sprint 1+)
-│   ├── pages/             cobrador/ y admin/ (Sprint 2+)
-│   └── components/ui/     shadcn/ui (se añaden con `npx shadcn add`)
+│   ├── lib/               utils (cn) · routing (homeFor)
+│   ├── stores/            auth.store · license.store (Zustand)
+│   ├── components/        ProtectedRoute · AuthShell · SessionBar
+│   ├── pages/             Activation · Login · cobrador/ · admin/
+│   └── App.tsx            HashRouter + arranque (consulta licencia)
 └── shared/types.ts        Contrato de tipos Main ↔ Renderer
 ```
 
@@ -124,6 +145,15 @@ src/
 - **bcrypt → bcryptjs**: se usa `bcryptjs` (JS puro, hashes compatibles, `saltRounds: 12`) en
   lugar del binding nativo `bcrypt` para no arrastrar un segundo módulo nativo. Cambio de
   implementación, no de comportamiento.
+- **Licencia**: `fingerprint = SHA-256(uuid | MAC | serie de disco | hostname)`; la clave es
+  `base32(HMAC-SHA256(fingerprint, POS_VENDOR_SECRET))[:25]`. Validación 100 % offline. El
+  `POS_VENDOR_SECRET` debe ser el mismo en la app empaquetada y en `pnpm license:gen`
+  (variable de entorno; hay un valor por defecto sólo para desarrollo).
+- **Secreto JWT**: se genera aleatorio en el primer arranque y se guarda cifrado en
+  `electron-store` — no es una constante en el binario. Token de 8 h, sólo en memoria en el
+  cliente (nunca `localStorage`).
+- **electron-store** es ESM-only; `src/main/lib/store.ts` normaliza el import para que
+  funcione tanto en el bundle CJS de electron-vite como en el script de verificación (ESM).
 - **Timestamps**: Unix en segundos (`integer`), sin conversiones entre SQLite y PostgreSQL.
 - **Fase 2**: cambiar el driver en `src/main/db/index.ts` (better-sqlite3 → node-postgres) y la
   `API_BASE_URL` en `src/renderer/src/api/client.ts`. El resto del código no cambia.

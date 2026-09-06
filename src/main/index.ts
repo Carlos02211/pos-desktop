@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { closeDb, initDb } from './db'
 import { runSeed } from './db/seed'
+import { initStore } from './lib/store'
 import { paths } from './paths'
 import { startServer, type RunningServer } from './server'
 
@@ -12,6 +13,7 @@ const API_PORT = 3001
 let server: RunningServer | null = null
 
 async function bootBackend(): Promise<void> {
+  initStore(paths.dataDir)
   const db = initDb(paths.dbPath, paths.migrationsDir)
   await runSeed(db)
   server = await startServer({
