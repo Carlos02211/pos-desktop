@@ -14,6 +14,16 @@ export function dateTime(unixSeconds: number): string {
   })
 }
 
+/** Fecha local en formato YYYY-MM-DD (para `<input type="date">` y filtros). */
+export function localDateISO(d: Date = new Date()): string {
+  return d.toLocaleDateString('sv-SE') // sv-SE => "2026-09-05"
+}
+
+/** Mes local en formato YYYY-MM (para `<input type="month">`). */
+export function localMonthISO(d: Date = new Date()): string {
+  return localDateISO(d).slice(0, 7)
+}
+
 /** Solo la hora (para listados densos). */
 export function timeOnly(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleTimeString('es-MX', {

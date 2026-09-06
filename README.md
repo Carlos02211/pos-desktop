@@ -88,6 +88,18 @@ lógica de negocio.
 | Pantallas `Usuarios`, `Ventas` (modal de detalle), `Cortes`          | ✅     |
 | Diferencia de caja en verde (sobrante) / rojo (faltante)             | ✅     |
 
+### Sprint 6 — Reportes y Exportaciones ✅
+
+| Entregable                                                             | Estado |
+| ---------------------------------------------------------------------- | ------ |
+| `GET /api/reportes/{diario,semanal,mensual}` (ADMIN)                   | ✅     |
+| Total, desglose por método, top 5 productos, tramos por hora/día       | ✅     |
+| `GET /api/reportes/exportar/excel` — ExcelJS (resumen + detalle)       | ✅     |
+| `GET /api/reportes/exportar/pdf` — jsPDF + autotable (membrete + logo) | ✅     |
+| Pantalla `Reportes`: tabs, selector, gráfica de barras (recharts)      | ✅     |
+| Descarga con diálogo "Guardar como" (`will-download` en el Main)       | ✅     |
+| Páginas admin cargadas con `React.lazy` (recharts en chunk aparte)     | ✅     |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -175,8 +187,8 @@ src/
 │   ├── socket-events.ts   Constantes de eventos (Fase 2-ready)
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
 │   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
-│   ├── routes/            ping · license · auth · usuarios · productos · categorias · caja · ventas
-│   ├── services/          license · auth · usuarios · productos · categorias · caja · ventas · printer · backup · config
+│   ├── routes/            ping · license · auth · usuarios · productos · categorias · caja · ventas · reportes
+│   ├── services/          license · auth · usuarios · productos · categorias · caja · ventas · printer · backup · config · reportes · reports-excel · reports-pdf
 │   ├── middleware/        auth (requireAuth / requireRole)
 │   └── lib/               validate (Zod) · store · jwt · http-error · money
 ├── renderer/src/          React

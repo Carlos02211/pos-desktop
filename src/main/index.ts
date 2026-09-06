@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, session, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -64,6 +64,11 @@ app.whenReady().then(async () => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+  })
+
+  // Descargas (exportar reportes a Excel / PDF): mostrar el diálogo "Guardar como".
+  session.defaultSession.on('will-download', (_event, item) => {
+    item.setSaveDialogOptions({ defaultPath: item.getFilename() })
   })
 
   try {

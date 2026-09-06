@@ -3,6 +3,7 @@
 # a bloquear la compilación de better-sqlite3 y la descarga del binario de Electron.
 allowBuilds:
   better-sqlite3: true
+  core-js: false
   electron: true
   electron-winstaller: true
   esbuild: true

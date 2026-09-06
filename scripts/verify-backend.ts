@@ -1,5 +1,5 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–5).
+ * Verificación de backend sin GUI (Sprints 0–6).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
@@ -10,6 +10,7 @@
  *   6. Sprint 3 — resumen de turno, cierre de caja (esperado/diferencia) + respaldo, reimpresión.
  *   7. Sprint 4 — CRUD de categorías y productos + subida de imagen (roles, soft delete).
  *   8. Sprint 5 — usuarios (bcrypt, no self-deactivate), historial de ventas y cortes de caja.
+ *   9. Sprint 6 — reportes (diario/semanal/mensual) + exportación a Excel y PDF.
  *
  * Uso:  pnpm verify:backend
  */
@@ -35,6 +36,7 @@ import type {
   PingResponse,
   ProductWithCategory,
   SalesPage,
+  SalesReport,
   SaleWithItems,
   UserListItem
 } from '../src/shared/types'
@@ -483,7 +485,57 @@ async function main(): Promise<void> {
       'cortes: cobrador no puede ver el historial (403)'
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–5 OK')
+    // ---- Sprint 6: reportes + exportación Excel/PDF (ADMIN) ----
+    const hoy = new Date().toLocaleDateString('sv-SE') // fecha local YYYY-MM-DD
+    const reporte = (await (
+      await asAdmin(`/api/reportes/diario?fecha=${hoy}`)
+    ).json()) as SalesReport
+    assert(
+      reporte.buckets.length === 24,
+      `reporte diario: 24 tramos horarios (got ${reporte.buckets.length})`
+    )
+    assert(
+      reporte.totalTransactions >= 2,
+      `reporte diario: cuenta las ventas del día (got ${reporte.totalTransactions})`
+    )
+    assert(
+      reporte.topProducts.some((p) => p.name === 'Producto de prueba' && p.quantity >= 3),
+      'reporte diario: top de productos con cantidades'
+    )
+    assert(
+      reporte.byPaymentMethod.CASH === 50 && reporte.byPaymentMethod.CARD === 25,
+      `reporte diario: desglose por método (efectivo ${reporte.byPaymentMethod.CASH}, tarjeta ${reporte.byPaymentMethod.CARD})`
+    )
+    assert(
+      (await asCajero(`/api/reportes/diario?fecha=${hoy}`)).status === 403,
+      'reportes: cobrador no puede consultarlos (403)'
+    )
+    assert(
+      (await asAdmin('/api/reportes/mensual')).status === 400,
+      'reportes: mensual sin mes/anio -> 400 (Zod)'
+    )
+
+    const xlsx = await asAdmin(`/api/reportes/exportar/excel?tipo=diario&fecha=${hoy}`)
+    assert(xlsx.status === 200, `exportar Excel -> 200 (status: ${xlsx.status})`)
+    assert(
+      (xlsx.headers.get('content-type') ?? '').includes('spreadsheetml'),
+      'exportar Excel: content-type xlsx'
+    )
+    const xlsxBytes = Buffer.from(await xlsx.arrayBuffer())
+    assert(
+      xlsxBytes[0] === 0x50 && xlsxBytes[1] === 0x4b && xlsxBytes.length > 2000,
+      `exportar Excel: archivo ZIP/xlsx válido (${xlsxBytes.length} bytes)`
+    )
+
+    const pdf = await asAdmin(`/api/reportes/exportar/pdf?tipo=diario&fecha=${hoy}`)
+    assert(pdf.status === 200, `exportar PDF -> 200 (status: ${pdf.status})`)
+    const pdfBytes = Buffer.from(await pdf.arrayBuffer())
+    assert(
+      pdfBytes.subarray(0, 4).toString() === '%PDF' && pdfBytes.length > 1000,
+      `exportar PDF: archivo PDF válido (${pdfBytes.length} bytes)`
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–6 OK')
   } finally {
     if (server) await server.close()
     closeDb()

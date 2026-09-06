@@ -202,6 +202,73 @@ export interface CashHistoryQuery {
   userId?: number
 }
 
+/* ---- Sprint 6: reportes ---- */
+
+export type ReportType = 'diario' | 'semanal' | 'mensual'
+
+export interface PaymentBreakdown {
+  CASH: number
+  CARD: number
+  TRANSFER: number
+}
+
+export interface TopProduct {
+  productId: number
+  name: string
+  quantity: number
+  revenue: number
+}
+
+/** Un tramo del reporte: una hora (diario) o un día (semanal/mensual). */
+export interface ReportBucket {
+  label: string
+  total: number
+  count: number
+}
+
+export interface SalesReport {
+  type: ReportType
+  from: number
+  to: number
+  totalSales: number
+  totalTransactions: number
+  byPaymentMethod: PaymentBreakdown
+  topProducts: TopProduct[]
+  buckets: ReportBucket[]
+}
+
+/* ---- Sprint 7: configuración + dashboard ---- */
+
+export interface ConfigResponse {
+  business_name: string
+  business_address: string
+  business_phone: string
+  logo_path: string
+  ticket_footer: string
+  currency_symbol: string
+  printer_interface: string
+  backup_dir: string
+}
+
+export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path'>>
+
+export interface OpenSessionInfo {
+  cashSessionId: number
+  userId: number
+  userName: string
+  openedAt: number
+  openingAmount: number
+}
+
+export interface DashboardData {
+  date: number
+  totalSales: number
+  totalTransactions: number
+  byPaymentMethod: PaymentBreakdown
+  openSessions: OpenSessionInfo[]
+  recentSales: SaleListItem[]
+}
+
 /** Resumen del turno actual (para la pantalla de cierre de caja). */
 export interface CashSessionSummary {
   session: CashSession
