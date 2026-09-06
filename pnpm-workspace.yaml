@@ -1,0 +1,8 @@
+# pnpm >= 11: dependencias autorizadas a ejecutar scripts de instalación.
+# Gestionado por `pnpm approve-builds`. No quitar entradas o `pnpm install` volverá
+# a bloquear la compilación de better-sqlite3 y la descarga del binario de Electron.
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true

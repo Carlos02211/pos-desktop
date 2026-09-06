@@ -1,0 +1,132 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/**
+ * Sistema de diseño — POS SpArTaN Tech
+ *  - Panel Cobrador  → tema oscuro (clase .cobrador o .dark), botones grandes.
+ *  - Panel Admin      → tema claro, tablas y sidebar.
+ *  - Login / Activación → centrado, minimalista.
+ */
+
+:root {
+  /* shadcn/ui — tema claro (Panel Admin) */
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.3 0.06 264);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.3 0.06 264);
+  --radius: 0.625rem;
+
+  /* Paleta de marca SpArTaN Tech */
+  --brand: #1a1a2e;
+  --brand-mid: #16213e;
+  --brand-accent: #0f3460;
+  --brand-light: #e8f0fe;
+
+  /* Estados del POS */
+  --pos-success: #22c55e;
+  --pos-danger: #ef4444;
+  --pos-warning: #f59e0b;
+  --pos-muted: #6b7280;
+}
+
+.dark,
+.cobrador {
+  --background: #1a1a2e;
+  --foreground: #e8f0fe;
+  --card: #16213e;
+  --card-foreground: #e8f0fe;
+  --popover: #16213e;
+  --popover-foreground: #e8f0fe;
+  --primary: #0f3460;
+  --primary-foreground: #e8f0fe;
+  --secondary: #16213e;
+  --secondary-foreground: #e8f0fe;
+  --muted: #16213e;
+  --muted-foreground: #9aa7c7;
+  --accent: #0f3460;
+  --accent-foreground: #e8f0fe;
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: #2a3350;
+  --input: #2a3350;
+  --ring: #0f3460;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-brand-mid: var(--brand-mid);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-light: var(--brand-light);
+  --color-pos-success: var(--pos-success);
+  --color-pos-danger: var(--pos-danger);
+  --color-pos-warning: var(--pos-warning);
+  --color-pos-muted: var(--pos-muted);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}

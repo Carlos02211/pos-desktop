@@ -1,0 +1,18 @@
+node_modules
+dist
+dist-electron
+out
+.DS_Store
+.eslintcache
+*.log*
+*.tsbuildinfo
+
+# Este proyecto usa pnpm — no versionar lockfiles de otros gestores
+package-lock.json
+yarn.lock
+
+# Datos locales de desarrollo (base de datos, uploads)
+.data
+*.db
+*.db-shm
+*.db-wal
