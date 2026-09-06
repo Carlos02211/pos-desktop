@@ -19,6 +19,12 @@ export interface ServerContext {
   backupDir: string
   /** Carpeta servida en `/uploads/` (imágenes de producto y logo). */
   uploadsDir: string
+  /**
+   * Carpeta con el build estático del cliente React. Sólo en Fase 2 (servidor
+   * standalone): las tabletas cargan la SPA desde el mismo origen que la API.
+   * En Electron es `undefined` (el Renderer lo carga desde `file://`).
+   */
+  staticDir?: string
 }
 
 declare module 'fastify' {
@@ -54,7 +60,8 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     isDev: opts.isDev,
     dbPath: opts.dbPath,
     backupDir: opts.backupDir,
-    uploadsDir: opts.uploadsDir
+    uploadsDir: opts.uploadsDir,
+    staticDir: opts.staticDir
   })
 
   await app.register(cors, {
@@ -72,6 +79,26 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     prefix: '/uploads/',
     decorateReply: false
   })
+
+  // Fase 2: sirve la SPA de React desde el propio servidor. Las rutas `/api/*`
+  // y `/uploads/*` ya están registradas y tienen prioridad; el resto cae aquí,
+  // y cualquier ruta no-API devuelve `index.html` (HashRouter en el cliente).
+  if (opts.staticDir) {
+    // Esta registración SÍ decora `reply` (con `sendFile`), la de `/uploads/` no.
+    await app.register(fastifyStatic, {
+      root: opts.staticDir,
+      prefix: '/',
+      wildcard: false
+    })
+    app.setNotFoundHandler((request, reply) => {
+      const isSpaRoute =
+        request.method === 'GET' &&
+        !request.url.startsWith('/api/') &&
+        !request.url.startsWith('/uploads/')
+      if (isSpaRoute) return reply.type('text/html').sendFile('index.html')
+      return reply.code(404).send({ error: 'No encontrado' })
+    })
+  }
 
   app.setErrorHandler((err: FastifyError, _request, reply) => {
     if (err instanceof ValidationError) return sendValidationError(reply, err)
