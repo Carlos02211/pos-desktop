@@ -84,6 +84,14 @@ export interface BusinessConfig {
   currency_symbol: string
 }
 
+/** Estado de la licencia (Sprint 1). `/api/licencia/estado`. */
+export interface LicenseStatusResponse {
+  active: boolean
+  /** SHA-256 del hardware de este equipo. Se muestra en la pantalla de activación. */
+  fingerprint: string
+  activatedAt: number | null
+}
+
 /** Respuesta del endpoint de diagnóstico /api/ping (Sprint 0). */
 export interface PingResponse {
   ok: true

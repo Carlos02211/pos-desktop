@@ -17,7 +17,7 @@ const DEFAULT_CONFIG: Record<string, string> = {
 /**
  * Seed idempotente. Se ejecuta en cada arranque del Main Process:
  *  - si no hay usuarios, crea el ADMIN por defecto (admin / admin123),
- *    una categoría y un producto de prueba.
+ *    un COBRADOR de prueba (cajero / cajero123), una categoría y un producto.
  *  - rellena las claves de configuración que falten sin pisar las existentes.
  */
 export async function runSeed(db: DB): Promise<void> {
@@ -27,13 +27,21 @@ export async function runSeed(db: DB): Promise<void> {
     .all()
 
   if (count === 0) {
-    const passwordHash = await bcrypt.hash('admin123', BCRYPT_ROUNDS)
-    db.insert(users).values({ username: 'admin', password: passwordHash, role: 'ADMIN' }).run()
+    const [adminHash, cobradorHash] = await Promise.all([
+      bcrypt.hash('admin123', BCRYPT_ROUNDS),
+      bcrypt.hash('cajero123', BCRYPT_ROUNDS)
+    ])
+    db.insert(users)
+      .values([
+        { username: 'admin', password: adminHash, role: 'ADMIN' },
+        { username: 'cajero', password: cobradorHash, role: 'COBRADOR' }
+      ])
+      .run()
 
     const [cat] = db.insert(categories).values({ name: 'General' }).returning().all()
     db.insert(products).values({ name: 'Producto de prueba', price: 25, categoryId: cat.id }).run()
 
-    console.log('[seed] Datos iniciales creados — usuario: admin / admin123')
+    console.log('[seed] Datos iniciales creados — admin/admin123 · cajero/cajero123')
   }
 
   for (const [key, value] of Object.entries(DEFAULT_CONFIG)) {

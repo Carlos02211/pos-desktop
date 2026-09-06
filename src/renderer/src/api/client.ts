@@ -18,6 +18,13 @@ export function setTokenProvider(fn: () => string | null): void {
   tokenProvider = fn
 }
 
+/** Se invoca cuando el servidor responde 401 (token expirado/ inválido). */
+let onUnauthorized: () => void = () => {}
+
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn
+}
+
 export class ApiRequestError extends Error {
   constructor(
     public readonly status: number,
@@ -64,6 +71,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   if (!res.ok) {
     const err = (isJson ? data : { error: data }) as ApiError
+    if (res.status === 401 && tokenProvider()) onUnauthorized()
     throw new ApiRequestError(res.status, err.error ?? `HTTP ${res.status}`, err.details)
   }
 
