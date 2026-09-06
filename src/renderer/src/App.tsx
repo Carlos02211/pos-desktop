@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
@@ -6,18 +6,21 @@ import { homeFor } from '@/lib/routing'
 import Activation from '@/pages/Activation'
 import Login from '@/pages/Login'
 import AdminLayout from '@/pages/admin/AdminLayout'
-import Categorias from '@/pages/admin/Categorias'
-import Cortes from '@/pages/admin/Cortes'
-import Dashboard from '@/pages/admin/Dashboard'
-import Productos from '@/pages/admin/Productos'
-import Usuarios from '@/pages/admin/Usuarios'
-import Ventas from '@/pages/admin/Ventas'
 import CajaApertura from '@/pages/cobrador/CajaApertura'
 import CajaCierre from '@/pages/cobrador/CajaCierre'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
 import PanelVenta from '@/pages/cobrador/PanelVenta'
 import { useAuthStore } from '@/stores/auth.store'
 import { useLicenseStore } from '@/stores/license.store'
+
+// Las páginas de administración se cargan bajo demanda (recharts/ExcelJS pesan).
+const Dashboard = lazy(() => import('@/pages/admin/Dashboard'))
+const Productos = lazy(() => import('@/pages/admin/Productos'))
+const Categorias = lazy(() => import('@/pages/admin/Categorias'))
+const Usuarios = lazy(() => import('@/pages/admin/Usuarios'))
+const Ventas = lazy(() => import('@/pages/admin/Ventas'))
+const Cortes = lazy(() => import('@/pages/admin/Cortes'))
+const Reportes = lazy(() => import('@/pages/admin/Reportes'))
 
 function Splash({
   message,
@@ -76,13 +79,21 @@ function App(): React.JSX.Element {
           </Route>
         </Route>
         <Route element={<ProtectedRoute role="ADMIN" />}>
-          <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="/admin"
+            element={
+              <Suspense fallback={<Splash message="Cargando…" />}>
+                <AdminLayout />
+              </Suspense>
+            }
+          >
             <Route index element={<Dashboard />} />
             <Route path="productos" element={<Productos />} />
             <Route path="categorias" element={<Categorias />} />
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="ventas" element={<Ventas />} />
             <Route path="cortes" element={<Cortes />} />
+            <Route path="reportes" element={<Reportes />} />
           </Route>
         </Route>
         <Route path="*" element={<RootRedirect />} />

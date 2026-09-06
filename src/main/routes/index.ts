@@ -5,6 +5,7 @@ import { categoriasRoutes } from './categorias'
 import { licenseRoutes } from './license'
 import { pingRoutes } from './ping'
 import { productosRoutes } from './productos'
+import { reportesRoutes } from './reportes'
 import { usuariosRoutes } from './usuarios'
 import { ventasRoutes } from './ventas'
 
@@ -23,4 +24,5 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(categoriasRoutes)
   await app.register(cajaRoutes)
   await app.register(ventasRoutes)
+  await app.register(reportesRoutes)
 }

@@ -5,9 +5,12 @@ import type {
   CategoryInput,
   CategoryWithCount,
   CreateUserInput,
+  DashboardData,
   Product,
   ProductInput,
   ProductWithCategory,
+  ReportType,
+  SalesReport,
   SaleWithItems,
   SalesPage,
   SalesQuery,
@@ -94,4 +97,18 @@ export function reimprimirTicket(id: number): Promise<{ ok: boolean }> {
 
 export function listCortes(query: CashHistoryQuery): Promise<CashSessionListItem[]> {
   return api.get<CashSessionListItem[]>('/api/caja/historial', { query: { ...query } })
+}
+
+/* ---- Reportes ---- */
+
+export type ReportParams = { fecha?: string; inicio?: string; mes?: number; anio?: number }
+
+export function getReporte(type: ReportType, params: ReportParams): Promise<SalesReport> {
+  return api.get<SalesReport>(`/api/reportes/${type}`, { query: { ...params } })
+}
+
+/* ---- Dashboard ---- */
+
+export function getDashboard(): Promise<DashboardData> {
+  return api.get<DashboardData>('/api/dashboard')
 }
