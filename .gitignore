@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-electron
+dist-server
 out
 .DS_Store
 .eslintcache
@@ -16,3 +17,6 @@ yarn.lock
 *.db
 *.db-shm
 *.db-wal
+
+# Configuración local del servidor de Fase 2
+deploy/.env

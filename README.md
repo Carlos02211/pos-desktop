@@ -1,8 +1,11 @@
 # POS SpArTaN Tech
 
-Sistema de Punto de Venta de escritorio para Windows 10/11 (Electron + React + Fastify + SQLite).
-Arquitectura preparada para migrar en Fase 2 a un servidor local multicajero sin reescribir la
-lógica de negocio.
+Sistema de Punto de Venta para Windows 10/11 (React + Fastify + Drizzle).
+
+- **Fase 1** — app de escritorio Electron con SQLite embebido.
+- **Fase 2** — el mismo servidor y la misma lógica de negocio, fuera de Electron,
+  contra PostgreSQL, sirviendo la SPA a varias tabletas en la red local. El swap
+  lo decide `DATABASE_URL`; no se reescribe nada de negocio.
 
 ## Estado
 
@@ -143,6 +146,24 @@ abonos parciales o liquidación total.
 | `docs/empaquetado-e-instalacion.md`                                                | ✅         |
 | Generar el `.exe` NSIS (requiere Windows/CI) · instalación + capacitación          | ⬜ cliente |
 
+### Fase 2 — Servidor local multicajero 🟡 (base lista)
+
+El mismo Fastify + Socket.io + lógica de negocio corre fuera de Electron, contra
+PostgreSQL, sirviendo la SPA a tabletas por navegador. Runbook completo en
+[`docs/fase-2-migracion.md`](docs/fase-2-migracion.md).
+
+| Entregable                                                                              | Estado     |
+| --------------------------------------------------------------------------------------- | ---------- |
+| Capa de datos asíncrona y agnóstica del motor (`DATABASE_URL` elige SQLite/PostgreSQL)  | ✅         |
+| Esquema + migraciones PostgreSQL (`schema.pg.ts`, `pnpm db:generate:pg`)                | ✅         |
+| `verify:backend:pg` — ~140 checks contra PostgreSQL (PGlite, sin servidor)              | ✅         |
+| Servidor sin Electron (`src/server/`) — `0.0.0.0:3000`, sirve la SPA, fallback de rutas | ✅         |
+| Cliente resuelve el `baseURL` solo (mismo origen cuando lo sirve el servidor)           | ✅         |
+| `pnpm build:server` → `dist-server/` (bundle + `public/` + migraciones + pm2 + `.env`)  | ✅         |
+| Script de migración de datos `pnpm migrate:sqlite-to-pg`                                | ✅         |
+| `deploy/ecosystem.config.cjs` (pm2) · runbook `docs/fase-2-migracion.md`                | ✅         |
+| Instalar PostgreSQL, IP fija, firewall, `pm2-installer`, impresora en red               | ⬜ cliente |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -185,6 +206,10 @@ exportación a Excel/PDF, configuración, dashboard, y ventas a crédito con abo
 liquidación (corte que suma enganches y abonos en efectivo).
 Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
+```bash
+pnpm verify:backend:pg   # las mismas comprobaciones contra PostgreSQL (PGlite embebido)
+```
+
 ## Empaquetado
 
 - `pnpm build:win` (**en Windows** o CI de Windows) → `dist-electron/pos-spartan-tech-<ver>-setup.exe` (NSIS).
@@ -196,15 +221,23 @@ Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI na
 ## Otros comandos
 
 ```bash
-pnpm typecheck         # tsc para main/preload y para renderer
-pnpm lint              # ESLint + Prettier
-pnpm build             # typecheck + bundles de producción en out/
-pnpm build:win         # build + instalador NSIS en dist-electron/  (Windows)
-pnpm db:studio         # Drizzle Studio contra .data/pos.dev.db
-pnpm license:gen <fp>  # genera la clave de licencia para un fingerprint (uso interno)
+pnpm typecheck            # tsc para main/preload/server y para renderer
+pnpm lint                 # ESLint + Prettier
+pnpm build                # typecheck + bundles de producción en out/
+pnpm build:win            # build + instalador NSIS en dist-electron/  (Windows)
+pnpm db:studio            # Drizzle Studio contra .data/pos.dev.db
+pnpm license:gen <fp>     # genera la clave de licencia para un fingerprint (uso interno)
+
+# Fase 2 (servidor en red)
+pnpm db:generate:pg       # regenera resources/migrations-pg si cambia schema.pg.ts
+pnpm server:dev           # corre el servidor standalone en :3000 (PGlite, sirve out/renderer)
+pnpm build:server         # empaqueta dist-server/ para desplegar con pm2
+pnpm migrate:sqlite-to-pg # copia los datos de una pos.db a PostgreSQL
 ```
 
 ## Arquitectura
+
+**Fase 1 — Electron de escritorio (SQLite)**
 
 ```
 Electron
@@ -216,6 +249,19 @@ Electron
 └── Renderer (Chromium + React) ─┘
         fetch('http://localhost:3001/api/...')
 ```
+
+**Fase 2 — Servidor en red local (PostgreSQL)** — mismo código, sin Electron
+
+```
+PC servidor ── pm2 ── node server.cjs :3000
+               ├── Fastify + Socket.io + build de React
+               └── Drizzle + node-postgres ── PostgreSQL 16 :5432
+
+Tabletas / laptop ── Chrome ── http://192.168.1.10:3000/  (mismo origen para API y WS)
+```
+
+El swap lo decide `DATABASE_URL`: sin ella, SQLite; con ella, PostgreSQL. Ver
+[`docs/fase-2-migracion.md`](docs/fase-2-migracion.md).
 
 ### Regla de oro
 
