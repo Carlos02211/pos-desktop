@@ -111,6 +111,25 @@ lógica de negocio.
 | `GET /api/dashboard` — ventas del día, desglose, cajas abiertas, últimas 5 | ✅     |
 | `Dashboard` en vivo: `socket.store` refresca con `venta:nueva` / `caja:*`  | ✅     |
 
+### Módulo extra — Cuentas por cobrar (fiado) ✅
+
+Ventas que se pagan parcial o no se pagan quedan como **cuenta de crédito**
+ligada a un cliente; hay un apartado para las que faltan por liquidar, con
+abonos parciales o liquidación total.
+
+| Entregable                                                                          | Estado |
+| ---------------------------------------------------------------------------------- | ------ |
+| Schema: `customers`, `credit_accounts`, `credit_payments` · pago `CREDIT` (mig. 0001) | ✅     |
+| `GET/POST /api/clientes` (COBRADOR alta rápida) · `PUT/DELETE` (ADMIN, 409 con deuda) | ✅     |
+| `GET /api/cuentas` (filtros estado/cliente/fecha) · `/total` · `/:id` (detalle + abonos) | ✅     |
+| `POST /api/cuentas/:id/abono` — valida monto ≤ saldo, exige caja abierta, liquida al saldar | ✅     |
+| Venta a crédito: exige cliente activo, abono inicial opcional en efectivo             | ✅     |
+| CobroModal: método **Fiado** con selector / alta rápida de cliente                    | ✅     |
+| Cobrador: pantalla `Cuentas` + `CuentaDetalleModal` (abono / botón "Liquidar")       | ✅     |
+| Admin: `Clientes` (CRUD + saldo) y `Cuentas por cobrar` (filtros)                     | ✅     |
+| Corte de caja: el efectivo esperado suma enganches y abonos en efectivo               | ✅     |
+| Dashboard "Por cobrar (fiado)" · reportes "crédito otorgado" · evento `cuenta:abono`  | ✅     |
+
 ### Sprint 8 — QA, Pulido y Empaquetado 🚧
 
 | Entregable                                                                         | Estado     |
@@ -158,10 +177,12 @@ pnpm verify:backend
 ```
 
 Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
-flujo completo de los Sprints 0–8 (~112 comprobaciones): ping + Zod, licencia por hardware
-(incl. copia a otro equipo → inactiva), auth y roles, catálogo, apertura/venta/cierre de caja
-con folio y cambio, respaldo, CRUD de productos/categorías/usuarios con imagen, historial de
-ventas y cortes, reportes con exportación a Excel/PDF, configuración y dashboard.
+flujo completo de los Sprints 0–8 más el módulo de cuentas por cobrar (~140 comprobaciones):
+ping + Zod, licencia por hardware (incl. copia a otro equipo → inactiva), auth y roles,
+catálogo, apertura/venta/cierre de caja con folio y cambio, respaldo, CRUD de
+productos/categorías/usuarios con imagen, historial de ventas y cortes, reportes con
+exportación a Excel/PDF, configuración, dashboard, y ventas a crédito con abonos y
+liquidación (corte que suma enganches y abonos en efectivo).
 Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
 ## Empaquetado
