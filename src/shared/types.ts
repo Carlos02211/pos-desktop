@@ -135,6 +135,73 @@ export interface CreateSaleResponse extends SaleWithItems {
   print: PrintResult
 }
 
+/* ---- Sprint 5: usuarios, historial de ventas y cortes ---- */
+
+/** Usuario en la tabla de administración (sin el hash de contraseña). */
+export interface UserListItem {
+  id: number
+  username: string
+  role: Role
+  active: number
+  createdAt: number
+}
+
+export interface CreateUserInput {
+  username: string
+  password: string
+  role: Role
+}
+
+export interface UpdateUserInput {
+  username?: string
+  role?: Role
+  active?: boolean
+  /** Sólo si se quiere cambiar la contraseña. */
+  password?: string
+}
+
+/** Fila del historial de ventas (sin el detalle de líneas). */
+export interface SaleListItem {
+  id: number
+  ticketNumber: number
+  cashSessionId: number
+  userId: number
+  userName: string
+  total: number
+  paymentMethod: PaymentMethod
+  amountPaid: number | null
+  change: number | null
+  itemCount: number
+  createdAt: number
+}
+
+export interface SalesQuery {
+  page?: number
+  pageSize?: number
+  from?: number
+  to?: number
+  userId?: number
+  paymentMethod?: PaymentMethod
+}
+
+export interface SalesPage {
+  rows: SaleListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** Fila del historial de cortes de caja. */
+export interface CashSessionListItem extends CashSession {
+  userName: string
+}
+
+export interface CashHistoryQuery {
+  from?: number
+  to?: number
+  userId?: number
+}
+
 /** Resumen del turno actual (para la pantalla de cierre de caja). */
 export interface CashSessionSummary {
   session: CashSession

@@ -5,7 +5,13 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { backupDatabase } from '../services/backup'
-import { closeSession, getActiveSession, getSessionSummary, openSession } from '../services/caja'
+import {
+  closeSession,
+  getActiveSession,
+  getSessionSummary,
+  listSessions,
+  openSession
+} from '../services/caja'
 import { getConfigMap } from '../services/config'
 
 const openSchema = z.object({
@@ -16,6 +22,12 @@ const closeSchema = z.object({
   closingAmount: z.number().nonnegative().max(1_000_000)
 })
 
+const historyQuerySchema = z.object({
+  from: z.coerce.number().int().nonnegative().optional(),
+  to: z.coerce.number().int().nonnegative().optional(),
+  userId: z.coerce.number().int().positive().optional()
+})
+
 export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/sesion-activa', { preHandler: requireRole('COBRADOR') }, async (request) => {
     return getActiveSession(getDb(), request.authUser!.id) ?? null
@@ -23,6 +35,11 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
     return getSessionSummary(getDb(), request.authUser!.id)
+  })
+
+  // Historial de cortes de caja (panel de administración).
+  app.get('/api/caja/historial', { preHandler: requireRole('ADMIN') }, async (request) => {
+    return listSessions(getDb(), parse(historyQuerySchema, request.query))
   })
 
   app.post(

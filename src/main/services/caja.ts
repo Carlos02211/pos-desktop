@@ -1,7 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm'
-import type { CashSessionSummary } from '../../shared/types'
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
+import type { CashHistoryQuery, CashSessionListItem, CashSessionSummary } from '../../shared/types'
 import type { CashSessionRow } from '../db/schema'
-import { cashSessions, sales } from '../db/schema'
+import { cashSessions, sales, users } from '../db/schema'
 import type { DB } from '../db'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
@@ -108,4 +108,33 @@ export function closeSession(db: DB, userId: number, closingAmount: number): Clo
     session: updated,
     summary: { session: updated, ...t, expectedCash }
   }
+}
+
+/** Historial de cortes de caja con el nombre del cobrador (panel de administración). */
+export function listSessions(db: DB, query: CashHistoryQuery): CashSessionListItem[] {
+  const conditions = [
+    query.from != null ? gte(cashSessions.openedAt, query.from) : undefined,
+    query.to != null ? lte(cashSessions.openedAt, query.to) : undefined,
+    query.userId != null ? eq(cashSessions.userId, query.userId) : undefined
+  ].filter(Boolean)
+  const where = conditions.length ? and(...conditions) : undefined
+
+  return db
+    .select({
+      id: cashSessions.id,
+      userId: cashSessions.userId,
+      userName: users.username,
+      openedAt: cashSessions.openedAt,
+      closedAt: cashSessions.closedAt,
+      openingAmount: cashSessions.openingAmount,
+      closingAmount: cashSessions.closingAmount,
+      expectedAmount: cashSessions.expectedAmount,
+      difference: cashSessions.difference,
+      status: cashSessions.status
+    })
+    .from(cashSessions)
+    .innerJoin(users, eq(users.id, cashSessions.userId))
+    .where(where)
+    .orderBy(desc(cashSessions.openedAt), desc(cashSessions.id))
+    .all()
 }
