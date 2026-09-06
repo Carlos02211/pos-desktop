@@ -1,0 +1,422 @@
+<title>Guía del Cobrador</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+/>
+
+<style>
+  :root {
+    --paper: #f6f7f9;
+    --card: #ffffff;
+    --ink: #1a1f2b;
+    --muted: #5b6472;
+    --brand: #0f3460;
+    --brand-soft: #e7edf5;
+    --edge: #d7dce4;
+    --good: #1a7a48;
+    --good-soft: #e4f2ea;
+    --bad: #bf2626;
+    --bad-soft: #f8e6e6;
+    --shadow: 0 1px 2px rgba(16, 26, 45, 0.06), 0 8px 24px -12px rgba(16, 26, 45, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --paper: #12151c;
+      --card: #1a1f29;
+      --ink: #e7eaf0;
+      --muted: #9aa4b2;
+      --brand: #7aa7d9;
+      --brand-soft: #1e2a3b;
+      --edge: #2b323f;
+      --good: #4ec281;
+      --good-soft: #16281f;
+      --bad: #e8736f;
+      --bad-soft: #2c1b1b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -14px rgba(0, 0, 0, 0.55);
+    }
+  }
+  :root[data-theme='dark'] {
+    --paper: #12151c;
+    --card: #1a1f29;
+    --ink: #e7eaf0;
+    --muted: #9aa4b2;
+    --brand: #7aa7d9;
+    --brand-soft: #1e2a3b;
+    --edge: #2b323f;
+    --good: #4ec281;
+    --good-soft: #16281f;
+    --bad: #e8736f;
+    --bad-soft: #2c1b1b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -14px rgba(0, 0, 0, 0.55);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Public Sans', ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 40px 28px 56px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--brand);
+  }
+  .brand {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--brand);
+  }
+  h1 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: clamp(1.9rem, 5vw, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  .lede {
+    margin: 14px 0 4px;
+    color: var(--muted);
+    max-width: 40ch;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 30px;
+  }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 18px 20px 20px;
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    column-gap: 16px;
+    row-gap: 10px;
+  }
+  .num {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: var(--brand);
+    line-height: 2.2rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h2 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: 1.18rem;
+    letter-spacing: -0.01em;
+    margin: 0;
+    align-self: center;
+  }
+  .step .when {
+    display: block;
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 600;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .step ol {
+    grid-column: 2;
+    margin: 0;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .step ol li::marker {
+    color: var(--brand);
+    font-weight: 600;
+  }
+  .note {
+    grid-column: 2;
+    font-size: 0.86rem;
+    color: var(--muted);
+    border-left: 2px solid var(--edge);
+    padding-left: 10px;
+  }
+  b {
+    font-weight: 700;
+  }
+  .k {
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-weight: 600;
+    padding: 0.05em 0.4em;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .diff {
+    grid-column: 2;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 999px;
+  }
+  .chip.good {
+    background: var(--good-soft);
+    color: var(--good);
+  }
+  .chip.bad {
+    background: var(--bad-soft);
+    color: var(--bad);
+  }
+  .chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .trouble {
+    margin-top: 34px;
+  }
+  .trouble h2 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 10px 14px;
+    vertical-align: top;
+  }
+  thead th {
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--brand-soft);
+  }
+  tbody tr + tr td {
+    border-top: 1px solid var(--edge);
+  }
+  td:first-child {
+    font-weight: 600;
+    width: 38%;
+  }
+
+  footer {
+    margin-top: 30px;
+    padding-top: 14px;
+    border-top: 1px solid var(--edge);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  a {
+    color: var(--brand);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 480px) {
+    .step {
+      grid-template-columns: 1fr;
+    }
+    .step .num {
+      display: none;
+    }
+    .step ol,
+    .step .note,
+    .step .diff {
+      grid-column: 1;
+    }
+  }
+
+  @media print {
+    :root {
+      --paper: #fff;
+      --card: #fff;
+      --shadow: none;
+    }
+    body {
+      font-size: 10.5pt;
+    }
+    .sheet {
+      max-width: none;
+      padding: 0;
+    }
+    .step {
+      break-inside: avoid;
+      box-shadow: none;
+      padding: 10px 12px 12px;
+    }
+    .steps {
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .trouble {
+      break-inside: avoid;
+      margin-top: 16px;
+    }
+    header {
+      border-bottom-width: 1.5px;
+    }
+  }
+</style>
+
+<div class="sheet">
+  <header>
+    <div>
+      <div class="brand">SpArTaN Tech · POS</div>
+      <h1>Guía del Cobrador</h1>
+    </div>
+  </header>
+
+  <p class="lede">Los tres pasos del turno. Imprime esta hoja y déjala junto a la caja.</p>
+
+  <div class="steps">
+    <section class="step">
+      <div class="num">1</div>
+      <h2>Abrir caja<span class="when">Al empezar el turno</span></h2>
+      <ol>
+        <li>Inicia sesión con tu usuario y contraseña.</li>
+        <li>
+          La app pide <b>abrir caja</b>: escribe el <b>efectivo con el que empiezas</b> (el fondo).
+        </li>
+        <li>Toca <span class="k">Abrir caja</span>. Ya puedes vender.</li>
+      </ol>
+      <p class="note">Solo puedes tener una caja abierta a la vez.</p>
+    </section>
+
+    <section class="step">
+      <div class="num">2</div>
+      <h2>Cobrar una venta<span class="when">Con cada cliente</span></h2>
+      <ol>
+        <li>Toca los <b>productos</b> para agregarlos al carrito.</li>
+        <li>
+          Ajusta cantidades con <span class="k">−</span> y <span class="k">+</span>, o quita con la
+          <span class="k">✕</span>.
+        </li>
+        <li>Toca <span class="k">Cobrar</span> y elige el método de pago.</li>
+        <li>
+          <b>Efectivo:</b> escribe (o toca un botón de monto) lo que te dio el cliente — la app
+          calcula el <b>cambio</b>. <b>Tarjeta</b> y <b>Transferencia</b> no piden monto.
+        </li>
+        <li>Toca <span class="k">Confirmar venta</span>. El ticket se imprime solo.</li>
+      </ol>
+      <p class="note">
+        Si la impresora no responde, la venta <b>igual queda registrada</b> y aparece un aviso.
+        Reimprime después desde <b>Admin → Ventas</b>.
+      </p>
+    </section>
+
+    <section class="step">
+      <div class="num">3</div>
+      <h2>Cerrar caja<span class="when">Al terminar el turno</span></h2>
+      <ol>
+        <li>Toca <span class="k">Cerrar caja</span> (arriba del carrito).</li>
+        <li>Revisa el resumen: la app muestra el <b>efectivo esperado en caja</b>.</li>
+        <li>Cuenta el efectivo real y escríbelo en <b>Efectivo contado</b>.</li>
+        <li>Mira la <b>diferencia</b>:</li>
+      </ol>
+      <div class="diff">
+        <span class="chip good"><span class="dot"></span> Verde — sobra dinero</span>
+        <span class="chip bad"><span class="dot"></span> Rojo — falta dinero</span>
+      </div>
+      <p class="note">
+        Toca <span class="k">Cerrar caja</span>. Se guarda un <b>respaldo automático</b> de los
+        datos.
+      </p>
+    </section>
+  </div>
+
+  <div class="trouble">
+    <h2>Si algo no funciona</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Situación</th>
+            <th scope="col">Qué hacer</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>"No hay una caja abierta"</td>
+            <td>Abre caja antes de vender (paso 1).</td>
+          </tr>
+          <tr>
+            <td>El ticket no salió</td>
+            <td>La venta está registrada. Reimprímela desde <b>Admin → Ventas</b>.</td>
+          </tr>
+          <tr>
+            <td>Se cerró la sesión sola</td>
+            <td>El acceso dura 8 horas. Vuelve a iniciar sesión.</td>
+          </tr>
+          <tr>
+            <td>"No se pudo conectar" al abrir</td>
+            <td>Cierra la app y vuelve a abrirla. Si sigue, avisa al administrador.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    <span>POS SpArTaN Tech — Fase 1</span>
+    <span>Acceso de prueba: admin / admin123 · cajero / cajero123</span>
+  </footer>
+</div>

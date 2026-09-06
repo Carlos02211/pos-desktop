@@ -1,5 +1,5 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–7).
+ * Verificación de backend sin GUI (Sprints 0–8: QA).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
@@ -12,6 +12,7 @@
  *   8. Sprint 5 — usuarios (bcrypt, no self-deactivate), historial de ventas y cortes de caja.
  *   9. Sprint 6 — reportes (diario/semanal/mensual) + exportación a Excel y PDF.
  *  10. Sprint 7 — configuración del negocio (logo) + dashboard del día.
+ *  11. Sprint 8 — QA: la licencia falla si se copia a otro equipo (fingerprint distinto).
  *
  * Uso:  pnpm verify:backend
  */
@@ -22,7 +23,7 @@ import { count, eq } from 'drizzle-orm'
 import { closeDb, initDb } from '../src/main/db'
 import { users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
-import { initStore } from '../src/main/lib/store'
+import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
 import type {
@@ -120,6 +121,24 @@ async function main(): Promise<void> {
     assert(
       status2.active === true && typeof status2.activatedAt === 'number',
       'licencia: queda activa'
+    )
+
+    // Sprint 8 QA: copiar la licencia a OTRO equipo (fingerprint distinto) la invalida.
+    const store = getStore()
+    const realFp = store.get('license_fingerprint')
+    store.set('license_fingerprint', 'f'.repeat(64))
+    const tampered = (await (
+      await fetch(`${base}/api/licencia/estado`)
+    ).json()) as LicenseStatusResponse
+    assert(
+      tampered.active === false,
+      'licencia: fingerprint que no coincide -> inactiva (otro equipo)'
+    )
+    store.set('license_fingerprint', realFp!)
+    assert(
+      ((await (await fetch(`${base}/api/licencia/estado`)).json()) as LicenseStatusResponse)
+        .active === true,
+      'licencia: vuelve a activarse con el fingerprint correcto'
     )
 
     // ---- Sprint 1: auth ----
@@ -599,7 +618,7 @@ async function main(): Promise<void> {
       'dashboard: cobrador no puede consultarlo (403)'
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–7 OK')
+    console.log('\n✅ Backend verificado — Sprints 0–8 OK')
   } finally {
     if (server) await server.close()
     closeDb()

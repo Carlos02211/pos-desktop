@@ -111,6 +111,19 @@ lógica de negocio.
 | `GET /api/dashboard` — ventas del día, desglose, cajas abiertas, últimas 5 | ✅     |
 | `Dashboard` en vivo: `socket.store` refresca con `venta:nueva` / `caja:*`  | ✅     |
 
+### Sprint 8 — QA, Pulido y Empaquetado 🚧
+
+| Entregable                                                                         | Estado     |
+| ---------------------------------------------------------------------------------- | ---------- |
+| Flujo completo verificado (activación → login → caja → ventas → cierre → reportes) | ✅         |
+| QA: la licencia falla si se copia a otro equipo (fingerprint distinto)             | ✅         |
+| `busy_timeout` en SQLite · `ErrorBoundary` en el Renderer                          | ✅         |
+| Cobro operable con ratón: botones de monto rápido en efectivo                      | ✅         |
+| Empaquetado validado con `electron-builder --dir` (arranca, migraciones, nativo)   | ✅         |
+| `docs/guia-cobrador.html` — guía de 1 página imprimible                            | ✅         |
+| `docs/empaquetado-e-instalacion.md`                                                | ✅         |
+| Generar el `.exe` NSIS (requiere Windows/CI) · instalación + capacitación          | ⬜ cliente |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -145,10 +158,19 @@ pnpm verify:backend
 ```
 
 Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
-flujo completo de los Sprints 0–5 (~100 comprobaciones): ping + Zod, licencia por hardware,
-auth y roles, catálogo, apertura/venta/cierre de caja con folio y cambio, respaldo,
-CRUD de productos/categorías/usuarios con subida de imagen, e historial de ventas y cortes.
+flujo completo de los Sprints 0–8 (~112 comprobaciones): ping + Zod, licencia por hardware
+(incl. copia a otro equipo → inactiva), auth y roles, catálogo, apertura/venta/cierre de caja
+con folio y cambio, respaldo, CRUD de productos/categorías/usuarios con imagen, historial de
+ventas y cortes, reportes con exportación a Excel/PDF, configuración y dashboard.
 Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
+
+## Empaquetado
+
+- `pnpm build:win` (**en Windows** o CI de Windows) → `dist-electron/pos-spartan-tech-<ver>-setup.exe` (NSIS).
+- `pnpm exec electron-builder --dir` → build sin comprimir de la plataforma actual, para validar
+  el empaquetado (migraciones en `resources/migrations`, `better-sqlite3` en `app.asar.unpacked`).
+- Detalle en [`docs/empaquetado-e-instalacion.md`](docs/empaquetado-e-instalacion.md);
+  guía del cobrador en [`docs/guia-cobrador.html`](docs/guia-cobrador.html) (imprimible).
 
 ## Otros comandos
 
@@ -156,7 +178,7 @@ Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI na
 pnpm typecheck         # tsc para main/preload y para renderer
 pnpm lint              # ESLint + Prettier
 pnpm build             # typecheck + bundles de producción en out/
-pnpm build:win         # build + instalador NSIS en dist-electron/
+pnpm build:win         # build + instalador NSIS en dist-electron/  (Windows)
 pnpm db:studio         # Drizzle Studio contra .data/pos.dev.db
 pnpm license:gen <fp>  # genera la clave de licencia para un fingerprint (uso interno)
 ```
