@@ -8,6 +8,7 @@
  *   4. Sprint 1 — licencia por hardware + auth (login, JWT en /api/auth/me, roles).
  *   5. Sprint 2 — catálogo, apertura de caja y registro de ventas (folio, cambio, snapshot).
  *   6. Sprint 3 — resumen de turno, cierre de caja (esperado/diferencia) + respaldo, reimpresión.
+ *   7. Sprint 4 — CRUD de categorías y productos + subida de imagen (roles, soft delete).
  *
  * Uso:  pnpm verify:backend
  */
@@ -25,6 +26,7 @@ import type {
   CashSession,
   CashSessionSummary,
   Category,
+  CategoryWithCount,
   CreateSaleResponse,
   LicenseStatusResponse,
   LoginResponse,
@@ -63,7 +65,14 @@ async function main(): Promise<void> {
     const [{ n: userCount2 }] = db.select({ n: count() }).from(users).all()
     assert(userCount2 === 2, 'seed idempotente: no duplica en la 2ª ejecución')
 
-    server = await startServer({ port: PORT, version: '0.1.0', isDev: false, dbPath, backupDir })
+    server = await startServer({
+      port: PORT,
+      version: '0.1.0',
+      isDev: false,
+      dbPath,
+      backupDir,
+      uploadsDir: join(dir, 'uploads')
+    })
     const base = server.url
     assert(true, `Fastify escuchando en ${base}`)
 
@@ -282,7 +291,106 @@ async function main(): Promise<void> {
       `vender tras cerrar caja -> 409 (status: ${ventaCerrada.status})`
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–3 OK')
+    // ---- Sprint 4: CRUD de categorías y productos + subida de imagen (ADMIN) ----
+    const catNueva = await asAdmin('/api/categorias', 'POST', { name: 'Bebidas' })
+    assert(catNueva.status === 201, `crear categoría -> 201 (status: ${catNueva.status})`)
+    const bebidas = (await catNueva.json()) as Category
+    const catDup = await asAdmin('/api/categorias', 'POST', { name: 'Bebidas' })
+    assert(catDup.status === 409, `categoría duplicada -> 409 (status: ${catDup.status})`)
+
+    const catCajero = await asCajero('/api/categorias', 'POST', { name: 'X' })
+    assert(
+      catCajero.status === 403,
+      `cobrador no puede crear categoría -> 403 (${catCajero.status})`
+    )
+
+    await asAdmin(`/api/categorias/${bebidas.id}`, 'PUT', { name: 'Bebidas frías', active: true })
+    const catsAdmin = (await (await asAdmin('/api/categorias?all=1')).json()) as CategoryWithCount[]
+    assert(
+      catsAdmin.some((c) => c.id === bebidas.id && c.name === 'Bebidas frías'),
+      'categoría: PUT renombra'
+    )
+    assert(
+      catsAdmin.find((c) => c.name === 'General')?.productCount === 1,
+      'categoría: productCount refleja los productos'
+    )
+
+    const prodNuevo = await asAdmin('/api/productos', 'POST', {
+      name: 'Refresco',
+      price: 18.5,
+      categoryId: bebidas.id
+    })
+    assert(prodNuevo.status === 201, `crear producto -> 201 (status: ${prodNuevo.status})`)
+    const refresco = (await prodNuevo.json()) as { id: number }
+
+    const prodCajero = await asCajero('/api/productos', 'POST', {
+      name: 'Y',
+      price: 1,
+      categoryId: null
+    })
+    assert(
+      prodCajero.status === 403,
+      `cobrador no puede crear producto -> 403 (${prodCajero.status})`
+    )
+
+    await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id,
+      active: true
+    })
+    const prodsAll = (await (await asAdmin('/api/productos?all=1')).json()) as ProductWithCategory[]
+    const edited = prodsAll.find((p) => p.id === refresco.id)!
+    assert(
+      edited.name === 'Refresco 600ml' &&
+        edited.price === 20 &&
+        edited.categoryName === 'Bebidas frías',
+      'producto: PUT actualiza nombre, precio y categoría'
+    )
+
+    // Subida de imagen (multipart).
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    const form = new FormData()
+    form.append('file', new Blob([png], { type: 'image/png' }), 'test.png')
+    const imgRes = await fetch(`${base}/api/productos/${refresco.id}/imagen`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+      body: form
+    })
+    assert(imgRes.status === 201, `subir imagen -> 201 (status: ${imgRes.status})`)
+    const { path: imgPath } = (await imgRes.json()) as { path: string }
+    assert(imgPath.startsWith('productos/') && imgPath.endsWith('.png'), 'imagen: ruta relativa')
+    const served = await fetch(`${base}/uploads/${imgPath}`)
+    assert(served.status === 200, `imagen servida en /uploads/ -> 200 (status: ${served.status})`)
+
+    // Soft delete de producto.
+    const del = await asAdmin(`/api/productos/${refresco.id}`, 'DELETE')
+    assert(del.status === 204, `desactivar producto -> 204 (status: ${del.status})`)
+    const prodsCajero = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(
+      !prodsCajero.some((p) => p.id === refresco.id),
+      'producto inactivo: no aparece para el cobrador'
+    )
+    const prodsAll2 = (await (
+      await asAdmin('/api/productos?all=1')
+    ).json()) as ProductWithCategory[]
+    assert(
+      prodsAll2.find((p) => p.id === refresco.id)?.active === 0,
+      'producto inactivo: sigue en ?all=1 con active=0 (soft delete)'
+    )
+
+    const catDel = await asAdmin(`/api/categorias/${bebidas.id}`, 'DELETE')
+    assert(catDel.status === 204, `desactivar categoría -> 204 (status: ${catDel.status})`)
+    const catsCajero = (await (await asCajero('/api/categorias')).json()) as Category[]
+    assert(
+      !catsCajero.some((c) => c.id === bebidas.id),
+      'categoría inactiva: no aparece para el cobrador'
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–4 OK')
   } finally {
     if (server) await server.close()
     closeDb()

@@ -1,5 +1,6 @@
 import { mkdirSync } from 'fs'
 import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import type { Server as SocketIOServer } from 'socket.io'
@@ -16,6 +17,8 @@ export interface ServerContext {
   dbPath: string
   /** Carpeta de respaldo por defecto (si `config.backup_dir` está vacío). */
   backupDir: string
+  /** Carpeta servida en `/uploads/` (imágenes de producto y logo). */
+  uploadsDir: string
 }
 
 declare module 'fastify' {
@@ -29,8 +32,6 @@ export interface StartServerOptions extends ServerContext {
   port?: number
   /** Orígenes permitidos para CORS y Socket.io. `true` = cualquiera (sólo dev). */
   allowedOrigins?: string[] | true
-  /** Carpeta servida en `/uploads/` (imágenes de producto y logo). */
-  uploadsDir?: string
 }
 
 export interface RunningServer {
@@ -52,7 +53,8 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     version: opts.version,
     isDev: opts.isDev,
     dbPath: opts.dbPath,
-    backupDir: opts.backupDir
+    backupDir: opts.backupDir,
+    uploadsDir: opts.uploadsDir
   })
 
   await app.register(cors, {
@@ -60,14 +62,16 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     credentials: true
   })
 
-  if (opts.uploadsDir) {
-    mkdirSync(opts.uploadsDir, { recursive: true })
-    await app.register(fastifyStatic, {
-      root: opts.uploadsDir,
-      prefix: '/uploads/',
-      decorateReply: false
-    })
-  }
+  await app.register(multipart, {
+    limits: { fileSize: 3 * 1024 * 1024, files: 1 }
+  })
+
+  mkdirSync(opts.uploadsDir, { recursive: true })
+  await app.register(fastifyStatic, {
+    root: opts.uploadsDir,
+    prefix: '/uploads/',
+    decorateReply: false
+  })
 
   app.setErrorHandler((err: FastifyError, _request, reply) => {
     if (err instanceof ValidationError) return sendValidationError(reply, err)

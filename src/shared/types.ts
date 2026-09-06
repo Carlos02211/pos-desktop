@@ -75,6 +75,25 @@ export interface ProductWithCategory extends Product {
   categoryName: string | null
 }
 
+/** Categoría con el número de productos asociados (para la tabla de administración). */
+export interface CategoryWithCount extends Category {
+  productCount: number
+}
+
+/** Cuerpo de alta/edición de categoría (`POST`/`PUT /api/categorias`). */
+export interface CategoryInput {
+  name: string
+  active?: boolean
+}
+
+/** Cuerpo de alta/edición de producto (`POST`/`PUT /api/productos`). */
+export interface ProductInput {
+  name: string
+  price: number
+  categoryId: number | null
+  active?: boolean
+}
+
 /** Línea del carrito que el cliente envía. El precio SIEMPRE lo pone el servidor. */
 export interface CartLineInput {
   productId: number
