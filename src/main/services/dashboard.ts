@@ -3,6 +3,7 @@ import type { DashboardData, OpenSessionInfo, SaleListItem } from '../../shared/
 import type { DB } from '../db'
 import { cashSessions, saleItems, sales, users } from '../db/schema'
 import { round2 } from '../lib/money'
+import { totalReceivable } from './cuentas'
 
 /** Indicadores del día en curso (hora local del servidor). */
 export function getDashboard(db: DB): DashboardData {
@@ -67,6 +68,7 @@ export function getDashboard(db: DB): DashboardData {
       CARD: round2(totals.card),
       TRANSFER: round2(totals.transfer)
     },
+    cuentasPorCobrar: totalReceivable(db),
     openSessions,
     recentSales
   }

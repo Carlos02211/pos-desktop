@@ -36,7 +36,7 @@ export default function Dashboard(): React.JSX.Element {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Ventas de hoy" value={money(data.totalSales)} />
         <Stat label="Transacciones" value={String(data.totalTransactions)} />
         <Stat label="Efectivo" value={money(data.byPaymentMethod.CASH)} />
@@ -44,6 +44,7 @@ export default function Dashboard(): React.JSX.Element {
           label="Tarjeta / Transf."
           value={money(data.byPaymentMethod.CARD + data.byPaymentMethod.TRANSFER)}
         />
+        <Stat label="Por cobrar (fiado)" value={money(data.cuentasPorCobrar)} tone="warn" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -91,11 +92,21 @@ export default function Dashboard(): React.JSX.Element {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }): React.JSX.Element {
+function Stat({
+  label,
+  value,
+  tone
+}: {
+  label: string
+  value: string
+  tone?: 'warn'
+}): React.JSX.Element {
   return (
     <div className="rounded-lg border border-border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-bold">{value}</p>
+      <p className={`mt-1 text-lg font-bold ${tone === 'warn' ? 'text-pos-warning' : ''}`}>
+        {value}
+      </p>
     </div>
   )
 }

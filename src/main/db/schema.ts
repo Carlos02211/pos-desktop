@@ -67,8 +67,9 @@ export const sales = sqliteTable('sales', {
     .notNull()
     .references(() => users.id),
   total: real('total').notNull(),
-  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
-  amountPaid: real('amount_paid'), // solo si CASH
+  // CREDIT = venta a crédito ("fiado"): parte o nada se paga ahora, el resto abre una cuenta.
+  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT'] }).notNull(),
+  amountPaid: real('amount_paid'), // efectivo recibido (CASH) o abono inicial (CREDIT)
   change: real('change'), // solo si CASH
   ticketNumber: integer('ticket_number').notNull(), // folio secuencial por sesión de caja
   createdAt: integer('created_at').notNull().default(now)
@@ -86,6 +87,53 @@ export const saleItems = sqliteTable('sale_items', {
   price: real('price').notNull(), // snapshot al momento de la venta
   quantity: integer('quantity').notNull(),
   subtotal: real('subtotal').notNull()
+})
+
+/* ---- Módulo de cuentas por cobrar ("fiado") ---- */
+
+export const customers = sqliteTable('customers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  phone: text('phone'),
+  notes: text('notes'),
+  active: integer('active').notNull().default(1),
+  createdAt: integer('created_at').notNull().default(now)
+})
+
+export const creditAccounts = sqliteTable('credit_accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // Venta que originó la cuenta (null si es una deuda registrada a mano en el futuro).
+  saleId: integer('sale_id').references(() => sales.id),
+  customerId: integer('customer_id')
+    .notNull()
+    .references(() => customers.id),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id),
+  total: real('total').notNull(), // monto adeudado (después del abono inicial de la venta)
+  paid: real('paid').notNull().default(0), // suma de abonos posteriores
+  status: text('status', { enum: ['OPEN', 'PAID'] })
+    .notNull()
+    .default('OPEN'),
+  createdAt: integer('created_at').notNull().default(now),
+  closedAt: integer('closed_at')
+})
+
+export const creditPayments = sqliteTable('credit_payments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  creditAccountId: integer('credit_account_id')
+    .notNull()
+    .references(() => creditAccounts.id),
+  // Sesión de caja que recibió el abono (para el corte del turno).
+  cashSessionId: integer('cash_session_id')
+    .notNull()
+    .references(() => cashSessions.id),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id),
+  amount: real('amount').notNull(),
+  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
+  createdAt: integer('created_at').notNull().default(now)
 })
 
 export const config = sqliteTable('config', {
@@ -110,5 +158,8 @@ export type ProductRow = typeof products.$inferSelect
 export type CashSessionRow = typeof cashSessions.$inferSelect
 export type SaleRow = typeof sales.$inferSelect
 export type SaleItemRow = typeof saleItems.$inferSelect
+export type CustomerRow = typeof customers.$inferSelect
+export type CreditAccountRow = typeof creditAccounts.$inferSelect
+export type CreditPaymentRow = typeof creditPayments.$inferSelect
 export type ConfigRow = typeof config.$inferSelect
 export type LicenseRow = typeof license.$inferSelect
