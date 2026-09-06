@@ -5,7 +5,10 @@ import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { homeFor } from '@/lib/routing'
 import Activation from '@/pages/Activation'
 import Login from '@/pages/Login'
+import AdminLayout from '@/pages/admin/AdminLayout'
+import Categorias from '@/pages/admin/Categorias'
 import Dashboard from '@/pages/admin/Dashboard'
+import Productos from '@/pages/admin/Productos'
 import CajaApertura from '@/pages/cobrador/CajaApertura'
 import CajaCierre from '@/pages/cobrador/CajaCierre'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
@@ -70,7 +73,11 @@ function App(): React.JSX.Element {
           </Route>
         </Route>
         <Route element={<ProtectedRoute role="ADMIN" />}>
-          <Route path="/admin/*" element={<Dashboard />} />
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="productos" element={<Productos />} />
+            <Route path="categorias" element={<Categorias />} />
+          </Route>
         </Route>
         <Route path="*" element={<RootRedirect />} />
       </Routes>
