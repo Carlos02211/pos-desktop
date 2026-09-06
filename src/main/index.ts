@@ -14,7 +14,7 @@ let server: RunningServer | null = null
 
 async function bootBackend(): Promise<void> {
   initStore(paths.dataDir)
-  const db = initDb(paths.dbPath, paths.migrationsDir)
+  const db = await initDb(paths.dbPath, paths.migrationsDir)
   await runSeed(db)
   server = await startServer({
     port: API_PORT,
@@ -97,7 +97,7 @@ app.on('will-quit', async (event) => {
   server = null
   try {
     await s.close()
-    closeDb()
+    await closeDb()
   } finally {
     app.quit()
   }

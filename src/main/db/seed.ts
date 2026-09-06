@@ -26,31 +26,26 @@ const DEFAULT_CONFIG: Record<string, string> = {
  *  - rellena las claves de configuración que falten sin pisar las existentes.
  */
 export async function runSeed(db: DB): Promise<void> {
-  const [{ count }] = db
-    .select({ count: sql<number>`count(*)` })
-    .from(users)
-    .all()
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(users)
 
-  if (count === 0) {
+  if (Number(count) === 0) {
     const [adminHash, cobradorHash] = await Promise.all([
       bcrypt.hash('admin123', BCRYPT_ROUNDS),
       bcrypt.hash('cajero123', BCRYPT_ROUNDS)
     ])
-    db.insert(users)
-      .values([
-        { username: 'admin', password: adminHash, role: 'ADMIN' },
-        { username: 'cajero', password: cobradorHash, role: 'COBRADOR' }
-      ])
-      .run()
+    await db.insert(users).values([
+      { username: 'admin', password: adminHash, role: 'ADMIN' },
+      { username: 'cajero', password: cobradorHash, role: 'COBRADOR' }
+    ])
 
-    const [cat] = db.insert(categories).values({ name: 'General' }).returning().all()
-    db.insert(products).values({ name: 'Producto de prueba', price: 25, categoryId: cat.id }).run()
-    db.insert(customers).values({ name: 'Cliente de prueba', phone: '' }).run()
+    const [cat] = await db.insert(categories).values({ name: 'General' }).returning()
+    await db.insert(products).values({ name: 'Producto de prueba', price: 25, categoryId: cat.id })
+    await db.insert(customers).values({ name: 'Cliente de prueba', phone: '' })
 
     console.log('[seed] Datos iniciales creados — admin/admin123 · cajero/cajero123')
   }
 
   for (const [key, value] of Object.entries(DEFAULT_CONFIG)) {
-    db.insert(config).values({ key, value }).onConflictDoNothing().run()
+    await db.insert(config).values({ key, value }).onConflictDoNothing()
   }
 }

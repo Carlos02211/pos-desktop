@@ -1,8 +1,7 @@
-import { sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { PingResponse } from '../../shared/types'
-import { getDb } from '../db'
+import { DIALECT, pingDb } from '../db'
 import { parse } from '../lib/validate'
 
 const querySchema = z.object({
@@ -11,7 +10,7 @@ const querySchema = z.object({
 
 /**
  * Endpoint de diagnóstico (Sprint 0).
- * Verifica: Renderer -> Fastify por HTTP, y Fastify -> SQLite.
+ * Verifica: cliente -> Fastify por HTTP, y Fastify -> base de datos.
  */
 export async function pingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/ping', async (request) => {
@@ -19,18 +18,19 @@ export async function pingRoutes(app: FastifyInstance): Promise<void> {
 
     let dbState: PingResponse['db'] = 'error'
     try {
-      getDb().get(sql`select 1`)
+      await pingDb()
       dbState = 'connected'
     } catch (err) {
-      request.log.error({ err }, 'ping: fallo al consultar SQLite')
+      request.log.error({ err }, 'ping: fallo al consultar la base de datos')
     }
 
     const body: PingResponse & { echo?: string } = {
       ok: true,
       service: 'pos-spartan-tech',
-      phase: 1,
+      phase: DIALECT === 'pg' ? 2 : 1,
       now: Math.floor(Date.now() / 1000),
       db: dbState,
+      engine: DIALECT === 'pg' ? 'postgres' : 'sqlite',
       version: app.posContext.version
     }
     if (echo) body.echo = echo

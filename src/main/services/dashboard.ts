@@ -6,14 +6,14 @@ import { round2 } from '../lib/money'
 import { totalReceivable } from './cuentas'
 
 /** Indicadores del día en curso (hora local del servidor). */
-export function getDashboard(db: DB): DashboardData {
+export async function getDashboard(db: DB): Promise<DashboardData> {
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
   const from = Math.floor(start.getTime() / 1000)
   const to = from + 86_400 - 1
   const inToday = and(gte(sales.createdAt, from), lte(sales.createdAt, to))
 
-  const totals = db
+  const [totals] = await db
     .select({
       count: sql<number>`count(*)`,
       total: sql<number>`coalesce(sum(${sales.total}), 0)`,
@@ -23,9 +23,8 @@ export function getDashboard(db: DB): DashboardData {
     })
     .from(sales)
     .where(inToday)
-    .get()!
 
-  const openSessions: OpenSessionInfo[] = db
+  const openSessions: OpenSessionInfo[] = await db
     .select({
       cashSessionId: cashSessions.id,
       userId: cashSessions.userId,
@@ -37,38 +36,38 @@ export function getDashboard(db: DB): DashboardData {
     .innerJoin(users, eq(users.id, cashSessions.userId))
     .where(eq(cashSessions.status, 'OPEN'))
     .orderBy(cashSessions.openedAt)
-    .all()
 
-  const recentSales: SaleListItem[] = db
-    .select({
-      id: sales.id,
-      ticketNumber: sales.ticketNumber,
-      cashSessionId: sales.cashSessionId,
-      userId: sales.userId,
-      userName: users.username,
-      total: sales.total,
-      paymentMethod: sales.paymentMethod,
-      amountPaid: sales.amountPaid,
-      change: sales.change,
-      createdAt: sales.createdAt,
-      itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
-    })
-    .from(sales)
-    .innerJoin(users, eq(users.id, sales.userId))
-    .orderBy(desc(sales.createdAt), desc(sales.id))
-    .limit(5)
-    .all()
+  const recentSales: SaleListItem[] = (
+    await db
+      .select({
+        id: sales.id,
+        ticketNumber: sales.ticketNumber,
+        cashSessionId: sales.cashSessionId,
+        userId: sales.userId,
+        userName: users.username,
+        total: sales.total,
+        paymentMethod: sales.paymentMethod,
+        amountPaid: sales.amountPaid,
+        change: sales.change,
+        createdAt: sales.createdAt,
+        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+      })
+      .from(sales)
+      .innerJoin(users, eq(users.id, sales.userId))
+      .orderBy(desc(sales.createdAt), desc(sales.id))
+      .limit(5)
+  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
 
   return {
     date: from,
-    totalSales: round2(totals.total),
-    totalTransactions: totals.count,
+    totalSales: round2(Number(totals.total)),
+    totalTransactions: Number(totals.count),
     byPaymentMethod: {
-      CASH: round2(totals.cash),
-      CARD: round2(totals.card),
-      TRANSFER: round2(totals.transfer)
+      CASH: round2(Number(totals.cash)),
+      CARD: round2(Number(totals.card)),
+      TRANSFER: round2(Number(totals.transfer))
     },
-    cuentasPorCobrar: totalReceivable(db),
+    cuentasPorCobrar: await totalReceivable(db),
     openSessions,
     recentSales
   }

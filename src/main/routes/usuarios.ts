@@ -21,7 +21,11 @@ const updateSchema = z.object({
 const idParam = z.object({ id: z.coerce.number().int().positive() })
 
 export async function usuariosRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/usuarios', { preHandler: requireRole('ADMIN') }, async () => listUsers(getDb()))
+  app.get(
+    '/api/usuarios',
+    { preHandler: requireRole('ADMIN') },
+    async () => await listUsers(getDb())
+  )
 
   app.post('/api/usuarios', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
     const user = await createUser(getDb(), parse(createSchema, request.body))
@@ -30,12 +34,12 @@ export async function usuariosRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/api/usuarios/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
-    return updateUser(getDb(), id, parse(updateSchema, request.body), request.authUser!.id)
+    return await updateUser(getDb(), id, parse(updateSchema, request.body), request.authUser!.id)
   })
 
   app.delete('/api/usuarios/:id', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
     const { id } = parse(idParam, request.params)
-    deactivateUser(getDb(), id, request.authUser!.id)
+    await deactivateUser(getDb(), id, request.authUser!.id)
     return reply.code(204).send()
   })
 }

@@ -13,7 +13,7 @@ const loginSchema = z.object({
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/auth/login', async (request) => {
     const { username, password } = parse(loginSchema, request.body)
-    return login(getDb(), username, password)
+    return await login(getDb(), username, password)
   })
 
   // JWT stateless: el servidor no guarda sesión. El cliente descarta el token.

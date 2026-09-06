@@ -15,8 +15,8 @@ const publicColumns = {
   createdAt: users.createdAt
 }
 
-export function listUsers(db: DB): UserListItem[] {
-  return db.select(publicColumns).from(users).orderBy(asc(users.username)).all()
+export async function listUsers(db: DB): Promise<UserListItem[]> {
+  return db.select(publicColumns).from(users).orderBy(asc(users.username))
 }
 
 function normalizeUsername(username: string): string {
@@ -29,16 +29,16 @@ export async function createUser(db: DB, input: CreateUserInput): Promise<UserLi
   if (input.password.length < 6) {
     throw new HttpError(400, 'La contraseña debe tener al menos 6 caracteres.')
   }
-  if (db.select().from(users).where(eq(users.username, username)).get()) {
+  const [existing] = await db.select().from(users).where(eq(users.username, username)).limit(1)
+  if (existing) {
     throw new HttpError(409, 'Ya existe un usuario con ese nombre.')
   }
 
   const password = await bcrypt.hash(input.password, BCRYPT_ROUNDS)
-  const [row] = db
+  const [row] = await db
     .insert(users)
     .values({ username, password, role: input.role })
     .returning(publicColumns)
-    .all()
   return row
 }
 
@@ -48,7 +48,7 @@ export async function updateUser(
   input: UpdateUserInput,
   actingUserId: number
 ): Promise<UserListItem> {
-  const current = db.select().from(users).where(eq(users.id, id)).get()
+  const [current] = await db.select().from(users).where(eq(users.id, id)).limit(1)
   if (!current) throw new HttpError(404, 'Usuario no encontrado.')
 
   // El ADMIN no puede desactivarse ni quitarse el rol a sí mismo.
@@ -65,7 +65,7 @@ export async function updateUser(
     const username = normalizeUsername(input.username)
     if (username.length < 3)
       throw new HttpError(400, 'El usuario debe tener al menos 3 caracteres.')
-    const clash = db.select().from(users).where(eq(users.username, username)).get()
+    const [clash] = await db.select().from(users).where(eq(users.username, username)).limit(1)
     if (clash && clash.id !== id) throw new HttpError(409, 'Ya existe un usuario con ese nombre.')
     changes.username = username
   }
@@ -78,14 +78,14 @@ export async function updateUser(
     changes.password = await bcrypt.hash(input.password, BCRYPT_ROUNDS)
   }
 
-  const [row] = db.update(users).set(changes).where(eq(users.id, id)).returning(publicColumns).all()
+  const [row] = await db.update(users).set(changes).where(eq(users.id, id)).returning(publicColumns)
   return row
 }
 
 /** Baja = desactivación. No se puede desactivar la propia cuenta. */
-export function deactivateUser(db: DB, id: number, actingUserId: number): void {
+export async function deactivateUser(db: DB, id: number, actingUserId: number): Promise<void> {
   if (id === actingUserId) throw new HttpError(400, 'No puedes desactivar tu propia cuenta.')
-  const current = db.select().from(users).where(eq(users.id, id)).get()
+  const [current] = await db.select().from(users).where(eq(users.id, id)).limit(1)
   if (!current) throw new HttpError(404, 'Usuario no encontrado.')
-  db.update(users).set({ active: 0 }).where(eq(users.id, id)).run()
+  await db.update(users).set({ active: 0 }).where(eq(users.id, id))
 }

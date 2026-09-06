@@ -11,7 +11,7 @@ import { signToken } from '../lib/jwt'
 const DUMMY_HASH = '$2b$12$0000000000000000000000000000000000000000000000000000a'
 
 export async function login(db: DB, username: string, password: string): Promise<LoginResponse> {
-  const user = db.select().from(users).where(eq(users.username, username)).get()
+  const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1)
 
   const passwordOk = await bcrypt.compare(password, user?.password ?? DUMMY_HASH)
 

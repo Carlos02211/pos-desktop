@@ -8,6 +8,7 @@ import type {
 import type { CreditAccountRow } from '../db/schema'
 import { creditAccounts, creditPayments, customers, sales, users } from '../db/schema'
 import type { DB } from '../db'
+import { withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -31,15 +32,19 @@ function withBalance<T extends { total: number; paid: number }>(row: T): T & { b
 }
 
 /** Crea la cuenta por cobrar de una venta a crédito. Se llama dentro de la transacción de venta. */
-export function openCreditAccount(
+export async function openCreditAccount(
   db: DB,
   params: { saleId: number; customerId: number; userId: number; amount: number }
-): CreditAccountRow {
-  const customer = db.select().from(customers).where(eq(customers.id, params.customerId)).get()
+): Promise<CreditAccountRow> {
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, params.customerId))
+    .limit(1)
   if (!customer || customer.active !== 1) {
     throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
   }
-  const [row] = db
+  const [row] = await db
     .insert(creditAccounts)
     .values({
       saleId: params.saleId,
@@ -50,11 +55,13 @@ export function openCreditAccount(
       status: 'OPEN'
     })
     .returning()
-    .all()
   return row
 }
 
-export function listCreditAccounts(db: DB, query: CreditQuery): CreditAccountListItem[] {
+export async function listCreditAccounts(
+  db: DB,
+  query: CreditQuery
+): Promise<CreditAccountListItem[]> {
   const conditions = [
     query.status && query.status !== 'all' ? eq(creditAccounts.status, query.status) : undefined,
     query.customerId != null ? eq(creditAccounts.customerId, query.customerId) : undefined,
@@ -64,34 +71,34 @@ export function listCreditAccounts(db: DB, query: CreditQuery): CreditAccountLis
   const where = conditions.length ? and(...conditions) : undefined
 
   return (
-    db
-      .select(listColumns)
-      .from(creditAccounts)
-      .innerJoin(customers, eq(customers.id, creditAccounts.customerId))
-      .leftJoin(sales, eq(sales.id, creditAccounts.saleId))
-      .where(where)
-      // Primero las abiertas, luego por fecha descendente.
-      .orderBy(
-        sql`case when ${creditAccounts.status} = 'OPEN' then 0 else 1 end`,
-        desc(creditAccounts.createdAt)
-      )
-      .all()
-      .map(withBalance)
+    (
+      await db
+        .select(listColumns)
+        .from(creditAccounts)
+        .innerJoin(customers, eq(customers.id, creditAccounts.customerId))
+        .leftJoin(sales, eq(sales.id, creditAccounts.saleId))
+        .where(where)
+        // Primero las abiertas, luego por fecha descendente.
+        .orderBy(
+          sql`case when ${creditAccounts.status} = 'OPEN' then 0 else 1 end`,
+          desc(creditAccounts.createdAt)
+        )
+    ).map(withBalance)
   )
 }
 
-export function getCreditAccountDetail(db: DB, id: number): CreditAccountDetail {
-  const head = db
+export async function getCreditAccountDetail(db: DB, id: number): Promise<CreditAccountDetail> {
+  const [head] = await db
     .select({ ...listColumns, userName: users.username })
     .from(creditAccounts)
     .innerJoin(customers, eq(customers.id, creditAccounts.customerId))
     .innerJoin(users, eq(users.id, creditAccounts.userId))
     .leftJoin(sales, eq(sales.id, creditAccounts.saleId))
     .where(eq(creditAccounts.id, id))
-    .get()
+    .limit(1)
   if (!head) throw new HttpError(404, 'Cuenta no encontrada.')
 
-  const payments = db
+  const payments = await db
     .select({
       id: creditPayments.id,
       creditAccountId: creditPayments.creditAccountId,
@@ -106,11 +113,10 @@ export function getCreditAccountDetail(db: DB, id: number): CreditAccountDetail 
     .innerJoin(users, eq(users.id, creditPayments.userId))
     .where(eq(creditPayments.creditAccountId, id))
     .orderBy(creditPayments.createdAt)
-    .all()
 
   return {
     ...withBalance(head),
-    sale: head.saleId ? getSaleWithItems(db, head.saleId) : null,
+    sale: head.saleId ? await getSaleWithItems(db, head.saleId) : null,
     payments
   }
 }
@@ -119,17 +125,21 @@ export function getCreditAccountDetail(db: DB, id: number): CreditAccountDetail 
  * Registra un abono (pago parcial o total) a una cuenta.
  * Requiere caja abierta: el dinero entra al turno del cobrador.
  */
-export function addAbono(
+export async function addAbono(
   db: DB,
   accountId: number,
   userId: number,
   input: AbonoInput
-): CreditAccountDetail {
-  const session = getActiveSession(db, userId)
+): Promise<CreditAccountDetail> {
+  const session = await getActiveSession(db, userId)
   if (!session) throw new HttpError(409, 'Abre caja para recibir un abono.')
 
-  db.transaction((tx) => {
-    const account = tx.select().from(creditAccounts).where(eq(creditAccounts.id, accountId)).get()
+  await withTx(db, async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(creditAccounts)
+      .where(eq(creditAccounts.id, accountId))
+      .limit(1)
     if (!account) throw new HttpError(404, 'Cuenta no encontrada.')
     if (account.status === 'PAID') throw new HttpError(409, 'La cuenta ya está liquidada.')
 
@@ -140,39 +150,36 @@ export function addAbono(
       throw new HttpError(400, `El abono supera el saldo pendiente (${balance.toFixed(2)}).`)
     }
 
-    tx.insert(creditPayments)
-      .values({
-        creditAccountId: accountId,
-        cashSessionId: session.id,
-        userId,
-        amount,
-        paymentMethod: input.paymentMethod
-      })
-      .run()
+    await tx.insert(creditPayments).values({
+      creditAccountId: accountId,
+      cashSessionId: session.id,
+      userId,
+      amount,
+      paymentMethod: input.paymentMethod
+    })
 
     const paid = round2(account.paid + amount)
     const settled = paid >= account.total
-    tx.update(creditAccounts)
+    await tx
+      .update(creditAccounts)
       .set({
         paid,
         status: settled ? 'PAID' : 'OPEN',
         closedAt: settled ? Math.floor(Date.now() / 1000) : null
       })
       .where(eq(creditAccounts.id, accountId))
-      .run()
   })
 
   return getCreditAccountDetail(db, accountId)
 }
 
 /** Total adeudado: saldo de todas las cuentas abiertas. */
-export function totalReceivable(db: DB): number {
-  const row = db
+export async function totalReceivable(db: DB): Promise<number> {
+  const [row] = await db
     .select({
       balance: sql<number>`coalesce(sum(${creditAccounts.total} - ${creditAccounts.paid}), 0)`
     })
     .from(creditAccounts)
     .where(eq(creditAccounts.status, 'OPEN'))
-    .get()!
-  return round2(row.balance)
+  return round2(Number(row.balance))
 }
