@@ -31,7 +31,7 @@ export async function cuentasRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/api/cuentas/total', { preHandler: requireRole('COBRADOR') }, async () => ({
-    total: totalReceivable(getDb())
+    total: await totalReceivable(getDb())
   }))
 
   app.get('/api/cuentas/:id', { preHandler: requireRole('COBRADOR') }, async (request) => {
@@ -44,7 +44,12 @@ export async function cuentasRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireRole('COBRADOR') },
     async (request, reply) => {
       const { id } = parse(idParam, request.params)
-      const detail = addAbono(getDb(), id, request.authUser!.id, parse(abonoSchema, request.body))
+      const detail = await addAbono(
+        getDb(),
+        id,
+        request.authUser!.id,
+        parse(abonoSchema, request.body)
+      )
       emit('cuenta:abono', {
         creditAccountId: detail.id,
         customerId: detail.customerId,

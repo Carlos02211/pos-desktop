@@ -391,9 +391,12 @@ export interface LicenseStatusResponse {
 export interface PingResponse {
   ok: true
   service: 'pos-spartan-tech'
-  phase: 1
+  /** 1 = Electron + SQLite · 2 = servidor en red + PostgreSQL. */
+  phase: 1 | 2
   now: number
   db: 'connected' | 'error'
+  /** Motor de base de datos activo. */
+  engine: 'sqlite' | 'postgres'
   version: string
 }
 

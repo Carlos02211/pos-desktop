@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { getDb } from '../db'
+import { DIALECT, getDb } from '../db'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
@@ -30,7 +30,7 @@ const historyQuerySchema = z.object({
 
 export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/sesion-activa', { preHandler: requireRole('COBRADOR') }, async (request) => {
-    return getActiveSession(getDb(), request.authUser!.id) ?? null
+    return (await getActiveSession(getDb(), request.authUser!.id)) ?? null
   })
 
   app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
@@ -47,7 +47,7 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireRole('COBRADOR') },
     async (request, reply) => {
       const { openingAmount } = parse(openSchema, request.body)
-      const session = openSession(getDb(), request.authUser!.id, openingAmount)
+      const session = await openSession(getDb(), request.authUser!.id, openingAmount)
       emit('caja:apertura', {
         cashSessionId: session.id,
         userId: request.authUser!.id,
@@ -60,11 +60,18 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/caja/cierre', { preHandler: requireRole('COBRADOR') }, async (request) => {
     const { closingAmount } = parse(closeSchema, request.body)
     const db = getDb()
-    const result = closeSession(db, request.authUser!.id, closingAmount)
+    const result = await closeSession(db, request.authUser!.id, closingAmount)
 
     // El respaldo se ejecuta SIEMPRE al cerrar caja (no es opcional).
-    const backupDir = getConfigMap(db).backup_dir?.trim() || app.posContext.backupDir
-    const backup = backupDatabase(app.posContext.dbPath, backupDir)
+    // En PostgreSQL (Fase 2) el respaldo del servidor es responsabilidad de
+    // `pg_dump` en cron; aquí sólo respaldamos el archivo SQLite.
+    const backup =
+      DIALECT === 'sqlite'
+        ? backupDatabase(
+            app.posContext.dbPath,
+            (await getConfigMap(db)).backup_dir?.trim() || app.posContext.backupDir
+          )
+        : { ok: true as const, skipped: 'postgres' }
     if (!backup.ok) request.log.error({ err: backup.error }, 'respaldo al cerrar caja falló')
 
     emit('caja:cierre', {

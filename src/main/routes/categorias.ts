@@ -21,17 +21,17 @@ export async function categoriasRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/categorias', { preHandler: requireRole('COBRADOR') }, async (request) => {
     const all =
       (request.query as { all?: string }).all === '1' && request.authUser!.role === 'ADMIN'
-    return listCategories(getDb(), all)
+    return await listCategories(getDb(), all)
   })
 
   app.post('/api/categorias', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
-    const category = createCategory(getDb(), parse(categorySchema, request.body))
+    const category = await createCategory(getDb(), parse(categorySchema, request.body))
     return reply.code(201).send(category)
   })
 
   app.put('/api/categorias/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
-    return updateCategory(getDb(), id, parse(categorySchema, request.body))
+    return await updateCategory(getDb(), id, parse(categorySchema, request.body))
   })
 
   app.delete(
@@ -39,7 +39,7 @@ export async function categoriasRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireRole('ADMIN') },
     async (request, reply) => {
       const { id } = parse(idParam, request.params)
-      deactivateCategory(getDb(), id)
+      await deactivateCategory(getDb(), id)
       return reply.code(204).send()
     }
   )

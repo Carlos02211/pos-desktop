@@ -51,9 +51,9 @@ export async function reportesRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { tipo, ...params } = parse(exportSchema, request.query)
       const db = getDb()
-      const report = buildReport(db, tipo, params)
-      const detail = salesInPeriod(db, report.from, report.to)
-      const buffer = await generateReportExcel(report, detail, getConfigMap(db))
+      const report = await buildReport(db, tipo, params)
+      const detail = await salesInPeriod(db, report.from, report.to)
+      const buffer = await generateReportExcel(report, detail, await getConfigMap(db))
       return reply
         .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .header('Content-Disposition', `attachment; filename="${slug(tipo, report.from)}.xlsx"`)
@@ -67,9 +67,14 @@ export async function reportesRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { tipo, ...params } = parse(exportSchema, request.query)
       const db = getDb()
-      const report = buildReport(db, tipo, params)
-      const detail = salesInPeriod(db, report.from, report.to)
-      const buffer = generateReportPdf(report, detail, getConfigMap(db), app.posContext.uploadsDir)
+      const report = await buildReport(db, tipo, params)
+      const detail = await salesInPeriod(db, report.from, report.to)
+      const buffer = generateReportPdf(
+        report,
+        detail,
+        await getConfigMap(db),
+        app.posContext.uploadsDir
+      )
       return reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `attachment; filename="${slug(tipo, report.from)}.pdf"`)

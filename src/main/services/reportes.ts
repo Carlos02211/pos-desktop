@@ -90,15 +90,18 @@ function bucketsFor(
   return [...map.values()]
 }
 
-export function buildReport(db: DB, type: ReportType, params: ReportParams): SalesReport {
+export async function buildReport(
+  db: DB,
+  type: ReportType,
+  params: ReportParams
+): Promise<SalesReport> {
   const { from, to } = periodBounds(type, params)
   const inPeriod = and(gte(sales.createdAt, from), lte(sales.createdAt, to))
 
-  const rows = db
+  const rows = await db
     .select({ total: sales.total, paymentMethod: sales.paymentMethod, createdAt: sales.createdAt })
     .from(sales)
     .where(inPeriod)
-    .all()
 
   const byPaymentMethod = emptyBreakdown()
   let totalSales = 0
@@ -112,21 +115,21 @@ export function buildReport(db: DB, type: ReportType, params: ReportParams): Sal
     }
   }
 
-  const topProducts: TopProduct[] = db
-    .select({
-      productId: saleItems.productId,
-      name: saleItems.name,
-      quantity: sql<number>`sum(${saleItems.quantity})`,
-      revenue: sql<number>`sum(${saleItems.subtotal})`
-    })
-    .from(saleItems)
-    .innerJoin(sales, eq(sales.id, saleItems.saleId))
-    .where(inPeriod)
-    .groupBy(saleItems.productId, saleItems.name)
-    .orderBy(desc(sql`sum(${saleItems.quantity})`))
-    .limit(5)
-    .all()
-    .map((p) => ({ ...p, revenue: round2(p.revenue) }))
+  const topProducts: TopProduct[] = (
+    await db
+      .select({
+        productId: saleItems.productId,
+        name: saleItems.name,
+        quantity: sql<number>`sum(${saleItems.quantity})`,
+        revenue: sql<number>`sum(${saleItems.subtotal})`
+      })
+      .from(saleItems)
+      .innerJoin(sales, eq(sales.id, saleItems.saleId))
+      .where(inPeriod)
+      .groupBy(saleItems.productId, saleItems.name)
+      .orderBy(desc(sql`sum(${saleItems.quantity})`))
+      .limit(5)
+  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: round2(Number(p.revenue)) }))
 
   return {
     type,
@@ -152,19 +155,20 @@ export interface ReportSaleRow {
 }
 
 /** Detalle plano de ventas del período (para las exportaciones). */
-export function salesInPeriod(db: DB, from: number, to: number): ReportSaleRow[] {
-  return db
-    .select({
-      id: sales.id,
-      ticketNumber: sales.ticketNumber,
-      createdAt: sales.createdAt,
-      userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
-      paymentMethod: sales.paymentMethod,
-      itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
-      total: sales.total
-    })
-    .from(sales)
-    .where(and(gte(sales.createdAt, from), lte(sales.createdAt, to)))
-    .orderBy(sales.createdAt)
-    .all()
+export async function salesInPeriod(db: DB, from: number, to: number): Promise<ReportSaleRow[]> {
+  return (
+    await db
+      .select({
+        id: sales.id,
+        ticketNumber: sales.ticketNumber,
+        createdAt: sales.createdAt,
+        userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
+        paymentMethod: sales.paymentMethod,
+        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
+        total: sales.total
+      })
+      .from(sales)
+      .where(and(gte(sales.createdAt, from), lte(sales.createdAt, to)))
+      .orderBy(sales.createdAt)
+  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
 }

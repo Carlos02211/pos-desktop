@@ -1,7 +1,9 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../../shared/types'
 import type { DB } from '../db'
+import type { SaleItemRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
+import { withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -18,8 +20,12 @@ export interface SaleResult extends SaleWithItems {
  *  - El precio y el nombre se toman de la BD (snapshot en `sale_items`), nunca del cliente.
  *  - `ticketNumber` es un folio secuencial por sesión de caja.
  */
-export function createSale(db: DB, userId: number, input: CreateSaleInput): SaleResult {
-  const session = getActiveSession(db, userId)
+export async function createSale(
+  db: DB,
+  userId: number,
+  input: CreateSaleInput
+): Promise<SaleResult> {
+  const session = await getActiveSession(db, userId)
   if (!session) {
     throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
   }
@@ -30,15 +36,19 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
     if (input.customerId == null) {
       throw new HttpError(400, 'Elige a qué cliente se le fía.')
     }
-    const customer = db.select().from(customers).where(eq(customers.id, input.customerId)).get()
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, input.customerId))
+      .limit(1)
     if (!customer || customer.active !== 1) {
       throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
     }
   }
 
-  return db.transaction((tx) => {
+  return withTx(db, async (tx) => {
     const ids = [...new Set(input.items.map((i) => i.productId))]
-    const rows = tx.select().from(products).where(inArray(products.id, ids)).all()
+    const rows = await tx.select().from(products).where(inArray(products.id, ids))
     const byId = new Map(rows.map((r) => [r.id, r]))
 
     let total = 0
@@ -83,14 +93,13 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
       creditAmount = round2(total - down)
     }
 
-    const last = tx
+    const [last] = await tx
       .select({ max: sql<number>`coalesce(max(${sales.ticketNumber}), 0)` })
       .from(sales)
       .where(eq(sales.cashSessionId, session.id))
-      .get()
-    const ticketNumber = (last?.max ?? 0) + 1
+    const ticketNumber = Number(last?.max ?? 0) + 1
 
-    const [sale] = tx
+    const [sale] = await tx
       .insert(sales)
       .values({
         cashSessionId: session.id,
@@ -102,20 +111,19 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
         ticketNumber
       })
       .returning()
-      .all()
 
-    const items = lines.map((line) => {
-      const [item] = tx
+    const items: SaleItemRow[] = []
+    for (const line of lines) {
+      const [item] = await tx
         .insert(saleItems)
         .values({ saleId: sale.id, ...line })
         .returning()
-        .all()
-      return item
-    })
+      items.push(item)
+    }
 
     let creditAccountId: number | undefined
     if (input.paymentMethod === 'CREDIT') {
-      const [account] = tx
+      const [account] = await tx
         .insert(creditAccounts)
         .values({
           saleId: sale.id,
@@ -126,15 +134,14 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
           status: 'OPEN'
         })
         .returning()
-        .all()
       creditAccountId = account.id
     }
 
-    const user = tx
+    const [user] = await tx
       .select({ username: users.username })
       .from(users)
       .where(eq(users.id, userId))
-      .get()
+      .limit(1)
 
     return { ...sale, items, userName: user?.username ?? '', creditAccountId }
   })
@@ -143,7 +150,7 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
 const MAX_PAGE_SIZE = 100
 
 /** Historial de ventas paginado con filtros (panel de administración). */
-export function listSales(db: DB, query: SalesQuery): SalesPage {
+export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
   const page = Math.max(1, query.page ?? 1)
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, query.pageSize ?? 50))
 
@@ -155,44 +162,45 @@ export function listSales(db: DB, query: SalesQuery): SalesPage {
   ].filter(Boolean)
   const where = conditions.length ? and(...conditions) : undefined
 
-  const [{ total }] = db.select({ total: count() }).from(sales).where(where).all()
+  const [{ total }] = await db.select({ total: count() }).from(sales).where(where)
 
-  const rows = db
-    .select({
-      id: sales.id,
-      ticketNumber: sales.ticketNumber,
-      cashSessionId: sales.cashSessionId,
-      userId: sales.userId,
-      userName: users.username,
-      total: sales.total,
-      paymentMethod: sales.paymentMethod,
-      amountPaid: sales.amountPaid,
-      change: sales.change,
-      createdAt: sales.createdAt,
-      itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
-    })
-    .from(sales)
-    .innerJoin(users, eq(users.id, sales.userId))
-    .where(where)
-    .orderBy(desc(sales.createdAt), desc(sales.id))
-    .limit(pageSize)
-    .offset((page - 1) * pageSize)
-    .all()
+  const rows = (
+    await db
+      .select({
+        id: sales.id,
+        ticketNumber: sales.ticketNumber,
+        cashSessionId: sales.cashSessionId,
+        userId: sales.userId,
+        userName: users.username,
+        total: sales.total,
+        paymentMethod: sales.paymentMethod,
+        amountPaid: sales.amountPaid,
+        change: sales.change,
+        createdAt: sales.createdAt,
+        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+      })
+      .from(sales)
+      .innerJoin(users, eq(users.id, sales.userId))
+      .where(where)
+      .orderBy(desc(sales.createdAt), desc(sales.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize)
+  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
 
-  return { rows, total, page, pageSize }
+  return { rows, total: Number(total), page, pageSize }
 }
 
 /** Carga una venta con sus líneas y el nombre del cobrador (para reimpresión). */
-export function getSaleWithItems(db: DB, saleId: number): SaleWithItems {
-  const sale = db.select().from(sales).where(eq(sales.id, saleId)).get()
+export async function getSaleWithItems(db: DB, saleId: number): Promise<SaleWithItems> {
+  const [sale] = await db.select().from(sales).where(eq(sales.id, saleId)).limit(1)
   if (!sale) throw new HttpError(404, 'Venta no encontrada.')
 
-  const items = db.select().from(saleItems).where(eq(saleItems.saleId, saleId)).all()
-  const user = db
+  const items = await db.select().from(saleItems).where(eq(saleItems.saleId, saleId))
+  const [user] = await db
     .select({ username: users.username })
     .from(users)
     .where(eq(users.id, sale.userId))
-    .get()
+    .limit(1)
 
   return { ...sale, items, userName: user?.username ?? '' }
 }

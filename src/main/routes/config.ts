@@ -28,7 +28,7 @@ const IMAGE_EXT: Record<string, string> = {
 }
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/config', { preHandler: requireRole('ADMIN') }, async () => getConfig(getDb()))
+  app.get('/api/config', { preHandler: requireRole('ADMIN') }, async () => await getConfig(getDb()))
 
   app.put('/api/config', { preHandler: requireRole('ADMIN') }, async (request) => {
     return updateConfig(getDb(), parse(configSchema, request.body))
@@ -50,13 +50,13 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       throw new HttpError(413, 'La imagen supera el tamaño máximo (3 MB).')
     }
 
-    const previous = getConfig(db).logo_path
+    const previous = (await getConfig(db)).logo_path
     const relative = `config/${filename}`
-    setLogoPath(db, relative)
+    await setLogoPath(db, relative)
     if (previous && previous.startsWith('config/')) {
       await unlink(join(app.posContext.uploadsDir, previous)).catch(() => {})
     }
 
-    return reply.code(201).send({ path: relative, config: getConfig(db) })
+    return reply.code(201).send({ path: relative, config: await getConfig(db) })
   })
 }

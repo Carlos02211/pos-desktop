@@ -23,22 +23,22 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/clientes', { preHandler: requireRole('COBRADOR') }, async (request) => {
     const all =
       (request.query as { all?: string }).all === '1' && request.authUser!.role === 'ADMIN'
-    return listCustomers(getDb(), all)
+    return await listCustomers(getDb(), all)
   })
 
   // El cobrador puede dar de alta un cliente rápido durante la venta.
   app.post('/api/clientes', { preHandler: requireRole('COBRADOR') }, async (request, reply) => {
-    return reply.code(201).send(createCustomer(getDb(), parse(customerSchema, request.body)))
+    return reply.code(201).send(await createCustomer(getDb(), parse(customerSchema, request.body)))
   })
 
   app.put('/api/clientes/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
-    return updateCustomer(getDb(), id, parse(customerSchema, request.body))
+    return await updateCustomer(getDb(), id, parse(customerSchema, request.body))
   })
 
   app.delete('/api/clientes/:id', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
     const { id } = parse(idParam, request.params)
-    deactivateCustomer(getDb(), id)
+    await deactivateCustomer(getDb(), id)
     return reply.code(204).send()
   })
 }

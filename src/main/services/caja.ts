@@ -7,27 +7,34 @@ import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 
 /** Sesión de caja abierta del usuario, o `undefined`. */
-export function getActiveSession(db: DB, userId: number): CashSessionRow | undefined {
-  return db
+export async function getActiveSession(
+  db: DB,
+  userId: number
+): Promise<CashSessionRow | undefined> {
+  const [row] = await db
     .select()
     .from(cashSessions)
     .where(and(eq(cashSessions.userId, userId), eq(cashSessions.status, 'OPEN')))
-    .get()
+    .limit(1)
+  return row
 }
 
 /** Una sola caja abierta por usuario a la vez. */
-export function openSession(db: DB, userId: number, openingAmount: number): CashSessionRow {
-  if (getActiveSession(db, userId)) {
+export async function openSession(
+  db: DB,
+  userId: number,
+  openingAmount: number
+): Promise<CashSessionRow> {
+  if (await getActiveSession(db, userId)) {
     throw new HttpError(409, 'Ya tienes una caja abierta.')
   }
   if (openingAmount < 0) {
     throw new HttpError(400, 'El monto inicial no puede ser negativo.')
   }
-  const [row] = db
+  const [row] = await db
     .insert(cashSessions)
     .values({ userId, openingAmount, status: 'OPEN' })
     .returning()
-    .all()
   return row
 }
 
@@ -44,8 +51,8 @@ interface SessionTotals {
   abonosCash: number
 }
 
-function totalsFor(db: DB, cashSessionId: number): SessionTotals {
-  const s = db
+async function totalsFor(db: DB, cashSessionId: number): Promise<SessionTotals> {
+  const [s] = await db
     .select({
       salesCount: sql<number>`count(*)`,
       totalAll: sql<number>`coalesce(sum(${sales.total}), 0)`,
@@ -58,25 +65,23 @@ function totalsFor(db: DB, cashSessionId: number): SessionTotals {
     })
     .from(sales)
     .where(eq(sales.cashSessionId, cashSessionId))
-    .get()!
 
-  const abono = db
+  const [abono] = await db
     .select({
       abonosCash: sql<number>`coalesce(sum(case when ${creditPayments.paymentMethod} = 'CASH' then ${creditPayments.amount} else 0 end), 0)`
     })
     .from(creditPayments)
     .where(eq(creditPayments.cashSessionId, cashSessionId))
-    .get()!
 
   return {
-    salesCount: s.salesCount,
-    totalAll: round2(s.totalAll),
-    totalCash: round2(s.totalCash),
-    totalCard: round2(s.totalCard),
-    totalTransfer: round2(s.totalTransfer),
-    totalCredit: round2(s.totalCredit),
-    creditDownCash: round2(s.creditDownCash),
-    abonosCash: round2(abono.abonosCash)
+    salesCount: Number(s.salesCount),
+    totalAll: round2(Number(s.totalAll)),
+    totalCash: round2(Number(s.totalCash)),
+    totalCard: round2(Number(s.totalCard)),
+    totalTransfer: round2(Number(s.totalTransfer)),
+    totalCredit: round2(Number(s.totalCredit)),
+    creditDownCash: round2(Number(s.creditDownCash)),
+    abonosCash: round2(Number(abono.abonosCash))
   }
 }
 
@@ -99,10 +104,10 @@ function toSummary(session: CashSessionRow, t: SessionTotals): CashSessionSummar
 }
 
 /** Resumen del turno abierto del usuario (para la pantalla de cierre). */
-export function getSessionSummary(db: DB, userId: number): CashSessionSummary {
-  const session = getActiveSession(db, userId)
+export async function getSessionSummary(db: DB, userId: number): Promise<CashSessionSummary> {
+  const session = await getActiveSession(db, userId)
   if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
-  return toSummary(session, totalsFor(db, session.id))
+  return toSummary(session, await totalsFor(db, session.id))
 }
 
 export interface CloseResult {
@@ -112,18 +117,22 @@ export interface CloseResult {
 
 /**
  * Cierra la caja: guarda el efectivo contado, calcula el efectivo esperado
- * (apertura + ventas en efectivo) y la diferencia (contado - esperado).
+ * (apertura + ventas en efectivo + enganches + abonos) y la diferencia.
  */
-export function closeSession(db: DB, userId: number, closingAmount: number): CloseResult {
-  const session = getActiveSession(db, userId)
+export async function closeSession(
+  db: DB,
+  userId: number,
+  closingAmount: number
+): Promise<CloseResult> {
+  const session = await getActiveSession(db, userId)
   if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
   if (closingAmount < 0) throw new HttpError(400, 'El efectivo contado no puede ser negativo.')
 
-  const t = totalsFor(db, session.id)
+  const t = await totalsFor(db, session.id)
   const expectedCash = expectedCashFor(session.openingAmount, t)
   const difference = round2(closingAmount - expectedCash)
 
-  const [updated] = db
+  const [updated] = await db
     .update(cashSessions)
     .set({
       status: 'CLOSED',
@@ -134,13 +143,15 @@ export function closeSession(db: DB, userId: number, closingAmount: number): Clo
     })
     .where(eq(cashSessions.id, session.id))
     .returning()
-    .all()
 
   return { session: updated, summary: toSummary(updated, t) }
 }
 
 /** Historial de cortes de caja con el nombre del cobrador (panel de administración). */
-export function listSessions(db: DB, query: CashHistoryQuery): CashSessionListItem[] {
+export async function listSessions(
+  db: DB,
+  query: CashHistoryQuery
+): Promise<CashSessionListItem[]> {
   const conditions = [
     query.from != null ? gte(cashSessions.openedAt, query.from) : undefined,
     query.to != null ? lte(cashSessions.openedAt, query.to) : undefined,
@@ -165,5 +176,4 @@ export function listSessions(db: DB, query: CashHistoryQuery): CashSessionListIt
     .innerJoin(users, eq(users.id, cashSessions.userId))
     .where(where)
     .orderBy(desc(cashSessions.openedAt), desc(cashSessions.id))
-    .all()
 }

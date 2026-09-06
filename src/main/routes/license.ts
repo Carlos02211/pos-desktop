@@ -22,14 +22,12 @@ export async function licenseRoutes(app: FastifyInstance): Promise<void> {
 
     // Espejo en la tabla `license` para visibilidad desde el panel admin.
     const db = getDb()
-    db.delete(license).run()
-    db.insert(license)
-      .values({
-        fingerprint: result.status.fingerprint,
-        key: key.trim().toUpperCase(),
-        status: 'ACTIVE'
-      })
-      .run()
+    await db.delete(license)
+    await db.insert(license).values({
+      fingerprint: result.status.fingerprint,
+      key: key.trim().toUpperCase(),
+      status: 'ACTIVE'
+    })
 
     return result.status
   })

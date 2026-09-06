@@ -21,31 +21,31 @@ export const EDITABLE_KEYS = Object.keys(DEFAULTS).filter((k) => k !== 'logo_pat
 >
 
 /** Toda la configuración del negocio como un mapa `clave -> valor`. */
-export function getConfigMap(db: DB): ConfigMap {
-  const rows = db.select().from(config).all()
+export async function getConfigMap(db: DB): Promise<ConfigMap> {
+  const rows = await db.select().from(config)
   return Object.fromEntries(rows.map((r) => [r.key, r.value]))
 }
 
 /** Configuración completa con los valores por defecto rellenados. */
-export function getConfig(db: DB): ConfigResponse {
-  return { ...DEFAULTS, ...getConfigMap(db) }
+export async function getConfig(db: DB): Promise<ConfigResponse> {
+  return { ...DEFAULTS, ...(await getConfigMap(db)) }
 }
 
-function setKey(db: DB, key: string, value: string): void {
-  db.insert(config)
+async function setKey(db: DB, key: string, value: string): Promise<void> {
+  await db
+    .insert(config)
     .values({ key, value })
     .onConflictDoUpdate({ target: config.key, set: { value } })
-    .run()
 }
 
-export function updateConfig(db: DB, input: ConfigInput): ConfigResponse {
+export async function updateConfig(db: DB, input: ConfigInput): Promise<ConfigResponse> {
   for (const key of EDITABLE_KEYS) {
     const value = input[key]
-    if (value !== undefined) setKey(db, key, String(value))
+    if (value !== undefined) await setKey(db, key, String(value))
   }
   return getConfig(db)
 }
 
-export function setLogoPath(db: DB, relativePath: string): void {
-  setKey(db, 'logo_path', relativePath)
+export async function setLogoPath(db: DB, relativePath: string): Promise<void> {
+  await setKey(db, 'logo_path', relativePath)
 }

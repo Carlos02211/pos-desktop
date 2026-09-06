@@ -47,7 +47,10 @@ import type {
   UserListItem
 } from '../src/shared/types'
 
-const MIGRATIONS = join(process.cwd(), 'resources', 'migrations')
+// `verify:backend`     → SQLite en un directorio temporal.
+// `verify:backend:pg`  → PostgreSQL embebido (PGlite) vía DATABASE_URL=pglite://<dir>.
+const PG = !!process.env.DATABASE_URL
+const MIGRATIONS = join(process.cwd(), 'resources', PG ? 'migrations-pg' : 'migrations')
 const PORT = 3001
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -63,19 +66,21 @@ async function main(): Promise<void> {
 
   try {
     initStore(dir)
-    const db = initDb(dbPath, MIGRATIONS)
+    const db = await initDb(dbPath, MIGRATIONS)
     await runSeed(db)
 
+    assert(true, `motor de base de datos: ${PG ? 'PostgreSQL (PGlite)' : 'SQLite'}`)
+
     // ---- Sprint 0: seed ----
-    const [{ n: userCount }] = db.select({ n: count() }).from(users).all()
-    assert(userCount === 2, `seed: 2 usuarios (admin + cajero) — encontrados: ${userCount}`)
-    const admin = db.select().from(users).where(eq(users.username, 'admin')).get()
+    const [{ n: userCount }] = await db.select({ n: count() }).from(users)
+    assert(Number(userCount) === 2, `seed: 2 usuarios (admin + cajero) — encontrados: ${userCount}`)
+    const [admin] = await db.select().from(users).where(eq(users.username, 'admin')).limit(1)
     assert(admin?.role === 'ADMIN', 'seed: "admin" con rol ADMIN')
     assert(admin!.password.startsWith('$2'), 'seed: contraseña como hash bcrypt')
 
     await runSeed(db)
-    const [{ n: userCount2 }] = db.select({ n: count() }).from(users).all()
-    assert(userCount2 === 2, 'seed idempotente: no duplica en la 2ª ejecución')
+    const [{ n: userCount2 }] = await db.select({ n: count() }).from(users)
+    assert(Number(userCount2) === 2, 'seed idempotente: no duplica en la 2ª ejecución')
 
     server = await startServer({
       port: PORT,
@@ -299,15 +304,22 @@ async function main(): Promise<void> {
     assert(cierre.status === 200, `cierre de caja -> 200 (status: ${cierre.status})`)
     const cierreBody = (await cierre.json()) as {
       session: CashSession
-      backup: { ok: boolean; path?: string }
+      backup: { ok: boolean; path?: string; skipped?: string }
     }
     assert(cierreBody.session.status === 'CLOSED', 'cierre: sesión queda CLOSED')
     assert(cierreBody.session.expectedAmount === 550, 'cierre: efectivo esperado 550')
     assert(cierreBody.session.difference === -10, 'cierre: diferencia -10 (faltante)')
-    assert(
-      cierreBody.backup.ok && !!cierreBody.backup.path && existsSync(cierreBody.backup.path),
-      'cierre: respaldo de la BD creado en disco'
-    )
+    if (PG) {
+      assert(
+        cierreBody.backup.ok && cierreBody.backup.skipped === 'postgres',
+        'cierre: respaldo de archivo omitido en PostgreSQL (lo hace pg_dump)'
+      )
+    } else {
+      assert(
+        cierreBody.backup.ok && !!cierreBody.backup.path && existsSync(cierreBody.backup.path),
+        'cierre: respaldo de la BD creado en disco'
+      )
+    }
 
     const cierre2 = await asCajero('/api/caja/cierre', 'POST', { closingAmount: 100 })
     assert(cierre2.status === 409, `cierre sin caja abierta -> 409 (status: ${cierre2.status})`)
@@ -733,10 +745,12 @@ async function main(): Promise<void> {
       'clientes: el cobrador no puede desactivar (403)'
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–8 + módulo de cuentas por cobrar OK')
+    console.log(
+      `\n✅ Backend verificado (${PG ? 'PostgreSQL' : 'SQLite'}) — Sprints 0–8 + cuentas por cobrar OK`
+    )
   } finally {
     if (server) await server.close()
-    closeDb()
+    await closeDb()
     rmSync(dir, { recursive: true, force: true })
   }
 }

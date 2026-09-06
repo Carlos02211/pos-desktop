@@ -38,26 +38,26 @@ export async function productosRoutes(app: FastifyInstance): Promise<void> {
   // COBRADOR ve sólo activos; ADMIN puede pedir todos con ?all=1
   app.get('/api/productos', { preHandler: requireRole('COBRADOR') }, async (request) => {
     const all = (request.query as { all?: string }).all === '1'
-    if (all && request.authUser!.role === 'ADMIN') return listProducts(getDb(), true)
-    return listActiveProducts(getDb())
+    if (all && request.authUser!.role === 'ADMIN') return await listProducts(getDb(), true)
+    return await listActiveProducts(getDb())
   })
 
   app.post('/api/productos', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
-    const product = createProduct(getDb(), parse(productSchema, request.body))
+    const product = await createProduct(getDb(), parse(productSchema, request.body))
     emit('producto:update', { productId: product.id })
     return reply.code(201).send(product)
   })
 
   app.put('/api/productos/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
-    const product = updateProduct(getDb(), id, parse(productSchema, request.body))
+    const product = await updateProduct(getDb(), id, parse(productSchema, request.body))
     emit('producto:update', { productId: id })
     return product
   })
 
   app.delete('/api/productos/:id', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
     const { id } = parse(idParam, request.params)
-    deactivateProduct(getDb(), id)
+    await deactivateProduct(getDb(), id)
     emit('producto:update', { productId: id })
     return reply.code(204).send()
   })
@@ -68,7 +68,7 @@ export async function productosRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { id } = parse(idParam, request.params)
       const db = getDb()
-      const current = getProduct(db, id)
+      const current = await getProduct(db, id)
 
       const data = await request.file()
       if (!data) throw new HttpError(400, 'No se recibió ningún archivo.')
@@ -85,7 +85,7 @@ export async function productosRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const relative = `productos/${filename}`
-      const product = setProductImage(db, id, relative)
+      const product = await setProductImage(db, id, relative)
 
       // Borra la imagen anterior si estaba dentro de nuestra carpeta.
       if (current.imagePath && current.imagePath.startsWith('productos/')) {

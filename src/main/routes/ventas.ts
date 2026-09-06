@@ -38,7 +38,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/ventas', { preHandler: requireRole('COBRADOR') }, async (request, reply) => {
     const input = parse(createSaleSchema, request.body)
     const db = getDb()
-    const sale = createSale(db, request.authUser!.id, input)
+    const sale = await createSale(db, request.authUser!.id, input)
 
     emit('venta:nueva', {
       saleId: sale.id,
@@ -57,7 +57,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // La impresión es best-effort: la venta ya está registrada.
-    const print = await printTicket(sale, getConfigMap(db))
+    const print = await printTicket(sale, await getConfigMap(db))
     if (!print.printed) request.log.warn({ err: print.error }, 'ticket no impreso')
 
     return reply.code(201).send({ ...sale, print })
@@ -80,8 +80,8 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { id } = parse(idParam, request.params)
       const db = getDb()
-      const sale = getSaleWithItems(db, id)
-      const print = await printTicket(sale, getConfigMap(db))
+      const sale = await getSaleWithItems(db, id)
+      const print = await printTicket(sale, await getConfigMap(db))
       if (!print.printed)
         return reply.code(502).send({ error: print.error ?? 'No se pudo imprimir' })
       return { ok: true }

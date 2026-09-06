@@ -117,18 +117,18 @@ Ventas que se pagan parcial o no se pagan quedan como **cuenta de crédito**
 ligada a un cliente; hay un apartado para las que faltan por liquidar, con
 abonos parciales o liquidación total.
 
-| Entregable                                                                          | Estado |
-| ---------------------------------------------------------------------------------- | ------ |
-| Schema: `customers`, `credit_accounts`, `credit_payments` · pago `CREDIT` (mig. 0001) | ✅     |
-| `GET/POST /api/clientes` (COBRADOR alta rápida) · `PUT/DELETE` (ADMIN, 409 con deuda) | ✅     |
-| `GET /api/cuentas` (filtros estado/cliente/fecha) · `/total` · `/:id` (detalle + abonos) | ✅     |
+| Entregable                                                                                  | Estado |
+| ------------------------------------------------------------------------------------------- | ------ |
+| Schema: `customers`, `credit_accounts`, `credit_payments` · pago `CREDIT` (mig. 0001)       | ✅     |
+| `GET/POST /api/clientes` (COBRADOR alta rápida) · `PUT/DELETE` (ADMIN, 409 con deuda)       | ✅     |
+| `GET /api/cuentas` (filtros estado/cliente/fecha) · `/total` · `/:id` (detalle + abonos)    | ✅     |
 | `POST /api/cuentas/:id/abono` — valida monto ≤ saldo, exige caja abierta, liquida al saldar | ✅     |
-| Venta a crédito: exige cliente activo, abono inicial opcional en efectivo             | ✅     |
-| CobroModal: método **Fiado** con selector / alta rápida de cliente                    | ✅     |
-| Cobrador: pantalla `Cuentas` + `CuentaDetalleModal` (abono / botón "Liquidar")       | ✅     |
-| Admin: `Clientes` (CRUD + saldo) y `Cuentas por cobrar` (filtros)                     | ✅     |
-| Corte de caja: el efectivo esperado suma enganches y abonos en efectivo               | ✅     |
-| Dashboard "Por cobrar (fiado)" · reportes "crédito otorgado" · evento `cuenta:abono`  | ✅     |
+| Venta a crédito: exige cliente activo, abono inicial opcional en efectivo                   | ✅     |
+| CobroModal: método **Fiado** con selector / alta rápida de cliente                          | ✅     |
+| Cobrador: pantalla `Cuentas` + `CuentaDetalleModal` (abono / botón "Liquidar")              | ✅     |
+| Admin: `Clientes` (CRUD + saldo) y `Cuentas por cobrar` (filtros)                           | ✅     |
+| Corte de caja: el efectivo esperado suma enganches y abonos en efectivo                     | ✅     |
+| Dashboard "Por cobrar (fiado)" · reportes "crédito otorgado" · evento `cuenta:abono`        | ✅     |
 
 ### Sprint 8 — QA, Pulido y Empaquetado 🚧
 
