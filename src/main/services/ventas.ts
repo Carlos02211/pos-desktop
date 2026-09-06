@@ -97,3 +97,18 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
     return { ...sale, items, userName: user?.username ?? '' }
   })
 }
+
+/** Carga una venta con sus líneas y el nombre del cobrador (para reimpresión). */
+export function getSaleWithItems(db: DB, saleId: number): SaleWithItems {
+  const sale = db.select().from(sales).where(eq(sales.id, saleId)).get()
+  if (!sale) throw new HttpError(404, 'Venta no encontrada.')
+
+  const items = db.select().from(saleItems).where(eq(saleItems.saleId, saleId)).all()
+  const user = db
+    .select({ username: users.username })
+    .from(users)
+    .where(eq(users.id, sale.userId))
+    .get()
+
+  return { ...sale, items, userName: user?.username ?? '' }
+}

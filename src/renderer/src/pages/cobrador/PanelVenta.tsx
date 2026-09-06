@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import type { Category, ProductWithCategory, SaleWithItems } from '@shared/types'
+import type { Category, CreateSaleResponse, ProductWithCategory } from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
 import { getSesionActiva } from '@/api/caja'
 import { CarritoItem } from '@/components/CarritoItem'
@@ -72,10 +72,13 @@ export default function PanelVenta(): React.JSX.Element {
     )
   }, [products, activeCat, search])
 
-  function onSaleDone(sale: SaleWithItems): void {
+  function onSaleDone(sale: CreateSaleResponse): void {
     clear()
     setCobroOpen(false)
     toast.success(`Venta #${sale.ticketNumber} registrada · ${money(sale.total)}`)
+    if (!sale.print.printed) {
+      toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
+    }
   }
 
   if (load === 'loading') {
@@ -138,8 +141,14 @@ export default function PanelVenta(): React.JSX.Element {
 
       {/* Carrito */}
       <div className="flex min-h-0 flex-col bg-card">
-        <div className="border-b border-border px-4 py-3 text-sm font-semibold">
-          Carrito · {cartCount(items)} art.
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm font-semibold">
+          <span>Carrito · {cartCount(items)} art.</span>
+          <button
+            onClick={() => navigate('/cobrador/cierre')}
+            className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+          >
+            Cerrar caja
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">

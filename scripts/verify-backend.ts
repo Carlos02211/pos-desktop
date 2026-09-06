@@ -1,17 +1,17 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–2).
+ * Verificación de backend sin GUI (Sprints 0–3).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
  *   2. Levanta Fastify + Socket.io en :3001.
  *   3. Sprint 0 — GET /api/ping (Renderer -> Fastify -> SQLite) + validación Zod.
- *   4. Sprint 1 — licencia por hardware: estado, activación con clave inválida y válida.
- *   5. Sprint 1 — auth: login correcto/incorrecto, JWT en /api/auth/me, roles.
- *   6. Sprint 2 — catálogo, apertura de caja y registro de ventas (folio, cambio, snapshot).
+ *   4. Sprint 1 — licencia por hardware + auth (login, JWT en /api/auth/me, roles).
+ *   5. Sprint 2 — catálogo, apertura de caja y registro de ventas (folio, cambio, snapshot).
+ *   6. Sprint 3 — resumen de turno, cierre de caja (esperado/diferencia) + respaldo, reimpresión.
  *
  * Uso:  pnpm verify:backend
  */
-import { mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { count, eq } from 'drizzle-orm'
@@ -23,7 +23,9 @@ import { startServer } from '../src/main/server'
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
 import type {
   CashSession,
+  CashSessionSummary,
   Category,
+  CreateSaleResponse,
   LicenseStatusResponse,
   LoginResponse,
   PingResponse,
@@ -41,11 +43,13 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 async function main(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'pos-verify-'))
+  const dbPath = join(dir, 'pos.db')
+  const backupDir = join(dir, 'backups')
   let server: Awaited<ReturnType<typeof startServer>> | null = null
 
   try {
     initStore(dir)
-    const db = initDb(join(dir, 'pos.db'), MIGRATIONS)
+    const db = initDb(dbPath, MIGRATIONS)
     await runSeed(db)
 
     // ---- Sprint 0: seed ----
@@ -59,7 +63,7 @@ async function main(): Promise<void> {
     const [{ n: userCount2 }] = db.select({ n: count() }).from(users).all()
     assert(userCount2 === 2, 'seed idempotente: no duplica en la 2ª ejecución')
 
-    server = await startServer({ port: PORT, version: '0.1.0', isDev: false })
+    server = await startServer({ port: PORT, version: '0.1.0', isDev: false, dbPath, backupDir })
     const base = server.url
     assert(true, `Fastify escuchando en ${base}`)
 
@@ -145,14 +149,19 @@ async function main(): Promise<void> {
 
     // ---- Sprint 2: catálogo + caja + ventas (como cobrador) ----
     const cajeroToken = (await (await login('cajero', 'cajero123')).json()) as LoginResponse
-    const authCajero = { authorization: `Bearer ${cajeroToken.token}` }
-    async function asCajero(path: string, method = 'GET', body?: unknown): Promise<Response> {
-      return fetch(`${base}${path}`, {
-        method,
-        headers: { ...authCajero, 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body)
-      })
-    }
+    const call =
+      (token: string) =>
+      (path: string, method = 'GET', body?: unknown): Promise<Response> =>
+        fetch(`${base}${path}`, {
+          method,
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(body === undefined ? {} : { 'content-type': 'application/json' })
+          },
+          body: body === undefined ? undefined : JSON.stringify(body)
+        })
+    const asCajero = call(cajeroToken.token)
+    const asAdmin = call(session.token)
 
     const prods = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
     assert(prods.length === 1, `catálogo: 1 producto activo (encontrados: ${prods.length})`)
@@ -221,14 +230,59 @@ async function main(): Promise<void> {
       items: [{ productId: producto.id, quantity: 1 }],
       paymentMethod: 'CARD'
     })
-    const sale2 = (await ventaCard.json()) as SaleWithItems
+    const sale2 = (await ventaCard.json()) as CreateSaleResponse
     assert(sale2.ticketNumber === 2, 'venta: folio incrementa a 2')
     assert(
       sale2.change === null && sale2.amountPaid === null,
       'venta tarjeta: sin cambio ni monto pagado'
     )
+    assert(
+      sale2.print.printed === false && sale2.print.error === 'Impresora no configurada',
+      'venta: sin impresora configurada, print.printed=false y la venta igual se registra'
+    )
 
-    console.log('\n✅ Backend verificado — Sprints 0–2 OK')
+    // ---- Sprint 3: resumen, cierre de caja + respaldo, reimpresión ----
+    const resumen = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    // ventas registradas: efectivo 2×25=50, tarjeta 1×25=25  → efectivo esperado 500+50
+    assert(
+      resumen.salesCount === 2 && resumen.totalCash === 50 && resumen.totalCard === 25,
+      `resumen: 2 ventas, efectivo 50, tarjeta 25 (got ${resumen.salesCount}/${resumen.totalCash}/${resumen.totalCard})`
+    )
+    assert(
+      resumen.expectedCash === 550,
+      `resumen: efectivo esperado 550 (got ${resumen.expectedCash})`
+    )
+
+    const reimpr = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
+    assert(reimpr.status === 502, `reimprimir sin impresora -> 502 (status: ${reimpr.status})`)
+
+    const cierre = await asCajero('/api/caja/cierre', 'POST', { closingAmount: 540 })
+    assert(cierre.status === 200, `cierre de caja -> 200 (status: ${cierre.status})`)
+    const cierreBody = (await cierre.json()) as {
+      session: CashSession
+      backup: { ok: boolean; path?: string }
+    }
+    assert(cierreBody.session.status === 'CLOSED', 'cierre: sesión queda CLOSED')
+    assert(cierreBody.session.expectedAmount === 550, 'cierre: efectivo esperado 550')
+    assert(cierreBody.session.difference === -10, 'cierre: diferencia -10 (faltante)')
+    assert(
+      cierreBody.backup.ok && !!cierreBody.backup.path && existsSync(cierreBody.backup.path),
+      'cierre: respaldo de la BD creado en disco'
+    )
+
+    const cierre2 = await asCajero('/api/caja/cierre', 'POST', { closingAmount: 100 })
+    assert(cierre2.status === 409, `cierre sin caja abierta -> 409 (status: ${cierre2.status})`)
+
+    const ventaCerrada = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CARD'
+    })
+    assert(
+      ventaCerrada.status === 409,
+      `vender tras cerrar caja -> 409 (status: ${ventaCerrada.status})`
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–3 OK')
   } finally {
     if (server) await server.close()
     closeDb()
