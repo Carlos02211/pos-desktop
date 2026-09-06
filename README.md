@@ -35,6 +35,20 @@ lógica de negocio.
 | Seed: `admin / admin123` (ADMIN) · `cajero / cajero123` (COBRADOR) | ✅     |
 | Generador de claves `pnpm license:gen`                             | ✅     |
 
+### Sprint 2 — Panel del Cobrador ✅
+
+| Entregable                                                               | Estado |
+| ------------------------------------------------------------------------ | ------ |
+| `GET /api/productos` (con categoría) · `GET /api/categorias`             | ✅     |
+| `GET /api/caja/sesion-activa` · `POST /api/caja/apertura`                | ✅     |
+| `POST /api/ventas` — transacción, snapshot de precio, folio, cambio      | ✅     |
+| Emite `venta:nueva` y `caja:apertura` por Socket.io                      | ✅     |
+| Grid de productos (botón grande + fallback), tabs de categoría, búsqueda | ✅     |
+| Carrito (`cart.store`): agregar, ± cantidad, quitar, vaciar, total       | ✅     |
+| Modal de cobro: método, monto recibido, cambio en vivo                   | ✅     |
+| Gate "sin caja abierta" → pantalla de apertura                           | ✅     |
+| Toasts (`sonner`) en apertura y venta; imágenes servidas en `/uploads/`  | ✅     |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -121,17 +135,17 @@ src/
 │   ├── socket-events.ts   Constantes de eventos (Fase 2-ready)
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
 │   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
-│   ├── routes/            ping · license · auth  (productos, caja… en próximos sprints)
-│   ├── services/          license (fingerprint + HMAC) · auth (login)
+│   ├── routes/            ping · license · auth · productos · caja · ventas
+│   ├── services/          license · auth · productos · caja · ventas
 │   ├── middleware/        auth (requireAuth / requireRole)
-│   └── lib/               validate (Zod) · store (electron-store) · jwt · http-error
+│   └── lib/               validate (Zod) · store · jwt · http-error · money
 ├── renderer/src/          React
-│   ├── api/               client (fetch + token + 401) · auth · license · ping
+│   ├── api/               client (fetch + token + 401) · auth · license · catalogo · caja · ventas
 │   ├── assets/main.css    Tailwind v4 + tema claro (admin) / oscuro (cobrador)
-│   ├── lib/               utils (cn) · routing (homeFor)
-│   ├── stores/            auth.store · license.store (Zustand)
-│   ├── components/        ProtectedRoute · AuthShell · SessionBar
-│   ├── pages/             Activation · Login · cobrador/ · admin/
+│   ├── lib/               utils (cn) · routing · format (money) · socket (socket.io-client)
+│   ├── stores/            auth.store · license.store · cart.store (Zustand)
+│   ├── components/        ProtectedRoute · AuthShell · SessionBar · Modal · ProductoBtn · CarritoItem · CobroModal
+│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura} · admin/
 │   └── App.tsx            HashRouter + arranque (consulta licencia)
 └── shared/types.ts        Contrato de tipos Main ↔ Renderer
 ```
@@ -154,6 +168,9 @@ src/
   cliente (nunca `localStorage`).
 - **electron-store** es ESM-only; `src/main/lib/store.ts` normaliza el import para que
   funcione tanto en el bundle CJS de electron-vite como en el script de verificación (ESM).
+- **Ventas**: `POST /api/ventas` corre en una transacción. El precio y el nombre se toman de
+  la BD (snapshot en `sale_items`), nunca del cliente. `ticketNumber` es un folio secuencial
+  por sesión de caja. Vender sin caja abierta → 409.
 - **Timestamps**: Unix en segundos (`integer`), sin conversiones entre SQLite y PostgreSQL.
 - **Fase 2**: cambiar el driver en `src/main/db/index.ts` (better-sqlite3 → node-postgres) y la
   `API_BASE_URL` en `src/renderer/src/api/client.ts`. El resto del código no cambia.

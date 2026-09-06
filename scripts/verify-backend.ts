@@ -1,5 +1,5 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–1).
+ * Verificación de backend sin GUI (Sprints 0–2).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
@@ -7,6 +7,7 @@
  *   3. Sprint 0 — GET /api/ping (Renderer -> Fastify -> SQLite) + validación Zod.
  *   4. Sprint 1 — licencia por hardware: estado, activación con clave inválida y válida.
  *   5. Sprint 1 — auth: login correcto/incorrecto, JWT en /api/auth/me, roles.
+ *   6. Sprint 2 — catálogo, apertura de caja y registro de ventas (folio, cambio, snapshot).
  *
  * Uso:  pnpm verify:backend
  */
@@ -20,7 +21,15 @@ import { runSeed } from '../src/main/db/seed'
 import { initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
-import type { LicenseStatusResponse, LoginResponse, PingResponse } from '../src/shared/types'
+import type {
+  CashSession,
+  Category,
+  LicenseStatusResponse,
+  LoginResponse,
+  PingResponse,
+  ProductWithCategory,
+  SaleWithItems
+} from '../src/shared/types'
 
 const MIGRATIONS = join(process.cwd(), 'resources', 'migrations')
 const PORT = 3001
@@ -134,7 +143,92 @@ async function main(): Promise<void> {
     const meBody = (await me.json()) as { user: { username: string } }
     assert(meBody.user.username === 'admin', '/api/auth/me: identifica al usuario del token')
 
-    console.log('\n✅ Backend verificado — Sprints 0–1 OK')
+    // ---- Sprint 2: catálogo + caja + ventas (como cobrador) ----
+    const cajeroToken = (await (await login('cajero', 'cajero123')).json()) as LoginResponse
+    const authCajero = { authorization: `Bearer ${cajeroToken.token}` }
+    async function asCajero(path: string, method = 'GET', body?: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method,
+        headers: { ...authCajero, 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body)
+      })
+    }
+
+    const prods = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(prods.length === 1, `catálogo: 1 producto activo (encontrados: ${prods.length})`)
+    assert(
+      prods[0].categoryName === 'General' && prods[0].price === 25,
+      'catálogo: producto trae categoría resuelta y precio'
+    )
+    const producto = prods[0]
+
+    const cats = (await (await asCajero('/api/categorias')).json()) as Category[]
+    assert(cats.length === 1 && cats[0].name === 'General', 'catálogo: 1 categoría activa')
+
+    assert(
+      (await asCajero('/api/caja/sesion-activa')).status === 200,
+      '/api/caja/sesion-activa responde 200'
+    )
+    const sinCaja = (await asCajero('/api/caja/sesion-activa')).json()
+    assert((await sinCaja) === null, 'caja: arranca sin sesión activa')
+
+    const ventaSinCaja = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 100
+    })
+    assert(
+      ventaSinCaja.status === 409,
+      `venta sin caja abierta -> 409 (status: ${ventaSinCaja.status})`
+    )
+
+    const apertura = await asCajero('/api/caja/apertura', 'POST', { openingAmount: 500 })
+    assert(apertura.status === 201, `apertura de caja -> 201 (status: ${apertura.status})`)
+    const sesion = (await apertura.json()) as CashSession
+    assert(
+      sesion.status === 'OPEN' && sesion.openingAmount === 500,
+      'caja: sesión OPEN con monto inicial'
+    )
+
+    const apertura2 = await asCajero('/api/caja/apertura', 'POST', { openingAmount: 100 })
+    assert(apertura2.status === 409, `segunda apertura -> 409 (status: ${apertura2.status})`)
+
+    const ventaCash = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 2 }],
+      paymentMethod: 'CASH',
+      amountPaid: 100
+    })
+    assert(ventaCash.status === 201, `venta efectivo -> 201 (status: ${ventaCash.status})`)
+    const sale1 = (await ventaCash.json()) as SaleWithItems
+    assert(sale1.total === 50 && sale1.change === 50, 'venta: total 50 y cambio 50 calculados')
+    assert(sale1.ticketNumber === 1, 'venta: folio 1 en la sesión')
+    assert(
+      sale1.items[0].name === 'Producto de prueba' && sale1.items[0].price === 25,
+      'venta: snapshot de nombre y precio en sale_items'
+    )
+
+    const ventaCorta = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 5
+    })
+    assert(
+      ventaCorta.status === 400,
+      `venta con pago insuficiente -> 400 (status: ${ventaCorta.status})`
+    )
+
+    const ventaCard = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CARD'
+    })
+    const sale2 = (await ventaCard.json()) as SaleWithItems
+    assert(sale2.ticketNumber === 2, 'venta: folio incrementa a 2')
+    assert(
+      sale2.change === null && sale2.amountPaid === null,
+      'venta tarjeta: sin cambio ni monto pagado'
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–2 OK')
   } finally {
     if (server) await server.close()
     closeDb()
