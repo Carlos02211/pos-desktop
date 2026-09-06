@@ -102,9 +102,14 @@ export function buildReport(db: DB, type: ReportType, params: ReportParams): Sal
 
   const byPaymentMethod = emptyBreakdown()
   let totalSales = 0
+  let creditExtended = 0
   for (const r of rows) {
     totalSales = round2(totalSales + r.total)
-    byPaymentMethod[r.paymentMethod] = round2(byPaymentMethod[r.paymentMethod] + r.total)
+    if (r.paymentMethod === 'CREDIT') {
+      creditExtended = round2(creditExtended + r.total)
+    } else {
+      byPaymentMethod[r.paymentMethod] = round2(byPaymentMethod[r.paymentMethod] + r.total)
+    }
   }
 
   const topProducts: TopProduct[] = db
@@ -130,6 +135,7 @@ export function buildReport(db: DB, type: ReportType, params: ReportParams): Sal
     totalSales,
     totalTransactions: rows.length,
     byPaymentMethod,
+    creditExtended,
     topProducts,
     buckets: bucketsFor(type, from, to, rows)
   }

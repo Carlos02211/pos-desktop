@@ -12,6 +12,7 @@ export const EVENTS = {
   CAJA_APERTURA: 'caja:apertura', // { cashSessionId, userId, openingAmount }
   CAJA_CIERRE: 'caja:cierre', // { cashSessionId, userId, total, difference }
   PRODUCTO_UPDATE: 'producto:update', // { productId }
+  CUENTA_ABONO: 'cuenta:abono', // { creditAccountId, customerId, balance, settled }
   STOCK_UPDATE: 'stock:update' // reservado para Fase 3 (inventario)
 } as const
 
@@ -22,5 +23,11 @@ export interface EventPayloads {
   'caja:apertura': { cashSessionId: number; userId: number; openingAmount: number }
   'caja:cierre': { cashSessionId: number; userId: number; total: number; difference: number }
   'producto:update': { productId: number }
+  'cuenta:abono': {
+    creditAccountId: number
+    customerId: number
+    balance: number
+    settled: boolean
+  }
   'stock:update': { productId: number }
 }

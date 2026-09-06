@@ -1,10 +1,14 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../../shared/types'
 import type { DB } from '../db'
-import { products, saleItems, sales, users } from '../db/schema'
+import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 import { getActiveSession } from './caja'
+
+export interface SaleResult extends SaleWithItems {
+  creditAccountId?: number
+}
 
 /**
  * Registra una venta y sus líneas en una transacción.
@@ -14,13 +18,22 @@ import { getActiveSession } from './caja'
  *  - El precio y el nombre se toman de la BD (snapshot en `sale_items`), nunca del cliente.
  *  - `ticketNumber` es un folio secuencial por sesión de caja.
  */
-export function createSale(db: DB, userId: number, input: CreateSaleInput): SaleWithItems {
+export function createSale(db: DB, userId: number, input: CreateSaleInput): SaleResult {
   const session = getActiveSession(db, userId)
   if (!session) {
     throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
   }
   if (input.items.length === 0) {
     throw new HttpError(400, 'La venta no tiene productos.')
+  }
+  if (input.paymentMethod === 'CREDIT') {
+    if (input.customerId == null) {
+      throw new HttpError(400, 'Elige a qué cliente se le fía.')
+    }
+    const customer = db.select().from(customers).where(eq(customers.id, input.customerId)).get()
+    if (!customer || customer.active !== 1) {
+      throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
+    }
   }
 
   return db.transaction((tx) => {
@@ -50,12 +63,24 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
 
     let amountPaid: number | null = null
     let change: number | null = null
+    let creditAmount = 0
     if (input.paymentMethod === 'CASH') {
       if (input.amountPaid == null || input.amountPaid < total) {
         throw new HttpError(400, 'El monto recibido es menor al total.')
       }
       amountPaid = round2(input.amountPaid)
       change = round2(amountPaid - total)
+    } else if (input.paymentMethod === 'CREDIT') {
+      // Abono inicial (en efectivo) opcional: 0..total. El resto queda a deber.
+      const down = round2(Math.max(0, input.amountPaid ?? 0))
+      if (down >= total) {
+        throw new HttpError(
+          400,
+          'El abono inicial cubre el total: cobra en efectivo, no a crédito.'
+        )
+      }
+      amountPaid = down || null
+      creditAmount = round2(total - down)
     }
 
     const last = tx
@@ -88,13 +113,30 @@ export function createSale(db: DB, userId: number, input: CreateSaleInput): Sale
       return item
     })
 
+    let creditAccountId: number | undefined
+    if (input.paymentMethod === 'CREDIT') {
+      const [account] = tx
+        .insert(creditAccounts)
+        .values({
+          saleId: sale.id,
+          customerId: input.customerId!,
+          userId,
+          total: creditAmount,
+          paid: 0,
+          status: 'OPEN'
+        })
+        .returning()
+        .all()
+      creditAccountId = account.id
+    }
+
     const user = tx
       .select({ username: users.username })
       .from(users)
       .where(eq(users.id, userId))
       .get()
 
-    return { ...sale, items, userName: user?.username ?? '' }
+    return { ...sale, items, userName: user?.username ?? '', creditAccountId }
   })
 }
 

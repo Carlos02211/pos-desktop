@@ -89,6 +89,12 @@ export default function CajaCierre(): React.JSX.Element {
           <Line label="Ventas en efectivo" value={money(s.totalCash)} />
           <Line label="Ventas con tarjeta" value={money(s.totalCard)} />
           <Line label="Ventas por transferencia" value={money(s.totalTransfer)} />
+          {s.totalCredit > 0 && (
+            <Line label="Fiado otorgado (no es efectivo)" value={money(s.totalCredit)} />
+          )}
+          {s.abonosCash > 0 && (
+            <Line label="Abonos en efectivo recibidos" value={money(s.abonosCash)} />
+          )}
           <div className="my-1 border-t border-border" />
           <Line label="Efectivo esperado en caja" value={money(s.expectedCash)} strong />
         </dl>

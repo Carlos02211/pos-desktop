@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { sql } from 'drizzle-orm'
 import type { DB } from './index'
-import { categories, config, products, users } from './schema'
+import { categories, config, customers, products, users } from './schema'
 
 const BCRYPT_ROUNDS = 12
 
@@ -45,6 +45,7 @@ export async function runSeed(db: DB): Promise<void> {
 
     const [cat] = db.insert(categories).values({ name: 'General' }).returning().all()
     db.insert(products).values({ name: 'Producto de prueba', price: 25, categoryId: cat.id }).run()
+    db.insert(customers).values({ name: 'Cliente de prueba', phone: '' }).run()
 
     console.log('[seed] Datos iniciales creados — admin/admin123 · cajero/cajero123')
   }

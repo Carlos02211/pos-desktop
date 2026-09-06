@@ -2,10 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   BarChart3,
   Boxes,
+  HandCoins,
   LayoutDashboard,
   Receipt,
   Settings,
   Tags,
+  UserRound,
   Users,
   Wallet
 } from 'lucide-react'
@@ -16,7 +18,9 @@ const NAV = [
   { to: '/admin/productos', label: 'Productos', icon: Boxes, end: false },
   { to: '/admin/categorias', label: 'Categorías', icon: Tags, end: false },
   { to: '/admin/usuarios', label: 'Usuarios', icon: Users, end: false },
+  { to: '/admin/clientes', label: 'Clientes', icon: UserRound, end: false },
   { to: '/admin/ventas', label: 'Ventas', icon: Receipt, end: false },
+  { to: '/admin/cuentas', label: 'Cuentas por cobrar', icon: HandCoins, end: false },
   { to: '/admin/cortes', label: 'Cortes de caja', icon: Wallet, end: false },
   { to: '/admin/reportes', label: 'Reportes', icon: BarChart3, end: false },
   { to: '/admin/configuracion', label: 'Configuración', icon: Settings, end: false }

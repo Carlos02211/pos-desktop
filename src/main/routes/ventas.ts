@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getDb } from '../db'
+import { round2 } from '../lib/money'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
@@ -26,8 +27,9 @@ const createSaleSchema = z.object({
       })
     )
     .min(1),
-  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER']),
-  amountPaid: z.number().nonnegative().max(1_000_000).optional()
+  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'CREDIT']),
+  amountPaid: z.number().nonnegative().max(1_000_000).optional(),
+  customerId: z.number().int().positive().optional()
 })
 
 const idParam = z.object({ id: z.coerce.number().int().positive() })
@@ -44,6 +46,15 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       userId: request.authUser!.id,
       cashSessionId: sale.cashSessionId
     })
+
+    if (sale.creditAccountId) {
+      emit('cuenta:abono', {
+        creditAccountId: sale.creditAccountId,
+        customerId: input.customerId!,
+        balance: round2(sale.total - (sale.amountPaid ?? 0)),
+        settled: false
+      })
+    }
 
     // La impresión es best-effort: la venta ya está registrada.
     const print = await printTicket(sale, getConfigMap(db))

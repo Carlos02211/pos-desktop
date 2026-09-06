@@ -8,6 +8,7 @@ import Login from '@/pages/Login'
 import AdminLayout from '@/pages/admin/AdminLayout'
 import CajaApertura from '@/pages/cobrador/CajaApertura'
 import CajaCierre from '@/pages/cobrador/CajaCierre'
+import CobradorCuentas from '@/pages/cobrador/Cuentas'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
 import PanelVenta from '@/pages/cobrador/PanelVenta'
 import { useAuthStore } from '@/stores/auth.store'
@@ -22,6 +23,8 @@ const Ventas = lazy(() => import('@/pages/admin/Ventas'))
 const Cortes = lazy(() => import('@/pages/admin/Cortes'))
 const Reportes = lazy(() => import('@/pages/admin/Reportes'))
 const Configuracion = lazy(() => import('@/pages/admin/Configuracion'))
+const Clientes = lazy(() => import('@/pages/admin/Clientes'))
+const AdminCuentas = lazy(() => import('@/pages/admin/Cuentas'))
 
 function Splash({
   message,
@@ -77,6 +80,7 @@ function App(): React.JSX.Element {
             <Route index element={<PanelVenta />} />
             <Route path="apertura" element={<CajaApertura />} />
             <Route path="cierre" element={<CajaCierre />} />
+            <Route path="cuentas" element={<CobradorCuentas />} />
           </Route>
         </Route>
         <Route element={<ProtectedRoute role="ADMIN" />}>
@@ -94,6 +98,8 @@ function App(): React.JSX.Element {
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="ventas" element={<Ventas />} />
             <Route path="cortes" element={<Cortes />} />
+            <Route path="cuentas" element={<AdminCuentas />} />
+            <Route path="clientes" element={<Clientes />} />
             <Route path="reportes" element={<Reportes />} />
             <Route path="configuracion" element={<Configuracion />} />
           </Route>

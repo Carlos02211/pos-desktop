@@ -4,8 +4,12 @@
  */
 
 export type Role = 'ADMIN' | 'COBRADOR'
-export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER'
+/** Métodos con los que se cobra dinero de verdad. */
+export type SettledMethod = 'CASH' | 'CARD' | 'TRANSFER'
+/** Método de una venta: los anteriores más `CREDIT` (fiado). */
+export type PaymentMethod = SettledMethod | 'CREDIT'
 export type CashSessionStatus = 'OPEN' | 'CLOSED'
+export type CreditAccountStatus = 'OPEN' | 'PAID'
 export type LicenseStatus = 'ACTIVE' | 'REVOKED'
 
 export interface AuthUser {
@@ -104,8 +108,10 @@ export interface CartLineInput {
 export interface CreateSaleInput {
   items: CartLineInput[]
   paymentMethod: PaymentMethod
-  /** Requerido y >= total cuando `paymentMethod === 'CASH'`. */
+  /** CASH: efectivo recibido (>= total). CREDIT: abono inicial en efectivo (0..total). */
   amountPaid?: number
+  /** Requerido cuando `paymentMethod === 'CREDIT'` — a quién se le fía. */
+  customerId?: number
 }
 
 /** Cuerpo de `POST /api/caja/apertura`. */
@@ -133,6 +139,78 @@ export interface PrintResult {
 /** Respuesta de `POST /api/ventas` — la venta más el estado de impresión. */
 export interface CreateSaleResponse extends SaleWithItems {
   print: PrintResult
+  /** Si la venta fue a crédito, la cuenta por cobrar que se abrió. */
+  creditAccountId?: number
+}
+
+/* ---- Módulo de cuentas por cobrar ("fiado") ---- */
+
+export interface Customer {
+  id: number
+  name: string
+  phone: string | null
+  notes: string | null
+  active: number
+  createdAt: number
+}
+
+/** Cliente con el saldo total que debe (suma de cuentas abiertas). */
+export interface CustomerWithBalance extends Customer {
+  openAccounts: number
+  balance: number
+}
+
+export interface CustomerInput {
+  name: string
+  phone?: string
+  notes?: string
+  active?: boolean
+}
+
+export interface CreditPayment {
+  id: number
+  creditAccountId: number
+  cashSessionId: number
+  userId: number
+  userName: string
+  amount: number
+  paymentMethod: SettledMethod
+  createdAt: number
+}
+
+/** Fila del listado de cuentas por cobrar. */
+export interface CreditAccountListItem {
+  id: number
+  customerId: number
+  customerName: string
+  saleId: number | null
+  ticketNumber: number | null
+  total: number
+  paid: number
+  balance: number
+  status: CreditAccountStatus
+  createdAt: number
+  closedAt: number | null
+}
+
+/** Detalle de una cuenta: cabecera + venta origen + historial de abonos. */
+export interface CreditAccountDetail extends CreditAccountListItem {
+  userName: string
+  sale: SaleWithItems | null
+  payments: CreditPayment[]
+}
+
+export interface CreditQuery {
+  status?: CreditAccountStatus | 'all'
+  customerId?: number
+  from?: number
+  to?: number
+}
+
+/** Cuerpo de `POST /api/cuentas/:id/abono`. */
+export interface AbonoInput {
+  amount: number
+  paymentMethod: SettledMethod
 }
 
 /* ---- Sprint 5: usuarios, historial de ventas y cortes ---- */
@@ -233,6 +311,8 @@ export interface SalesReport {
   totalSales: number
   totalTransactions: number
   byPaymentMethod: PaymentBreakdown
+  /** Total vendido a crédito (fiado) en el periodo. */
+  creditExtended: number
   topProducts: TopProduct[]
   buckets: ReportBucket[]
 }
@@ -265,6 +345,8 @@ export interface DashboardData {
   totalSales: number
   totalTransactions: number
   byPaymentMethod: PaymentBreakdown
+  /** Total adeudado (saldo de todas las cuentas por cobrar abiertas). */
+  cuentasPorCobrar: number
   openSessions: OpenSessionInfo[]
   recentSales: SaleListItem[]
 }
@@ -277,7 +359,14 @@ export interface CashSessionSummary {
   totalCash: number
   totalCard: number
   totalTransfer: number
-  /** Efectivo esperado en caja = apertura + ventas en efectivo. */
+  /** Crédito otorgado en el turno (ventas fiadas, lo que quedó a deber). */
+  totalCredit: number
+  /** Abonos a cuentas anteriores recibidos en el turno (en efectivo). */
+  abonosCash: number
+  /**
+   * Efectivo esperado en caja:
+   * apertura + ventas en efectivo + abonos iniciales de ventas fiadas + abonos en efectivo.
+   */
   expectedCash: number
 }
 

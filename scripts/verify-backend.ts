@@ -34,6 +34,9 @@ import type {
   CategoryWithCount,
   ConfigResponse,
   CreateSaleResponse,
+  CreditAccountDetail,
+  CreditAccountListItem,
+  CustomerWithBalance,
   LicenseStatusResponse,
   LoginResponse,
   PingResponse,
@@ -618,7 +621,119 @@ async function main(): Promise<void> {
       'dashboard: cobrador no puede consultarlo (403)'
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–8 OK')
+    // ---- Módulo de cuentas por cobrar ("fiado") ----
+    // La caja del cajero se cerró en el Sprint 3: se reabre para vender a crédito y abonar.
+    await asCajero('/api/caja/apertura', 'POST', { openingAmount: 100 })
+
+    const cliRes = await asCajero('/api/clientes', 'POST', {
+      name: 'Juan Pérez',
+      phone: '555-1234'
+    })
+    assert(cliRes.status === 201, `crear cliente (cobrador) -> 201 (status: ${cliRes.status})`)
+    const juan = (await cliRes.json()) as { id: number }
+    const clientes = (await (await asCajero('/api/clientes')).json()) as CustomerWithBalance[]
+    assert(
+      clientes.some((c) => c.id === juan.id) && !('password' in clientes[0]),
+      'clientes: la lista incluye al nuevo cliente'
+    )
+
+    const sinCliente = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CREDIT'
+    })
+    assert(sinCliente.status === 400, `fiado sin cliente -> 400 (status: ${sinCliente.status})`)
+
+    const fiado = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CREDIT',
+      amountPaid: 10,
+      customerId: juan.id
+    })
+    assert(fiado.status === 201, `venta a crédito -> 201 (status: ${fiado.status})`)
+    const fiadoSale = (await fiado.json()) as CreateSaleResponse
+    assert(
+      fiadoSale.total === 25 && fiadoSale.amountPaid === 10 && !!fiadoSale.creditAccountId,
+      'fiado: venta $25, abono inicial $10, cuenta abierta'
+    )
+    const accountId = fiadoSale.creditAccountId!
+
+    const cuentas = (await (
+      await asCajero('/api/cuentas?status=OPEN')
+    ).json()) as CreditAccountListItem[]
+    assert(
+      cuentas.length === 1 && cuentas[0].id === accountId && cuentas[0].balance === 15,
+      `cuentas: 1 cuenta abierta, saldo $15 (got ${cuentas[0]?.balance})`
+    )
+
+    // No se puede desactivar un cliente con cuentas abiertas.
+    const delOpen = await asAdmin(`/api/clientes/${juan.id}`, 'DELETE')
+    assert(
+      delOpen.status === 409,
+      `desactivar cliente con deuda -> 409 (status: ${delOpen.status})`
+    )
+
+    const cuentaDetalle = (await (
+      await asCajero(`/api/cuentas/${accountId}`)
+    ).json()) as CreditAccountDetail
+    assert(
+      cuentaDetalle.sale?.ticketNumber != null && cuentaDetalle.payments.length === 0,
+      'cuenta: el detalle trae la venta origen y sin abonos aún'
+    )
+
+    const ab1 = await asCajero(`/api/cuentas/${accountId}/abono`, 'POST', {
+      amount: 5,
+      paymentMethod: 'CASH'
+    })
+    assert(ab1.status === 201, `abono parcial -> 201 (status: ${ab1.status})`)
+    const d1 = (await ab1.json()) as CreditAccountDetail
+    assert(d1.paid === 5 && d1.balance === 10 && d1.status === 'OPEN', 'abono: saldo baja a $10')
+
+    const abExcede = await asCajero(`/api/cuentas/${accountId}/abono`, 'POST', {
+      amount: 20,
+      paymentMethod: 'CASH'
+    })
+    assert(abExcede.status === 400, `abono que supera el saldo -> 400 (status: ${abExcede.status})`)
+
+    const ab2 = await asCajero(`/api/cuentas/${accountId}/abono`, 'POST', {
+      amount: 10,
+      paymentMethod: 'CASH'
+    })
+    const d2 = (await ab2.json()) as CreditAccountDetail
+    assert(
+      d2.status === 'PAID' && d2.balance === 0 && d2.closedAt != null,
+      'abono: liquida la cuenta (status PAID, saldo 0)'
+    )
+
+    const abPagada = await asCajero(`/api/cuentas/${accountId}/abono`, 'POST', {
+      amount: 1,
+      paymentMethod: 'CASH'
+    })
+    assert(abPagada.status === 409, `abono a cuenta liquidada -> 409 (status: ${abPagada.status})`)
+
+    // El corte del turno cuenta el abono inicial y los abonos en efectivo.
+    const resumenFiado = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    assert(
+      resumenFiado.totalCredit === 15 && resumenFiado.abonosCash === 15,
+      `corte: crédito otorgado $15, abonos en efectivo $15 (got ${resumenFiado.totalCredit}/${resumenFiado.abonosCash})`
+    )
+    // apertura 100 + ventas efectivo 0 + abono inicial 10 + abonos efectivo 15 = 125
+    assert(
+      resumenFiado.expectedCash === 125,
+      `corte: efectivo esperado $125 con fiado y abonos (got ${resumenFiado.expectedCash})`
+    )
+
+    assert(
+      typeof ((await (await asAdmin('/api/dashboard')).json()) as { cuentasPorCobrar: number })
+        .cuentasPorCobrar === 'number',
+      'dashboard: expone el total por cobrar'
+    )
+
+    assert(
+      (await asCajero('/api/clientes/' + juan.id, 'DELETE')).status === 403,
+      'clientes: el cobrador no puede desactivar (403)'
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–8 + módulo de cuentas por cobrar OK')
   } finally {
     if (server) await server.close()
     closeDb()
