@@ -1,5 +1,5 @@
 /**
- * Verificación de backend sin GUI (Sprints 0–6).
+ * Verificación de backend sin GUI (Sprints 0–7).
  *
  * Reproduce lo que hace el Main Process al arrancar, pero fuera de Electron:
  *   1. Store cifrado + SQLite en un directorio temporal, con migraciones y seed.
@@ -11,6 +11,7 @@
  *   7. Sprint 4 — CRUD de categorías y productos + subida de imagen (roles, soft delete).
  *   8. Sprint 5 — usuarios (bcrypt, no self-deactivate), historial de ventas y cortes de caja.
  *   9. Sprint 6 — reportes (diario/semanal/mensual) + exportación a Excel y PDF.
+ *  10. Sprint 7 — configuración del negocio (logo) + dashboard del día.
  *
  * Uso:  pnpm verify:backend
  */
@@ -30,6 +31,7 @@ import type {
   CashSessionSummary,
   Category,
   CategoryWithCount,
+  ConfigResponse,
   CreateSaleResponse,
   LicenseStatusResponse,
   LoginResponse,
@@ -535,7 +537,69 @@ async function main(): Promise<void> {
       `exportar PDF: archivo PDF válido (${pdfBytes.length} bytes)`
     )
 
-    console.log('\n✅ Backend verificado — Sprints 0–6 OK')
+    // ---- Sprint 7: configuración del negocio + dashboard (ADMIN) ----
+    const cfg0 = (await (await asAdmin('/api/config')).json()) as ConfigResponse
+    assert(
+      cfg0.business_name === 'Mi Negocio' && cfg0.currency_symbol === '$',
+      'config: valores por defecto'
+    )
+    assert((await asCajero('/api/config')).status === 403, 'config: cobrador no puede leerla (403)')
+
+    const cfgUpd = await asAdmin('/api/config', 'PUT', {
+      business_name: 'Café Central',
+      currency_symbol: 'MX$',
+      logo_path: 'intento-de-hackeo' // clave no editable por PUT
+    })
+    assert(cfgUpd.status === 200, `config PUT -> 200 (status: ${cfgUpd.status})`)
+    const cfg1 = (await cfgUpd.json()) as ConfigResponse
+    assert(
+      cfg1.business_name === 'Café Central' && cfg1.currency_symbol === 'MX$',
+      'config: PUT actualiza los campos editables'
+    )
+    assert(cfg1.logo_path === '', 'config: PUT ignora logo_path (sólo por su endpoint)')
+
+    const logoRes = await fetch(`${base}/api/config/logo`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+      body: (() => {
+        const f = new FormData()
+        f.append('file', new Blob([png], { type: 'image/png' }), 'logo.png')
+        return f
+      })()
+    })
+    assert(logoRes.status === 201, `config logo -> 201 (status: ${logoRes.status})`)
+    const { config: cfg2 } = (await logoRes.json()) as { config: ConfigResponse }
+    assert(
+      cfg2.logo_path.startsWith('config/') && cfg2.logo_path.endsWith('.png'),
+      'config: el logo queda en config/*.png'
+    )
+    assert(
+      (await fetch(`${base}/uploads/${cfg2.logo_path}`)).status === 200,
+      'config: el logo se sirve en /uploads/'
+    )
+
+    const dash = (await (await asAdmin('/api/dashboard')).json()) as {
+      totalTransactions: number
+      byPaymentMethod: { CASH: number }
+      recentSales: unknown[]
+      openSessions: unknown[]
+    }
+    assert(
+      dash.totalTransactions >= 2,
+      `dashboard: cuenta las ventas de hoy (got ${dash.totalTransactions})`
+    )
+    assert(
+      dash.byPaymentMethod.CASH === 50,
+      `dashboard: desglose por método (efectivo ${dash.byPaymentMethod.CASH})`
+    )
+    assert(dash.recentSales.length <= 5, 'dashboard: máximo 5 ventas recientes')
+    assert(Array.isArray(dash.openSessions), 'dashboard: lista de cajas abiertas')
+    assert(
+      (await asCajero('/api/dashboard')).status === 403,
+      'dashboard: cobrador no puede consultarlo (403)'
+    )
+
+    console.log('\n✅ Backend verificado — Sprints 0–7 OK')
   } finally {
     if (server) await server.close()
     closeDb()

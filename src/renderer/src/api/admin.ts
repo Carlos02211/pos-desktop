@@ -4,6 +4,8 @@ import type {
   Category,
   CategoryInput,
   CategoryWithCount,
+  ConfigInput,
+  ConfigResponse,
   CreateUserInput,
   DashboardData,
   Product,
@@ -111,4 +113,20 @@ export function getReporte(type: ReportType, params: ReportParams): Promise<Sale
 
 export function getDashboard(): Promise<DashboardData> {
   return api.get<DashboardData>('/api/dashboard')
+}
+
+/* ---- Configuración ---- */
+
+export function getConfig(): Promise<ConfigResponse> {
+  return api.get<ConfigResponse>('/api/config')
+}
+
+export function updateConfig(input: ConfigInput): Promise<ConfigResponse> {
+  return api.put<ConfigResponse>('/api/config', input)
+}
+
+export function subirLogo(file: File): Promise<{ path: string; config: ConfigResponse }> {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post<{ path: string; config: ConfigResponse }>('/api/config/logo', form)
 }

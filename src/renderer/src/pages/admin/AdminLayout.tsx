@@ -1,5 +1,14 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Boxes, LayoutDashboard, Receipt, Tags, Users, Wallet } from 'lucide-react'
+import {
+  BarChart3,
+  Boxes,
+  LayoutDashboard,
+  Receipt,
+  Settings,
+  Tags,
+  Users,
+  Wallet
+} from 'lucide-react'
 import { SessionBar } from '@/components/SessionBar'
 
 const NAV = [
@@ -9,7 +18,8 @@ const NAV = [
   { to: '/admin/usuarios', label: 'Usuarios', icon: Users, end: false },
   { to: '/admin/ventas', label: 'Ventas', icon: Receipt, end: false },
   { to: '/admin/cortes', label: 'Cortes de caja', icon: Wallet, end: false },
-  { to: '/admin/reportes', label: 'Reportes', icon: BarChart3, end: false }
+  { to: '/admin/reportes', label: 'Reportes', icon: BarChart3, end: false },
+  { to: '/admin/configuracion', label: 'Configuración', icon: Settings, end: false }
 ]
 
 /** Marco del panel de administración: tema claro, barra superior + sidebar. */

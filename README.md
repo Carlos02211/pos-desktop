@@ -100,6 +100,17 @@ lógica de negocio.
 | Descarga con diálogo "Guardar como" (`will-download` en el Main)       | ✅     |
 | Páginas admin cargadas con `React.lazy` (recharts en chunk aparte)     | ✅     |
 
+### Sprint 7 — Configuración del Negocio + Dashboard ✅
+
+| Entregable                                                                 | Estado |
+| -------------------------------------------------------------------------- | ------ |
+| `GET /api/config` · `PUT /api/config` (ADMIN)                              | ✅     |
+| `POST /api/config/logo` — multipart, `/uploads/config/`                    | ✅     |
+| El logo se usa en el membrete del PDF de reportes                          | ✅     |
+| Pantalla `Configuración`: negocio, moneda, pie de ticket, logo, avanzado   | ✅     |
+| `GET /api/dashboard` — ventas del día, desglose, cajas abiertas, últimas 5 | ✅     |
+| `Dashboard` en vivo: `socket.store` refresca con `venta:nueva` / `caja:*`  | ✅     |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -187,17 +198,17 @@ src/
 │   ├── socket-events.ts   Constantes de eventos (Fase 2-ready)
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
 │   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
-│   ├── routes/            ping · license · auth · usuarios · productos · categorias · caja · ventas · reportes
-│   ├── services/          license · auth · usuarios · productos · categorias · caja · ventas · printer · backup · config · reportes · reports-excel · reports-pdf
+│   ├── routes/            ping · license · auth · usuarios · productos · categorias · caja · ventas · reportes · config · dashboard
+│   ├── services/          license · auth · usuarios · productos · categorias · caja · ventas · printer · backup · config · reportes · reports-{excel,pdf} · dashboard
 │   ├── middleware/        auth (requireAuth / requireRole)
 │   └── lib/               validate (Zod) · store · jwt · http-error · money
 ├── renderer/src/          React
 │   ├── api/               client (fetch + token + 401) · auth · license · catalogo · caja · ventas · admin
 │   ├── assets/main.css    Tailwind v4 + tema claro (admin) / oscuro (cobrador)
 │   ├── lib/               utils (cn) · routing · format (money) · socket (socket.io-client)
-│   ├── stores/            auth.store · license.store · cart.store (Zustand)
+│   ├── stores/            auth.store · license.store · cart.store · socket.store (Zustand)
 │   ├── components/        ProtectedRoute · AuthShell · SessionBar · Modal · ProductoBtn · CarritoItem · CobroModal · admin/{ProductoFormModal,CategoriaFormModal,UsuarioFormModal,VentaDetalleModal}
-│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura,CajaCierre} · admin/{Layout,Dashboard,Productos,Categorias,Usuarios,Ventas,Cortes}
+│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura,CajaCierre} · admin/{Layout,Dashboard,Productos,Categorias,Usuarios,Ventas,Cortes,Reportes,Configuracion}
 │   └── App.tsx            HashRouter + arranque (consulta licencia)
 └── shared/types.ts        Contrato de tipos Main ↔ Renderer
 ```

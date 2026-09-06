@@ -21,6 +21,7 @@ const Usuarios = lazy(() => import('@/pages/admin/Usuarios'))
 const Ventas = lazy(() => import('@/pages/admin/Ventas'))
 const Cortes = lazy(() => import('@/pages/admin/Cortes'))
 const Reportes = lazy(() => import('@/pages/admin/Reportes'))
+const Configuracion = lazy(() => import('@/pages/admin/Configuracion'))
 
 function Splash({
   message,
@@ -94,6 +95,7 @@ function App(): React.JSX.Element {
             <Route path="ventas" element={<Ventas />} />
             <Route path="cortes" element={<Cortes />} />
             <Route path="reportes" element={<Reportes />} />
+            <Route path="configuracion" element={<Configuracion />} />
           </Route>
         </Route>
         <Route path="*" element={<RootRedirect />} />
