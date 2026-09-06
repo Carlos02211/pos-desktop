@@ -12,6 +12,10 @@ export interface ServerContext {
   version: string
   /** true en `electron-vite dev`. */
   isDev: boolean
+  /** Ruta del archivo SQLite (para el respaldo al cerrar caja). */
+  dbPath: string
+  /** Carpeta de respaldo por defecto (si `config.backup_dir` está vacío). */
+  backupDir: string
 }
 
 declare module 'fastify' {
@@ -44,7 +48,12 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     logger: { level: opts.isDev ? 'info' : 'warn' }
   })
 
-  app.decorate('posContext', { version: opts.version, isDev: opts.isDev })
+  app.decorate('posContext', {
+    version: opts.version,
+    isDev: opts.isDev,
+    dbPath: opts.dbPath,
+    backupDir: opts.backupDir
+  })
 
   await app.register(cors, {
     origin: opts.allowedOrigins ?? true,

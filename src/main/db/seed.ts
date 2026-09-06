@@ -11,7 +11,12 @@ const DEFAULT_CONFIG: Record<string, string> = {
   business_phone: '',
   logo_path: '',
   ticket_footer: '¡Gracias por su compra!',
-  currency_symbol: '$'
+  currency_symbol: '$',
+  // Interfaz de node-thermal-printer. Vacío = impresión deshabilitada.
+  // Ejemplos: "printer:XP-80T" (driver de Windows), "tcp://192.168.1.100:9100", "/dev/usb/lp0".
+  printer_interface: '',
+  // Carpeta de respaldo. Vacío = <userData>/backups. En el cliente se apunta al SSD de respaldo.
+  backup_dir: ''
 }
 
 /**

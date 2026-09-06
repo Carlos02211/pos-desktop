@@ -49,6 +49,19 @@ lógica de negocio.
 | Gate "sin caja abierta" → pantalla de apertura                           | ✅     |
 | Toasts (`sonner`) en apertura y venta; imágenes servidas en `/uploads/`  | ✅     |
 
+### Sprint 3 — Caja + Impresora térmica ✅
+
+| Entregable                                                            | Estado |
+| --------------------------------------------------------------------- | ------ |
+| `POST /api/caja/cierre` — efectivo esperado, diferencia, respaldo     | ✅     |
+| `GET /api/caja/resumen` — totales del turno por método de pago        | ✅     |
+| `services/printer.ts` — ticket ESC/POS (Epson), interfaz configurable | ✅     |
+| Impresión best-effort: si falla, la venta se registra igual (aviso)   | ✅     |
+| `POST /api/ventas/:id/reimprimir` (ADMIN)                             | ✅     |
+| `services/backup.ts` — copia `pos.db` al cerrar caja, retiene 30      | ✅     |
+| Pantalla `CajaCierre` con diferencia en vivo (verde/rojo)             | ✅     |
+| Emite `caja:cierre` por Socket.io                                     | ✅     |
+
 ## Requisitos
 
 - Node.js 20+ (desarrollado con 24)
@@ -136,7 +149,7 @@ src/
 │   ├── paths.ts           Rutas de userData / migraciones / uploads
 │   ├── db/                schema.ts (8 tablas) · index.ts (migrador runtime) · seed.ts
 │   ├── routes/            ping · license · auth · productos · caja · ventas
-│   ├── services/          license · auth · productos · caja · ventas
+│   ├── services/          license · auth · productos · caja · ventas · printer · backup · config
 │   ├── middleware/        auth (requireAuth / requireRole)
 │   └── lib/               validate (Zod) · store · jwt · http-error · money
 ├── renderer/src/          React
@@ -145,7 +158,7 @@ src/
 │   ├── lib/               utils (cn) · routing · format (money) · socket (socket.io-client)
 │   ├── stores/            auth.store · license.store · cart.store (Zustand)
 │   ├── components/        ProtectedRoute · AuthShell · SessionBar · Modal · ProductoBtn · CarritoItem · CobroModal
-│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura} · admin/
+│   ├── pages/             Activation · Login · cobrador/{Layout,PanelVenta,CajaApertura,CajaCierre} · admin/
 │   └── App.tsx            HashRouter + arranque (consulta licencia)
 └── shared/types.ts        Contrato de tipos Main ↔ Renderer
 ```
@@ -171,6 +184,14 @@ src/
 - **Ventas**: `POST /api/ventas` corre en una transacción. El precio y el nombre se toman de
   la BD (snapshot en `sale_items`), nunca del cliente. `ticketNumber` es un folio secuencial
   por sesión de caja. Vender sin caja abierta → 409.
+- **Impresora**: `config.printer_interface` (vacío = deshabilitada). Ejemplos:
+  `printer:XP-80T` (driver de Windows, requiere añadir un módulo nativo de impresión),
+  `tcp://IP:9100` (impresora de red, sin dependencias). La impresión nunca hace fallar la
+  venta: si no sale el ticket, la respuesta trae `print.printed = false`.
+- **Respaldo**: al cerrar caja se copia `pos.db` a `config.backup_dir` (o `<userData>/backups`
+  por defecto) con marca de tiempo; se conservan los últimos 30. Nunca bloquea el cierre.
+- **Cierre de caja**: `expectedAmount = apertura + ventas en efectivo`;
+  `difference = contado − esperado` (negativo = faltante, positivo = sobrante).
 - **Timestamps**: Unix en segundos (`integer`), sin conversiones entre SQLite y PostgreSQL.
 - **Fase 2**: cambiar el driver en `src/main/db/index.ts` (better-sqlite3 → node-postgres) y la
   `API_BASE_URL` en `src/renderer/src/api/client.ts`. El resto del código no cambia.

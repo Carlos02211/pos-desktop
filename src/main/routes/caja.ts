@@ -4,19 +4,25 @@ import { getDb } from '../db'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
-import { getActiveSession, openSession } from '../services/caja'
+import { backupDatabase } from '../services/backup'
+import { closeSession, getActiveSession, getSessionSummary, openSession } from '../services/caja'
+import { getConfigMap } from '../services/config'
 
 const openSchema = z.object({
   openingAmount: z.number().nonnegative().max(1_000_000)
 })
 
-/**
- * Apertura de caja y consulta de la sesión activa (necesario para vender en Sprint 2).
- * El cierre, el cálculo de esperado/diferencia y el respaldo llegan en Sprint 3.
- */
+const closeSchema = z.object({
+  closingAmount: z.number().nonnegative().max(1_000_000)
+})
+
 export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/sesion-activa', { preHandler: requireRole('COBRADOR') }, async (request) => {
     return getActiveSession(getDb(), request.authUser!.id) ?? null
+  })
+
+  app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
+    return getSessionSummary(getDb(), request.authUser!.id)
   })
 
   app.post(
@@ -33,4 +39,24 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(201).send(session)
     }
   )
+
+  app.post('/api/caja/cierre', { preHandler: requireRole('COBRADOR') }, async (request) => {
+    const { closingAmount } = parse(closeSchema, request.body)
+    const db = getDb()
+    const result = closeSession(db, request.authUser!.id, closingAmount)
+
+    // El respaldo se ejecuta SIEMPRE al cerrar caja (no es opcional).
+    const backupDir = getConfigMap(db).backup_dir?.trim() || app.posContext.backupDir
+    const backup = backupDatabase(app.posContext.dbPath, backupDir)
+    if (!backup.ok) request.log.error({ err: backup.error }, 'respaldo al cerrar caja falló')
+
+    emit('caja:cierre', {
+      cashSessionId: result.session.id,
+      userId: request.authUser!.id,
+      total: result.summary.totalAll,
+      difference: result.session.difference ?? 0
+    })
+
+    return { ...result, backup }
+  })
 }

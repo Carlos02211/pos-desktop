@@ -7,6 +7,7 @@ import Activation from '@/pages/Activation'
 import Login from '@/pages/Login'
 import Dashboard from '@/pages/admin/Dashboard'
 import CajaApertura from '@/pages/cobrador/CajaApertura'
+import CajaCierre from '@/pages/cobrador/CajaCierre'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
 import PanelVenta from '@/pages/cobrador/PanelVenta'
 import { useAuthStore } from '@/stores/auth.store'
@@ -65,6 +66,7 @@ function App(): React.JSX.Element {
           <Route path="/cobrador" element={<CobradorLayout />}>
             <Route index element={<PanelVenta />} />
             <Route path="apertura" element={<CajaApertura />} />
+            <Route path="cierre" element={<CajaCierre />} />
           </Route>
         </Route>
         <Route element={<ProtectedRoute role="ADMIN" />}>

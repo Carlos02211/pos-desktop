@@ -94,9 +94,38 @@ export interface OpenCashSessionInput {
   openingAmount: number
 }
 
+/** Cuerpo de `POST /api/caja/cierre`. */
+export interface CloseCashSessionInput {
+  /** Efectivo final contado por el cobrador. */
+  closingAmount: number
+}
+
 export interface SaleWithItems extends Sale {
   items: SaleItem[]
   userName: string
+}
+
+/** Resultado de intentar imprimir un ticket. Nunca hace fallar la venta. */
+export interface PrintResult {
+  printed: boolean
+  error?: string
+}
+
+/** Respuesta de `POST /api/ventas` — la venta más el estado de impresión. */
+export interface CreateSaleResponse extends SaleWithItems {
+  print: PrintResult
+}
+
+/** Resumen del turno actual (para la pantalla de cierre de caja). */
+export interface CashSessionSummary {
+  session: CashSession
+  salesCount: number
+  totalAll: number
+  totalCash: number
+  totalCard: number
+  totalTransfer: number
+  /** Efectivo esperado en caja = apertura + ventas en efectivo. */
+  expectedCash: number
 }
 
 export interface BusinessConfig {

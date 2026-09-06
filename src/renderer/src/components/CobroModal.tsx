@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import type { PaymentMethod, SaleWithItems } from '@shared/types'
+import type { CreateSaleResponse, PaymentMethod } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { crearVenta } from '@/api/ventas'
 import { Modal } from '@/components/Modal'
@@ -20,7 +20,7 @@ export function CobroModal({
 }: {
   total: number
   onClose: () => void
-  onDone: (sale: SaleWithItems) => void
+  onDone: (sale: CreateSaleResponse) => void
 }): React.JSX.Element {
   const items = useCartStore((s) => s.items)
   const [method, setMethod] = useState<PaymentMethod>('CASH')
