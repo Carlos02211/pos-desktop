@@ -1,4 +1,6 @@
+import { mkdirSync } from 'fs'
 import cors from '@fastify/cors'
+import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import type { Server as SocketIOServer } from 'socket.io'
 import { ValidationError, sendValidationError } from './lib/validate'
@@ -23,6 +25,8 @@ export interface StartServerOptions extends ServerContext {
   port?: number
   /** Orígenes permitidos para CORS y Socket.io. `true` = cualquiera (sólo dev). */
   allowedOrigins?: string[] | true
+  /** Carpeta servida en `/uploads/` (imágenes de producto y logo). */
+  uploadsDir?: string
 }
 
 export interface RunningServer {
@@ -46,6 +50,15 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     origin: opts.allowedOrigins ?? true,
     credentials: true
   })
+
+  if (opts.uploadsDir) {
+    mkdirSync(opts.uploadsDir, { recursive: true })
+    await app.register(fastifyStatic, {
+      root: opts.uploadsDir,
+      prefix: '/uploads/',
+      decorateReply: false
+    })
+  }
 
   app.setErrorHandler((err: FastifyError, _request, reply) => {
     if (err instanceof ValidationError) return sendValidationError(reply, err)

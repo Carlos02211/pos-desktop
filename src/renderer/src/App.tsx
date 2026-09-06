@@ -1,10 +1,13 @@
 import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { homeFor } from '@/lib/routing'
 import Activation from '@/pages/Activation'
 import Login from '@/pages/Login'
 import Dashboard from '@/pages/admin/Dashboard'
+import CajaApertura from '@/pages/cobrador/CajaApertura'
+import CobradorLayout from '@/pages/cobrador/CobradorLayout'
 import PanelVenta from '@/pages/cobrador/PanelVenta'
 import { useAuthStore } from '@/stores/auth.store'
 import { useLicenseStore } from '@/stores/license.store'
@@ -59,13 +62,17 @@ function App(): React.JSX.Element {
         <Route path="/activation" element={<Activation />} />
         <Route path="/login" element={<Login />} />
         <Route element={<ProtectedRoute role="COBRADOR" />}>
-          <Route path="/cobrador/*" element={<PanelVenta />} />
+          <Route path="/cobrador" element={<CobradorLayout />}>
+            <Route index element={<PanelVenta />} />
+            <Route path="apertura" element={<CajaApertura />} />
+          </Route>
         </Route>
         <Route element={<ProtectedRoute role="ADMIN" />}>
           <Route path="/admin/*" element={<Dashboard />} />
         </Route>
         <Route path="*" element={<RootRedirect />} />
       </Routes>
+      <Toaster richColors position="top-center" />
     </HashRouter>
   )
 }

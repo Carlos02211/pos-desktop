@@ -21,6 +21,7 @@ async function bootBackend(): Promise<void> {
     host: '127.0.0.1',
     version: app.getVersion(),
     isDev: is.dev,
+    uploadsDir: paths.uploadsDir,
     // En Fase 1 el único cliente es el Renderer local. Permitimos cualquier origen
     // en dev (Vite usa un puerto aleatorio) y el propio origin en prod.
     allowedOrigins: is.dev ? true : ['app://.', 'file://']

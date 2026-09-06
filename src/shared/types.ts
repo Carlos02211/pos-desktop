@@ -70,6 +70,30 @@ export interface SaleItem {
   subtotal: number
 }
 
+/** Producto con el nombre de su categoría resuelto (respuesta de `GET /api/productos`). */
+export interface ProductWithCategory extends Product {
+  categoryName: string | null
+}
+
+/** Línea del carrito que el cliente envía. El precio SIEMPRE lo pone el servidor. */
+export interface CartLineInput {
+  productId: number
+  quantity: number
+}
+
+/** Cuerpo de `POST /api/ventas`. */
+export interface CreateSaleInput {
+  items: CartLineInput[]
+  paymentMethod: PaymentMethod
+  /** Requerido y >= total cuando `paymentMethod === 'CASH'`. */
+  amountPaid?: number
+}
+
+/** Cuerpo de `POST /api/caja/apertura`. */
+export interface OpenCashSessionInput {
+  openingAmount: number
+}
+
 export interface SaleWithItems extends Sale {
   items: SaleItem[]
   userName: string
