@@ -7,7 +7,7 @@ import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from 'dri
  * Espejo EXACTO de `schema.sqlite.ts`: mismos nombres de tabla y columna, mismos
  * tipos lógicos. Las diferencias son sólo de dialecto:
  *  - `integer().primaryKey().generatedAlwaysAsIdentity()` en vez de `autoIncrement`.
- *  - `doublePrecision` (float8) para dinero — equivale al `real` de SQLite (también float8).
+ *  - El dinero es `integer` de centavos (igual que SQLite). `quantity` (kg) sí es float.
  *  - `active` sigue siendo `integer` 0/1 (no boolean) para no tocar la lógica de negocio.
  *  - timestamps: `integer` Unix en segundos, igual que en SQLite.
  *
@@ -35,7 +35,7 @@ export const categories = pgTable('categories', {
 export const products = pgTable('products', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
-  price: doublePrecision('price').notNull(),
+  price: integer('price').notNull(),
   unit: text('unit', { enum: ['PIEZA', 'KG'] })
     .notNull()
     .default('PIEZA'),
@@ -55,10 +55,10 @@ export const cashSessions = pgTable(
       .references(() => users.id),
     openedAt: integer('opened_at').notNull().default(now),
     closedAt: integer('closed_at'),
-    openingAmount: doublePrecision('opening_amount').notNull(),
-    closingAmount: doublePrecision('closing_amount'),
-    expectedAmount: doublePrecision('expected_amount'),
-    difference: doublePrecision('difference'),
+    openingAmount: integer('opening_amount').notNull(),
+    closingAmount: integer('closing_amount'),
+    expectedAmount: integer('expected_amount'),
+    difference: integer('difference'),
     status: text('status', { enum: ['OPEN', 'CLOSED'] })
       .notNull()
       .default('OPEN')
@@ -82,12 +82,12 @@ export const sales = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
-    total: doublePrecision('total').notNull(),
+    total: integer('total').notNull(),
     paymentMethod: text('payment_method', {
       enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT']
     }).notNull(),
-    amountPaid: doublePrecision('amount_paid'),
-    change: doublePrecision('change'),
+    amountPaid: integer('amount_paid'),
+    change: integer('change'),
     ticketNumber: integer('ticket_number').notNull(),
     customerId: integer('customer_id').references(() => customers.id),
     createdAt: integer('created_at').notNull().default(now)
@@ -112,13 +112,13 @@ export const saleItems = pgTable(
       .notNull()
       .references(() => products.id),
     name: text('name').notNull(),
-    price: doublePrecision('price').notNull(),
-    originalPrice: doublePrecision('original_price'),
+    price: integer('price').notNull(),
+    originalPrice: integer('original_price'),
     unit: text('unit', { enum: ['PIEZA', 'KG'] })
       .notNull()
       .default('PIEZA'),
     quantity: doublePrecision('quantity').notNull(),
-    subtotal: doublePrecision('subtotal').notNull()
+    subtotal: integer('subtotal').notNull()
   },
   (t) => [
     index('sale_items_sale_idx').on(t.saleId),
@@ -148,8 +148,8 @@ export const creditAccounts = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
-    total: doublePrecision('total').notNull(),
-    paid: doublePrecision('paid').notNull().default(0),
+    total: integer('total').notNull(),
+    paid: integer('paid').notNull().default(0),
     status: text('status', { enum: ['OPEN', 'PAID'] })
       .notNull()
       .default('OPEN'),
@@ -176,7 +176,7 @@ export const creditPayments = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
-    amount: doublePrecision('amount').notNull(),
+    amount: integer('amount').notNull(),
     paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
     createdAt: integer('created_at').notNull().default(now)
   },

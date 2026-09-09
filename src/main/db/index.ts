@@ -28,6 +28,8 @@ export interface DbHandle {
   db: DB
   /** Cierra la conexión subyacente. */
   close: () => Promise<void>
+  /** Ejecuta un PRAGMA a nivel de conexión (sólo SQLite; no-op en PostgreSQL). */
+  pragma?: (statement: string) => unknown
 }
 
 function isPglite(u: string): boolean {
@@ -80,7 +82,8 @@ export async function createDb(sqlitePath: string): Promise<DbHandle> {
     db: drizzle(sqlite, { schema }) as unknown as DB,
     close: async () => {
       sqlite.close()
-    }
+    },
+    pragma: (statement: string) => sqlite.pragma(statement)
   }
 }
 
@@ -98,7 +101,20 @@ export async function initDb(sqlitePath: string, migrationsFolder: string): Prom
   const handle = await createDb(sqlitePath)
 
   if (existsSync(migrationsFolder)) {
+    // Las migraciones de SQLite que reconstruyen tablas (cambio de tipo de columna)
+    // necesitan las FK desactivadas: `PRAGMA foreign_keys=OFF` DENTRO de una migración
+    // es no-op (va en transacción), así que se hace a nivel de conexión.
+    if (DIALECT === 'sqlite') handle.pragma?.('foreign_keys = OFF')
     await migrateFor(handle.db, migrationsFolder)
+    if (DIALECT === 'sqlite') {
+      const violations = handle.pragma?.('foreign_key_check')
+      if (Array.isArray(violations) && violations.length > 0) {
+        throw new Error(
+          `Migración dejó violaciones de clave foránea: ${JSON.stringify(violations)}`
+        )
+      }
+      handle.pragma?.('foreign_keys = ON')
+    }
   } else {
     console.warn(`[db] Carpeta de migraciones no encontrada: ${migrationsFolder}`)
   }

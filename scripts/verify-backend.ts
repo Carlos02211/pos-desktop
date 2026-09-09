@@ -800,6 +800,28 @@ async function main(): Promise<void> {
       `venta con precio editado por encima del catálogo -> 400 (status: ${ventaPrecioArriba.status})`
     )
 
+    // ---- Importes grandes / centavos: sin deriva de coma flotante ----
+    const costalRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Costal de papa',
+      price: 249.99,
+      categoryId: null
+    })
+    const costal = (await costalRes.json()) as ProductWithCategory
+    assert(
+      costal.price === 249.99,
+      `producto $249.99 se guarda y devuelve exacto (got ${costal.price})`
+    )
+    const ventaCostal = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: costal.id, quantity: 37 }],
+      paymentMethod: 'CASH',
+      amountPaid: 9250
+    })
+    const saleCostal = (await ventaCostal.json()) as CreateSaleResponse
+    assert(
+      saleCostal.total === 9249.63 && saleCostal.change === 0.37,
+      `venta 37 × $249.99 = $9249.63 exacto, cambio $0.37 (got ${saleCostal.total}/${saleCostal.change})`
+    )
+
     // ---- Idempotencia: el mismo clientRequestId no crea dos ventas ----
     const idemBody = {
       items: [{ productId: producto.id, quantity: 1 }],

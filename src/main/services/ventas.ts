@@ -1,15 +1,40 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
-import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../../shared/types'
+import type {
+  CreateSaleInput,
+  SaleItem,
+  SaleWithItems,
+  SalesPage,
+  SalesQuery
+} from '../../shared/types'
 import type { DB } from '../db'
-import type { SaleItemRow } from '../db/schema'
+import type { SaleItemRow, SaleRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
 import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
-import { round2, round3 } from '../lib/money'
+import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
 
 export interface SaleResult extends SaleWithItems {
   creditAccountId?: number
+}
+
+/** Pasa los importes de la fila de venta (centavos) a pesos para la API. */
+function saleMoneyToApi(sale: SaleRow): SaleRow {
+  return {
+    ...sale,
+    total: fromCents(sale.total),
+    amountPaid: sale.amountPaid == null ? null : fromCents(sale.amountPaid),
+    change: sale.change == null ? null : fromCents(sale.change)
+  }
+}
+
+function itemMoneyToApi(item: SaleItemRow): SaleItem {
+  return {
+    ...item,
+    price: fromCents(item.price),
+    originalPrice: item.originalPrice == null ? null : fromCents(item.originalPrice),
+    subtotal: fromCents(item.subtotal)
+  }
 }
 
 /**
@@ -21,6 +46,7 @@ export interface SaleResult extends SaleWithItems {
  *    momento (ej. descuento a un cliente frecuente) — en ese caso se guarda el precio de catálogo
  *    en `originalPrice` para dejar rastro de qué se cobró y qué costaba el producto.
  *  - `ticketNumber` es un folio secuencial por sesión de caja.
+ *  - Todo el cálculo de importes es en centavos enteros; se convierte a pesos al responder.
  */
 export async function createSale(
   db: DB,
@@ -59,7 +85,7 @@ export async function createSale(
     const rows = await tx.select().from(products).where(inArray(products.id, ids))
     const byId = new Map(rows.map((r) => [r.id, r]))
 
-    let total = 0
+    let totalCents = 0
     const lines = input.items.map((line) => {
       const product = byId.get(line.productId)
       if (!product || product.active !== 1) {
@@ -77,55 +103,56 @@ export async function createSale(
         }
         quantity = line.quantity
       }
-      let price = product.price
+      let priceCents = product.price
       if (line.price != null) {
         if (!Number.isFinite(line.price) || line.price <= 0) {
           throw new HttpError(400, `Precio inválido para "${product.name}".`)
         }
-        const edited = round2(line.price)
+        const editedCents = toCents(line.price)
         // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
         // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
-        if (edited > round2(product.price)) {
+        if (editedCents > product.price) {
           throw new HttpError(
             400,
             `El precio de "${product.name}" no puede superar el de catálogo.`
           )
         }
-        price = edited
+        priceCents = editedCents
       }
-      const subtotal = round2(price * quantity)
-      total = round2(total + subtotal)
+      const subtotalCents = lineCents(priceCents, quantity)
+      totalCents += subtotalCents
       return {
         productId: product.id,
         name: product.name,
-        price,
-        originalPrice: price < round2(product.price) ? round2(product.price) : null,
+        price: priceCents,
+        originalPrice: priceCents < product.price ? product.price : null,
         unit: product.unit,
         quantity,
-        subtotal
+        subtotal: subtotalCents
       }
     })
 
-    let amountPaid: number | null = null
-    let change: number | null = null
-    let creditAmount = 0
+    let amountPaidCents: number | null = null
+    let changeCents: number | null = null
+    let creditAmountCents = 0
     if (input.paymentMethod === 'CASH') {
-      if (input.amountPaid == null || input.amountPaid < total) {
+      const paidCents = input.amountPaid == null ? -1 : toCents(input.amountPaid)
+      if (paidCents < totalCents) {
         throw new HttpError(400, 'El monto recibido es menor al total.')
       }
-      amountPaid = round2(input.amountPaid)
-      change = round2(amountPaid - total)
+      amountPaidCents = paidCents
+      changeCents = paidCents - totalCents
     } else if (input.paymentMethod === 'CREDIT') {
       // Abono inicial (en efectivo) opcional: 0..total. El resto queda a deber.
-      const down = round2(Math.max(0, input.amountPaid ?? 0))
-      if (down >= total) {
+      const downCents = Math.max(0, toCents(input.amountPaid ?? 0))
+      if (downCents >= totalCents) {
         throw new HttpError(
           400,
           'El abono inicial cubre el total: cobra en efectivo, no a crédito.'
         )
       }
-      amountPaid = down || null
-      creditAmount = round2(total - down)
+      amountPaidCents = downCents || null
+      creditAmountCents = totalCents - downCents
     }
 
     const [last] = await tx
@@ -139,16 +166,16 @@ export async function createSale(
       .values({
         cashSessionId: session.id,
         userId,
-        total,
+        total: totalCents,
         paymentMethod: input.paymentMethod,
-        amountPaid,
-        change,
+        amountPaid: amountPaidCents,
+        change: changeCents,
         ticketNumber,
         customerId: input.customerId ?? null
       })
       .returning()
 
-    const items: SaleItemRow[] = await tx
+    const itemRows: SaleItemRow[] = await tx
       .insert(saleItems)
       .values(lines.map((line) => ({ saleId: sale.id, ...line })))
       .returning()
@@ -161,7 +188,7 @@ export async function createSale(
           saleId: sale.id,
           customerId: input.customerId!,
           userId,
-          total: creditAmount,
+          total: creditAmountCents,
           paid: 0,
           status: 'OPEN'
         })
@@ -175,7 +202,13 @@ export async function createSale(
       .where(eq(users.id, userId))
       .limit(1)
 
-    return { ...sale, items, userName: user?.username ?? '', customerName, creditAccountId }
+    return {
+      ...saleMoneyToApi(sale),
+      items: itemRows.map(itemMoneyToApi),
+      userName: user?.username ?? '',
+      customerName,
+      creditAccountId
+    }
   })
 }
 
@@ -210,7 +243,7 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
         change: sales.change,
         customerName: customers.name,
         createdAt: sales.createdAt,
-        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+        itemCount: sql<number>`(select coalesce(count(*), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
@@ -219,7 +252,13 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
       .orderBy(desc(sales.createdAt), desc(sales.id))
       .limit(pageSize)
       .offset((page - 1) * pageSize)
-  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
+  ).map((r) => ({
+    ...r,
+    total: fromCents(Number(r.total)),
+    amountPaid: r.amountPaid == null ? null : fromCents(Number(r.amountPaid)),
+    change: r.change == null ? null : fromCents(Number(r.change)),
+    itemCount: Number(r.itemCount)
+  }))
 
   return { rows, total: Number(total), page, pageSize }
 }
@@ -246,5 +285,10 @@ export async function getSaleWithItems(db: DB, saleId: number): Promise<SaleWith
     customerName = customer?.name ?? null
   }
 
-  return { ...sale, items, userName: user?.username ?? '', customerName }
+  return {
+    ...saleMoneyToApi(sale),
+    items: items.map(itemMoneyToApi),
+    userName: user?.username ?? '',
+    customerName
+  }
 }

@@ -9,7 +9,7 @@ import type {
 import type { DB } from '../db'
 import { saleItems, sales } from '../db/schema'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents } from '../lib/money'
 
 export interface ReportParams {
   fecha?: string // YYYY-MM-DD  (diario / inicio de semana)
@@ -53,6 +53,7 @@ function emptyBreakdown(): PaymentBreakdown {
   return { CASH: 0, CARD: 0, TRANSFER: 0 }
 }
 
+/** `rows[].total` en CENTAVOS; los buckets devueltos ya vienen en pesos. */
 function bucketsFor(
   type: ReportType,
   from: number,
@@ -66,28 +67,27 @@ function bucketsFor(
     for (const r of rows) {
       const key = pad2(new Date(r.createdAt * 1000).getHours())
       const b = map.get(key)!
-      b.total = round2(b.total + r.total)
+      b.total += r.total
       b.count += 1
     }
-    return [...map.values()]
-  }
-
-  // semanal / mensual: un tramo por día del rango
-  for (let t = from; t <= to; t += 86_400) {
-    const d = new Date(t * 1000)
-    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-    map.set(key, { label: key, total: 0, count: 0 })
-  }
-  for (const r of rows) {
-    const d = new Date(r.createdAt * 1000)
-    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-    const b = map.get(key)
-    if (b) {
-      b.total = round2(b.total + r.total)
-      b.count += 1
+  } else {
+    // semanal / mensual: un tramo por día del rango
+    for (let t = from; t <= to; t += 86_400) {
+      const d = new Date(t * 1000)
+      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+      map.set(key, { label: key, total: 0, count: 0 })
+    }
+    for (const r of rows) {
+      const d = new Date(r.createdAt * 1000)
+      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+      const b = map.get(key)
+      if (b) {
+        b.total += r.total
+        b.count += 1
+      }
     }
   }
-  return [...map.values()]
+  return [...map.values()].map((b) => ({ ...b, total: fromCents(b.total) }))
 }
 
 export async function buildReport(
@@ -103,16 +103,21 @@ export async function buildReport(
     .from(sales)
     .where(inPeriod)
 
-  const byPaymentMethod = emptyBreakdown()
-  let totalSales = 0
-  let creditExtended = 0
+  const centsByMethod = emptyBreakdown()
+  let totalCents = 0
+  let creditCents = 0
   for (const r of rows) {
-    totalSales = round2(totalSales + r.total)
+    totalCents += r.total
     if (r.paymentMethod === 'CREDIT') {
-      creditExtended = round2(creditExtended + r.total)
+      creditCents += r.total
     } else {
-      byPaymentMethod[r.paymentMethod] = round2(byPaymentMethod[r.paymentMethod] + r.total)
+      centsByMethod[r.paymentMethod] += r.total
     }
+  }
+  const byPaymentMethod: PaymentBreakdown = {
+    CASH: fromCents(centsByMethod.CASH),
+    CARD: fromCents(centsByMethod.CARD),
+    TRANSFER: fromCents(centsByMethod.TRANSFER)
   }
 
   const topProducts: TopProduct[] = (
@@ -127,18 +132,18 @@ export async function buildReport(
       .innerJoin(sales, eq(sales.id, saleItems.saleId))
       .where(inPeriod)
       .groupBy(saleItems.productId, saleItems.name)
-      .orderBy(desc(sql`sum(${saleItems.quantity})`))
+      .orderBy(desc(sql`sum(${saleItems.subtotal})`))
       .limit(5)
-  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: round2(Number(p.revenue)) }))
+  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: fromCents(Number(p.revenue)) }))
 
   return {
     type,
     from,
     to,
-    totalSales,
+    totalSales: fromCents(totalCents),
     totalTransactions: rows.length,
     byPaymentMethod,
-    creditExtended,
+    creditExtended: fromCents(creditCents),
     topProducts,
     buckets: bucketsFor(type, from, to, rows)
   }
@@ -164,11 +169,11 @@ export async function salesInPeriod(db: DB, from: number, to: number): Promise<R
         createdAt: sales.createdAt,
         userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
         paymentMethod: sales.paymentMethod,
-        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
+        itemCount: sql<number>`(select coalesce(count(*),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
         total: sales.total
       })
       .from(sales)
       .where(and(gte(sales.createdAt, from), lte(sales.createdAt, to)))
       .orderBy(sales.createdAt)
-  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
+  ).map((r) => ({ ...r, itemCount: Number(r.itemCount), total: fromCents(Number(r.total)) }))
 }

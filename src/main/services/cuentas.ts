@@ -10,7 +10,7 @@ import { creditAccounts, creditPayments, customers, sales, users } from '../db/s
 import type { DB } from '../db'
 import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
 import { getSaleWithItems } from './ventas'
 
@@ -27,8 +27,14 @@ const listColumns = {
   closedAt: creditAccounts.closedAt
 }
 
+/** `total`/`paid` vienen en centavos; salen en pesos junto con el `balance`. */
 function withBalance<T extends { total: number; paid: number }>(row: T): T & { balance: number } {
-  return { ...row, balance: round2(row.total - row.paid) }
+  return {
+    ...row,
+    total: fromCents(row.total),
+    paid: fromCents(row.paid),
+    balance: fromCents(row.total - row.paid)
+  }
 }
 
 /** Crea la cuenta por cobrar de una venta a crédito. Se llama dentro de la transacción de venta. */
@@ -50,7 +56,7 @@ export async function openCreditAccount(
       saleId: params.saleId,
       customerId: params.customerId,
       userId: params.userId,
-      total: round2(params.amount),
+      total: toCents(params.amount),
       paid: 0,
       status: 'OPEN'
     })
@@ -98,21 +104,23 @@ export async function getCreditAccountDetail(db: DB, id: number): Promise<Credit
     .limit(1)
   if (!head) throw new HttpError(404, 'Cuenta no encontrada.')
 
-  const payments = await db
-    .select({
-      id: creditPayments.id,
-      creditAccountId: creditPayments.creditAccountId,
-      cashSessionId: creditPayments.cashSessionId,
-      userId: creditPayments.userId,
-      userName: users.username,
-      amount: creditPayments.amount,
-      paymentMethod: creditPayments.paymentMethod,
-      createdAt: creditPayments.createdAt
-    })
-    .from(creditPayments)
-    .innerJoin(users, eq(users.id, creditPayments.userId))
-    .where(eq(creditPayments.creditAccountId, id))
-    .orderBy(creditPayments.createdAt)
+  const payments = (
+    await db
+      .select({
+        id: creditPayments.id,
+        creditAccountId: creditPayments.creditAccountId,
+        cashSessionId: creditPayments.cashSessionId,
+        userId: creditPayments.userId,
+        userName: users.username,
+        amount: creditPayments.amount,
+        paymentMethod: creditPayments.paymentMethod,
+        createdAt: creditPayments.createdAt
+      })
+      .from(creditPayments)
+      .innerJoin(users, eq(users.id, creditPayments.userId))
+      .where(eq(creditPayments.creditAccountId, id))
+      .orderBy(creditPayments.createdAt)
+  ).map((p) => ({ ...p, amount: fromCents(p.amount) }))
 
   return {
     ...withBalance(head),
@@ -147,27 +155,30 @@ export async function addAbono(
     if (!account) throw new HttpError(404, 'Cuenta no encontrada.')
     if (account.status === 'PAID') throw new HttpError(409, 'La cuenta ya está liquidada.')
 
-    const balance = round2(account.total - account.paid)
-    const amount = round2(input.amount)
-    if (amount <= 0) throw new HttpError(400, 'El abono debe ser mayor a cero.')
-    if (amount > balance) {
-      throw new HttpError(400, `El abono supera el saldo pendiente (${balance.toFixed(2)}).`)
+    const balanceCents = account.total - account.paid
+    const amountCents = toCents(input.amount)
+    if (amountCents <= 0) throw new HttpError(400, 'El abono debe ser mayor a cero.')
+    if (amountCents > balanceCents) {
+      throw new HttpError(
+        400,
+        `El abono supera el saldo pendiente (${fromCents(balanceCents).toFixed(2)}).`
+      )
     }
 
     await tx.insert(creditPayments).values({
       creditAccountId: accountId,
       cashSessionId: session.id,
       userId,
-      amount,
+      amount: amountCents,
       paymentMethod: input.paymentMethod
     })
 
-    const paid = round2(account.paid + amount)
-    const settled = paid >= account.total
+    const paidCents = account.paid + amountCents
+    const settled = paidCents >= account.total
     await tx
       .update(creditAccounts)
       .set({
-        paid,
+        paid: paidCents,
         status: settled ? 'PAID' : 'OPEN',
         closedAt: settled ? Math.floor(Date.now() / 1000) : null
       })
@@ -185,5 +196,5 @@ export async function totalReceivable(db: DB): Promise<number> {
     })
     .from(creditAccounts)
     .where(eq(creditAccounts.status, 'OPEN'))
-  return round2(Number(row.balance))
+  return fromCents(Number(row.balance))
 }

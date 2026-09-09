@@ -10,7 +10,8 @@ import {
   getActiveSession,
   getSessionSummary,
   listSessions,
-  openSession
+  openSession,
+  sessionToApi
 } from '../services/caja'
 import { getConfigMap } from '../services/config'
 
@@ -30,7 +31,8 @@ const historyQuerySchema = z.object({
 
 export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/sesion-activa', { preHandler: requireRole('COBRADOR') }, async (request) => {
-    return (await getActiveSession(getDb(), request.authUser!.id)) ?? null
+    const s = await getActiveSession(getDb(), request.authUser!.id)
+    return s ? sessionToApi(s) : null
   })
 
   app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
@@ -53,7 +55,7 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
         userId: request.authUser!.id,
         openingAmount
       })
-      return reply.code(201).send(session)
+      return reply.code(201).send(sessionToApi(session))
     }
   )
 

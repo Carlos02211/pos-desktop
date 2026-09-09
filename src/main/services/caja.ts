@@ -6,9 +6,20 @@ import type { DB } from '../db'
 import { withTx, lockRow } from '../db/tx'
 import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents, toCents } from '../lib/money'
 
-/** Sesión de caja abierta del usuario, o `undefined`. */
+/** Importes de una sesión de caja (centavos) → pesos, para la API. */
+export function sessionToApi(row: CashSessionRow): CashSessionRow {
+  return {
+    ...row,
+    openingAmount: fromCents(row.openingAmount),
+    closingAmount: row.closingAmount == null ? null : fromCents(row.closingAmount),
+    expectedAmount: row.expectedAmount == null ? null : fromCents(row.expectedAmount),
+    difference: row.difference == null ? null : fromCents(row.difference)
+  }
+}
+
+/** Sesión de caja abierta del usuario, o `undefined`. Importes en CENTAVOS (uso interno). */
 export async function getActiveSession(
   db: DB,
   userId: number
@@ -40,7 +51,7 @@ export async function openSession(
   try {
     const [row] = await db
       .insert(cashSessions)
-      .values({ userId, openingAmount, status: 'OPEN' })
+      .values({ userId, openingAmount: toCents(openingAmount), status: 'OPEN' })
       .returning()
     return row
   } catch (err) {
@@ -86,33 +97,36 @@ async function totalsFor(db: DB, cashSessionId: number): Promise<SessionTotals> 
     .from(creditPayments)
     .where(eq(creditPayments.cashSessionId, cashSessionId))
 
+  // Todas las columnas sumadas son centavos enteros → la suma es exacta.
   return {
     salesCount: Number(s.salesCount),
-    totalAll: round2(Number(s.totalAll)),
-    totalCash: round2(Number(s.totalCash)),
-    totalCard: round2(Number(s.totalCard)),
-    totalTransfer: round2(Number(s.totalTransfer)),
-    totalCredit: round2(Number(s.totalCredit)),
-    creditDownCash: round2(Number(s.creditDownCash)),
-    abonosCash: round2(Number(abono.abonosCash))
+    totalAll: Number(s.totalAll),
+    totalCash: Number(s.totalCash),
+    totalCard: Number(s.totalCard),
+    totalTransfer: Number(s.totalTransfer),
+    totalCredit: Number(s.totalCredit),
+    creditDownCash: Number(s.creditDownCash),
+    abonosCash: Number(abono.abonosCash)
   }
 }
 
-function expectedCashFor(openingAmount: number, t: SessionTotals): number {
-  return round2(openingAmount + t.totalCash + t.creditDownCash + t.abonosCash)
+/** Efectivo esperado en caja, en CENTAVOS. */
+function expectedCashCentsFor(openingAmountCents: number, t: SessionTotals): number {
+  return openingAmountCents + t.totalCash + t.creditDownCash + t.abonosCash
 }
 
+/** `t` y `session` vienen en centavos; el resumen sale en pesos para la API. */
 function toSummary(session: CashSessionRow, t: SessionTotals): CashSessionSummary {
   return {
-    session,
+    session: sessionToApi(session),
     salesCount: t.salesCount,
-    totalAll: t.totalAll,
-    totalCash: t.totalCash,
-    totalCard: t.totalCard,
-    totalTransfer: t.totalTransfer,
-    totalCredit: t.totalCredit,
-    abonosCash: t.abonosCash,
-    expectedCash: expectedCashFor(session.openingAmount, t)
+    totalAll: fromCents(t.totalAll),
+    totalCash: fromCents(t.totalCash),
+    totalCard: fromCents(t.totalCard),
+    totalTransfer: fromCents(t.totalTransfer),
+    totalCredit: fromCents(t.totalCredit),
+    abonosCash: fromCents(t.abonosCash),
+    expectedCash: fromCents(expectedCashCentsFor(session.openingAmount, t))
   }
 }
 
@@ -147,22 +161,22 @@ export async function closeSession(
     await lockRow(tx, 'cash_sessions', session.id)
 
     const t = await totalsFor(tx, session.id)
-    const expectedCash = expectedCashFor(session.openingAmount, t)
-    const difference = round2(closingAmount - expectedCash)
+    const expectedCashCents = expectedCashCentsFor(session.openingAmount, t)
+    const closingCents = toCents(closingAmount)
 
     const [updated] = await tx
       .update(cashSessions)
       .set({
         status: 'CLOSED',
         closedAt: Math.floor(Date.now() / 1000),
-        closingAmount: round2(closingAmount),
-        expectedAmount: expectedCash,
-        difference
+        closingAmount: closingCents,
+        expectedAmount: expectedCashCents,
+        difference: closingCents - expectedCashCents
       })
       .where(eq(cashSessions.id, session.id))
       .returning()
 
-    return { session: updated, summary: toSummary(updated, t) }
+    return { session: sessionToApi(updated), summary: toSummary(updated, t) }
   })
 }
 
@@ -178,7 +192,7 @@ export async function listSessions(
   ].filter(Boolean)
   const where = conditions.length ? and(...conditions) : undefined
 
-  return db
+  const rows = await db
     .select({
       id: cashSessions.id,
       userId: cashSessions.userId,
@@ -195,4 +209,12 @@ export async function listSessions(
     .innerJoin(users, eq(users.id, cashSessions.userId))
     .where(where)
     .orderBy(desc(cashSessions.openedAt), desc(cashSessions.id))
+
+  return rows.map((r) => ({
+    ...r,
+    openingAmount: fromCents(r.openingAmount),
+    closingAmount: r.closingAmount == null ? null : fromCents(r.closingAmount),
+    expectedAmount: r.expectedAmount == null ? null : fromCents(r.expectedAmount),
+    difference: r.difference == null ? null : fromCents(r.difference)
+  }))
 }

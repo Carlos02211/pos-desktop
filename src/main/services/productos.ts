@@ -4,7 +4,12 @@ import type { ProductRow } from '../db/schema'
 import { categories, products } from '../db/schema'
 import type { DB } from '../db'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents, toCents } from '../lib/money'
+
+/** Fila de producto con el precio ya en pesos, lista para la API. */
+function toApi<T extends { price: number }>(row: T): T {
+  return { ...row, price: fromCents(row.price) }
+}
 
 const selection = {
   id: products.id,
@@ -29,17 +34,18 @@ export async function listProducts(
     .from(products)
     .leftJoin(categories, eq(products.categoryId, categories.id))
   const rows = includeInactive ? await base : await base.where(eq(products.active, 1))
-  return rows.sort((a, b) => a.name.localeCompare(b.name))
+  return rows.sort((a, b) => a.name.localeCompare(b.name)).map(toApi)
 }
 
 /** Compat: usado por el panel del cobrador (Sprint 2). */
 export async function listActiveProducts(db: DB): Promise<ProductWithCategory[]> {
-  return db
+  const rows = await db
     .select(selection)
     .from(products)
     .leftJoin(categories, eq(products.categoryId, categories.id))
     .where(eq(products.active, 1))
     .orderBy(asc(products.name))
+  return rows.map(toApi)
 }
 
 export async function getProduct(db: DB, id: number): Promise<ProductRow> {
@@ -62,7 +68,7 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
     .insert(products)
     .values({
       name: input.name.trim(),
-      price: round2(input.price),
+      price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       active: input.active === false ? 0 : 1,
@@ -70,7 +76,7 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
       updatedAt: now
     })
     .returning()
-  return row
+  return toApi(row)
 }
 
 export async function updateProduct(db: DB, id: number, input: ProductInput): Promise<ProductRow> {
@@ -82,7 +88,7 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
     .update(products)
     .set({
       name: input.name.trim(),
-      price: round2(input.price),
+      price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       active: input.active === false ? 0 : 1,
@@ -90,7 +96,7 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
     })
     .where(eq(products.id, id))
     .returning()
-  return row
+  return toApi(row)
 }
 
 /** Soft delete: nunca se borra un producto (el historial de ventas lo referencia). */
@@ -113,5 +119,5 @@ export async function setProductImage(
     .set({ imagePath: relativePath, updatedAt: Math.floor(Date.now() / 1000) })
     .where(eq(products.id, id))
     .returning()
-  return row
+  return toApi(row)
 }

@@ -83,9 +83,10 @@ export async function runSeed(db: DB, opts: SeedOptions = {}): Promise<void> {
       ])
 
       const [cat] = await db.insert(categories).values({ name: 'General' }).returning()
+      // price en centavos: $25.00
       await db
         .insert(products)
-        .values({ name: 'Producto de prueba', price: 25, categoryId: cat.id })
+        .values({ name: 'Producto de prueba', price: 2500, categoryId: cat.id })
       await db.insert(customers).values({ name: 'Cliente de prueba', phone: '' })
 
       console.log('[seed] Datos iniciales creados — admin/admin123 · cajero/cajero123')
