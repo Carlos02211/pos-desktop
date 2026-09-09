@@ -5,7 +5,13 @@ archivo documenta los pasos **tal como pasaron de verdad** en una VM de prueba (
 con los errores concretos que salieron y cómo se resolvieron — para no repetirlos en la PC
 real del cliente.
 
-**Estado: Día 1 y Día 2 completos y verificados. Día 3 en adelante, pendiente — retomar ahí.**
+**Estado: Día 1 y Día 2 completos y verificados. Día 3 en adelante (sección 6), pendiente — retomar ahí.**
+
+> **Cambios de la auditoría 2026-09-09 que afectan la instalación** (ver
+> [`docs/auditoria-2026-09-09.md`](auditoria-2026-09-09.md)): el servidor ahora **exige**
+> `DATABASE_URL` (PostgreSQL real) y `POS_VENDOR_SECRET` propio, o no arranca; no siembra el
+> `cajero` de prueba; la contraseña de `admin` se genera al azar; el Socket.io exige JWT;
+> HTTPS opcional; los importes se guardan en centavos. Todo esto está reflejado abajo.
 
 ---
 
@@ -113,13 +119,16 @@ falla acá, revisar el paso 0 antes que nada — casi siempre es Python o el wor
 
 ## 5. Migraciones de PostgreSQL
 
-```powershell
-$env:DATABASE_URL = "postgres://pos:una-clave-larga@localhost:5432/pos"
-pnpm db:generate:pg
-```
+**No correr `pnpm db:generate:pg` en el servidor.** Las migraciones ya vienen generadas en
+`resources/migrations-pg/` (y en `dist-server/` cuando se hace `pnpm build:server`). El
+servidor las aplica solo al arrancar (`initDb`), y el script de migración de datos también.
 
-(No hace falta si `resources/migrations-pg/` ya viene generado en el código que arrastraste —
-sólo confirma que no hay cambios de esquema pendientes.)
+Si sólo querés confirmar que el esquema del código coincide con lo generado, en la máquina de
+desarrollo: `pnpm db:generate:pg` no debería crear ningún archivo nuevo.
+
+> La migración `0005-pg` convierte los importes de coma flotante a enteros de centavos con
+> `ALTER COLUMN … USING round(x * 100)`. Se aplica sobre tablas vacías en un despliegue nuevo;
+> sobre datos existentes convierte los valores. No hay acción manual.
 
 ---
 
@@ -154,15 +163,89 @@ Con todo esto, las ~145 comprobaciones deberían pasar en verde contra el Postgr
 
 ---
 
-## Pendiente (retomar con "sigamos" o "seguimos")
+## 6. Servidor standalone (Día 3) — pendiente de probar en VM
 
-Seguir con el **Día 3** de [`docs/fase-2-migracion.md`](fase-2-migracion.md):
-`pnpm build:server` (en la máquina de desarrollo) → arrastrar `dist-server/` a
-`C:\pos-server` en la máquina servidor → configurar `.env` (`DATABASE_URL`,
-`POS_VENDOR_SECRET` real) → `npm install --omit=dev` → `npm install -g pm2` →
-`pm2 start ecosystem.config.cjs` → `pm2 save` → `pm2-installer` (servicio de Windows).
-Después Día 4 (red/firewall) y Día 5 (QA multicajero).
+En la máquina de desarrollo:
 
-Recordar: el servidor de Fase 2 sirve la misma SPA, así que también va a pedir **activar
-licencia** la primera vez — con el fingerprint de la PC servidor, generando la clave con
-`pnpm license:gen` y el mismo `POS_VENDOR_SECRET` real.
+```bash
+pnpm build:server        # genera dist-server/ (ya incluye resources/migrations-pg)
+```
+
+Arrastrar `dist-server/` a `C:\pos-server` en la máquina servidor.
+
+```powershell
+cd C:\pos-server
+copy .env.example .env
+npm install --omit=dev
+npm install -g pm2
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+### `.env` — el servidor ABORTA el arranque si falta algo (validación nueva)
+
+```ini
+PORT=3000
+HOST=0.0.0.0
+DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos   # obligatorio, no pglite://
+POS_DATA_DIR=C:\pos-server\data
+POS_VENDOR_SECRET=<secreto-real-de openssl rand -base64 32>       # obligatorio, no el de ejemplo
+# POS_ADMIN_PASSWORD=<mín. 8 chars>   # opcional; si se omite se genera al azar
+```
+
+**Errores de arranque esperados si el `.env` está mal** (aparecen en `pm2 logs pos-server`):
+
+```
+❌ El servidor no puede arrancar en producción:
+   - DATABASE_URL no está definida. La Fase 2 requiere PostgreSQL ...
+   - POS_VENDOR_SECRET no configurado, o es un valor público/de ejemplo conocido ...
+```
+
+(para una prueba local rápida se puede forzar el arranque con `POS_ALLOW_INSECURE=1`, que
+además siembra un `cajero` de prueba — **nunca en la PC del cliente**).
+
+### Contraseña de `admin` en el primer arranque
+
+Si no se puso `POS_ADMIN_PASSWORD`, el servidor la genera al azar y la imprime **una sola
+vez**. Recuperarla:
+
+```powershell
+pm2 logs pos-server --lines 50
+```
+
+Buscar el bloque `POS SpArTaN Tech — usuario administrador inicial`. Ya no se crea el usuario
+`cajero / cajero123` en producción.
+
+### Rotación de logs de pm2
+
+```powershell
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 14
+pm2 set pm2-logrotate:compress true
+```
+
+### Servicio de Windows
+
+```powershell
+npm install pm2-installer --no-save
+npm run configure
+npm run setup
+```
+
+Después: **Día 4** (IP fija, firewall del puerto 3000, y TLS opcional con `mkcert` +
+`POS_TLS_KEY`/`POS_TLS_CERT` — ver [`fase-2-migracion.md`](fase-2-migracion.md)) y **Día 5**
+(QA multicajero: folios únicos, socket autenticado, cierres de caja al centavo).
+
+### Licencia en el servidor
+
+El servidor de Fase 2 sirve la misma SPA, así que también pide **activar licencia** la
+primera vez — con el fingerprint de la PC servidor, generando la clave con
+`pnpm license:gen` y el **mismo `POS_VENDOR_SECRET` real** del `.env`. La activación está
+limitada a 5 intentos fallidos por minuto y por IP.
+
+### Respaldo de PostgreSQL
+
+Programar `backup-pg.ps1` (script completo con timestamp ISO, verificación y retención en
+[`fase-2-migracion.md`](fase-2-migracion.md) → "Respaldo de PostgreSQL"). El `pg_dump` con
+`%DATE%` del runbook viejo no sirve (locale de Windows).

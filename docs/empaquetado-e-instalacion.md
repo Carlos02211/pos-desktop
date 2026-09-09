@@ -5,14 +5,25 @@
 El instalador NSIS **debe generarse en Windows** (o en CI de Windows). electron-builder
 no puede crear el `.exe` desde Linux/macOS sin Wine.
 
-En un equipo Windows 10/11 x64 con Node 20+ y pnpm:
+En un equipo Windows 10/11 x64 con Node **22** y pnpm:
 
 ```powershell
+$env:POS_VENDOR_SECRET = "<el secreto real del proveedor>"   # obligatorio
 pnpm install
-pnpm build:win        # = pnpm build && electron-builder --win
+pnpm build:win        # = check-vendor-secret + pnpm build + electron-builder --win
 ```
 
+`build:win` **corta el build** (`scripts/check-vendor-secret.ts`) si `POS_VENDOR_SECRET`
+no está, es corto, o es un valor de ejemplo/filtrado conocido — así ningún `.exe` de
+producción sale firmado con el secreto de desarrollo. El valor se congela dentro del bundle
+al compilar (`electron.vite.config.ts`).
+
 Salida: `dist-electron/pos-spartan-tech-<versión>-setup.exe`
+
+> El `.exe` **no está firmado con certificado** (decisión de coste para negocios chicos):
+> SmartScreen mostrará una advertencia la primera vez. "Más información" → "Ejecutar de
+> todas formas". Publicar el hash SHA-256 del `.exe` junto al instalador para que el cliente
+> pueda verificarlo.
 
 Validación multiplataforma (sin generar el `.exe`, sirve para revisar el empaquetado):
 
