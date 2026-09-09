@@ -69,7 +69,12 @@ async function main(): Promise<void> {
     const db = await initDb(dbPath, MIGRATIONS)
     await runSeed(db)
 
-    assert(true, `motor de base de datos: ${PG ? 'PostgreSQL (PGlite)' : 'SQLite'}`)
+    const engineLabel = !PG
+      ? 'SQLite'
+      : process.env.DATABASE_URL!.startsWith('pglite://')
+        ? 'PostgreSQL (PGlite embebido)'
+        : 'PostgreSQL (real)'
+    assert(true, `motor de base de datos: ${engineLabel}`)
 
     // ---- Sprint 0: seed ----
     const [{ n: userCount }] = await db.select({ n: count() }).from(users)
@@ -743,6 +748,128 @@ async function main(): Promise<void> {
     assert(
       (await asCajero('/api/clientes/' + juan.id, 'DELETE')).status === 403,
       'clientes: el cobrador no puede desactivar (403)'
+    )
+
+    // ---- Edición de precio en el momento de la venta (descuento a cliente) ----
+    const ventaDescuento = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 20 }],
+      paymentMethod: 'CASH',
+      amountPaid: 20
+    })
+    assert(
+      ventaDescuento.status === 201,
+      `venta con precio editado -> 201 (status: ${ventaDescuento.status})`
+    )
+    const saleDescuento = (await ventaDescuento.json()) as CreateSaleResponse
+    assert(
+      saleDescuento.total === 20 &&
+        saleDescuento.items[0].price === 20 &&
+        saleDescuento.items[0].originalPrice === 25 &&
+        saleDescuento.items[0].subtotal === 20,
+      `venta con precio editado: cobra $20, guarda precio original $25 (got ${JSON.stringify(saleDescuento.items[0])})`
+    )
+
+    const ventaSinEditar = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleSinEditar = (await ventaSinEditar.json()) as CreateSaleResponse
+    assert(
+      saleSinEditar.items[0].originalPrice === null,
+      'venta sin editar: originalPrice queda en null'
+    )
+
+    const ventaPrecioInvalido = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 0 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    assert(
+      ventaPrecioInvalido.status === 400,
+      `venta con precio editado inválido (0) -> 400 (status: ${ventaPrecioInvalido.status})`
+    )
+
+    // ---- Productos por peso (KG) — cantidades fraccionarias en gramos ----
+    const papaRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Papa',
+      price: 12,
+      unit: 'KG',
+      categoryId: null
+    })
+    assert(papaRes.status === 201, `crear producto por kg -> 201 (status: ${papaRes.status})`)
+    const papa = (await papaRes.json()) as ProductWithCategory
+    assert(papa.unit === 'KG', 'producto: unit KG se guarda')
+
+    const ventaPapa = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: papa.id, quantity: 0.35 }],
+      paymentMethod: 'CASH',
+      amountPaid: 5
+    })
+    assert(ventaPapa.status === 201, `venta por peso (350g) -> 201 (status: ${ventaPapa.status})`)
+    const salePapa = (await ventaPapa.json()) as CreateSaleResponse
+    assert(
+      salePapa.items[0].unit === 'KG' &&
+        salePapa.items[0].quantity === 0.35 &&
+        salePapa.items[0].subtotal === 4.2,
+      `venta por peso: 0.35 kg × $12 = $4.20 (got ${JSON.stringify(salePapa.items[0])})`
+    )
+
+    const ventaPapaEntera = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1.5 }],
+      paymentMethod: 'CASH',
+      amountPaid: 40
+    })
+    assert(
+      ventaPapaEntera.status === 400,
+      `venta con cantidad fraccionaria para producto por pieza -> 400 (status: ${ventaPapaEntera.status})`
+    )
+
+    // ---- Cliente asociado a cualquier venta (no sólo fiado) ----
+    const ventaConCliente = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25,
+      customerId: juan.id
+    })
+    assert(
+      ventaConCliente.status === 201,
+      `venta en efectivo con cliente -> 201 (status: ${ventaConCliente.status})`
+    )
+    const saleConCliente = (await ventaConCliente.json()) as CreateSaleResponse
+    assert(
+      saleConCliente.customerId === juan.id && saleConCliente.customerName === 'Juan Pérez',
+      `venta: guarda cliente y resuelve su nombre (got ${saleConCliente.customerId}/${saleConCliente.customerName})`
+    )
+
+    const ventaSinCliente = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleSinCliente = (await ventaSinCliente.json()) as CreateSaleResponse
+    assert(
+      saleSinCliente.customerId === null && saleSinCliente.customerName === null,
+      'venta: sin cliente, customerId/customerName quedan en null'
+    )
+
+    const ventaClienteInvalido = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25,
+      customerId: 999999
+    })
+    assert(
+      ventaClienteInvalido.status === 400,
+      `venta con cliente inexistente -> 400 (status: ${ventaClienteInvalido.status})`
+    )
+
+    const ventasConClienteHist = (await (
+      await asAdmin(`/api/ventas?userId=${cajeroToken.user.id}`)
+    ).json()) as SalesPage
+    assert(
+      ventasConClienteHist.rows.some((r) => r.customerName === 'Juan Pérez'),
+      'historial de ventas: expone customerName cuando la venta tiene cliente'
     )
 
     console.log(

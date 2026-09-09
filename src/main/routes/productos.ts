@@ -23,6 +23,7 @@ import {
 const productSchema = z.object({
   name: z.string().min(1).max(120),
   price: z.number().nonnegative().max(1_000_000),
+  unit: z.enum(['PIEZA', 'KG']).optional(),
   categoryId: z.number().int().positive().nullable(),
   active: z.boolean().optional()
 })

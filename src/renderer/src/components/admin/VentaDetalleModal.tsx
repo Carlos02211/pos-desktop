@@ -5,7 +5,7 @@ import type { SaleWithItems } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { getVentaDetalle, reimprimirTicket } from '@/api/admin'
 import { Modal } from '@/components/Modal'
-import { dateTime, money, paymentLabel } from '@/lib/format'
+import { dateTime, formatQty, money, paymentLabel } from '@/lib/format'
 
 export function VentaDetalleModal({
   saleId,
@@ -51,6 +51,12 @@ export function VentaDetalleModal({
             <span>{dateTime(sale.createdAt)}</span>
             <span>{sale.userName}</span>
           </div>
+          {sale.customerName && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Cliente</span>
+              <span className="font-medium text-foreground">{sale.customerName}</span>
+            </div>
+          )}
 
           <div className="rounded-lg border border-border">
             <table className="w-full">
@@ -58,7 +64,12 @@ export function VentaDetalleModal({
                 {sale.items.map((it) => (
                   <tr key={it.id} className="border-b border-border last:border-0">
                     <td className="px-3 py-1.5">
-                      {it.quantity} × {it.name}
+                      {formatQty(it.quantity, it.unit)} × {it.name}
+                      {it.originalPrice != null && (
+                        <span className="ml-1.5 text-xs font-medium text-pos-success">
+                          precio editado ({money(it.originalPrice)} → {money(it.price)})
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right">{money(it.subtotal)}</td>
                   </tr>

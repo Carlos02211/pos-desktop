@@ -36,6 +36,9 @@ export const products = pgTable('products', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
   price: doublePrecision('price').notNull(),
+  unit: text('unit', { enum: ['PIEZA', 'KG'] })
+    .notNull()
+    .default('PIEZA'),
   categoryId: integer('category_id').references(() => categories.id),
   imagePath: text('image_path'),
   active: integer('active').notNull().default(1),
@@ -74,6 +77,7 @@ export const sales = pgTable('sales', {
   amountPaid: doublePrecision('amount_paid'),
   change: doublePrecision('change'),
   ticketNumber: integer('ticket_number').notNull(),
+  customerId: integer('customer_id').references(() => customers.id),
   createdAt: integer('created_at').notNull().default(now)
 })
 
@@ -87,7 +91,11 @@ export const saleItems = pgTable('sale_items', {
     .references(() => products.id),
   name: text('name').notNull(),
   price: doublePrecision('price').notNull(),
-  quantity: integer('quantity').notNull(),
+  originalPrice: doublePrecision('original_price'),
+  unit: text('unit', { enum: ['PIEZA', 'KG'] })
+    .notNull()
+    .default('PIEZA'),
+  quantity: doublePrecision('quantity').notNull(),
   subtotal: doublePrecision('subtotal').notNull()
 })
 

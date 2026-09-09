@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { DashboardData, OpenSessionInfo, SaleListItem } from '../../shared/types'
 import type { DB } from '../db'
-import { cashSessions, saleItems, sales, users } from '../db/schema'
+import { cashSessions, customers, saleItems, sales, users } from '../db/schema'
 import { round2 } from '../lib/money'
 import { totalReceivable } from './cuentas'
 
@@ -49,11 +49,13 @@ export async function getDashboard(db: DB): Promise<DashboardData> {
         paymentMethod: sales.paymentMethod,
         amountPaid: sales.amountPaid,
         change: sales.change,
+        customerName: customers.name,
         createdAt: sales.createdAt,
         itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
+      .leftJoin(customers, eq(customers.id, sales.customerId))
       .orderBy(desc(sales.createdAt), desc(sales.id))
       .limit(5)
   ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))

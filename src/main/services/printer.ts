@@ -14,6 +14,12 @@ function fmtMoney(n: number, symbol: string): string {
   return `${symbol}${n.toFixed(2)}`
 }
 
+/** Cantidad legible en el ticket: piezas enteras tal cual, kg en gramos si es menos de 1 kg. */
+function fmtQty(quantity: number, unit: 'PIEZA' | 'KG'): string {
+  if (unit !== 'KG') return String(quantity)
+  return quantity < 1 ? `${Math.round(quantity * 1000)}g` : `${quantity.toFixed(3)}kg`
+}
+
 /** Ticket en texto plano — puro y testeable, sin dependencia de la impresora. */
 export function buildTicketLines(sale: SaleWithItems, config: ConfigMap): string[] {
   const symbol = config.currency_symbol || '$'
@@ -26,10 +32,11 @@ export function buildTicketLines(sale: SaleWithItems, config: ConfigMap): string
   lines.push(`Ticket #${sale.ticketNumber}`)
   lines.push(`Fecha: ${new Date(sale.createdAt * 1000).toLocaleString('es-MX')}`)
   lines.push(`Cobrador: ${sale.userName}`)
+  if (sale.customerName) lines.push(`Cliente: ${sale.customerName}`)
   lines.push('-'.repeat(32))
 
   for (const item of sale.items) {
-    lines.push(`${item.quantity} x ${item.name}`)
+    lines.push(`${fmtQty(item.quantity, item.unit)} x ${item.name}`)
     lines.push(`${' '.repeat(10)}${fmtMoney(item.subtotal, symbol).padStart(22)}`)
   }
 

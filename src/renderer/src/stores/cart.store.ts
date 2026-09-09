@@ -1,17 +1,22 @@
 import { create } from 'zustand'
-import type { ProductWithCategory } from '@shared/types'
+import type { ProductUnit, ProductWithCategory } from '@shared/types'
 
 export interface CartItem {
   productId: number
   name: string
   price: number
+  /** Precio de catálogo, para saber si `price` fue editado y poder restaurarlo. */
+  originalPrice: number
+  /** PIEZA = cantidad entera. KG = cantidad en kg, editable en gramos. */
+  unit: ProductUnit
   quantity: number
 }
 
 interface CartState {
   items: CartItem[]
-  addItem: (product: Pick<ProductWithCategory, 'id' | 'name' | 'price'>) => void
+  addItem: (product: Pick<ProductWithCategory, 'id' | 'name' | 'price' | 'unit'>) => void
   setQty: (productId: number, quantity: number) => void
+  setPrice: (productId: number, price: number) => void
   removeItem: (productId: number) => void
   clear: () => void
 }
@@ -32,7 +37,14 @@ export const useCartStore = create<CartState>((set) => ({
       return {
         items: [
           ...state.items,
-          { productId: product.id, name: product.name, price: product.price, quantity: 1 }
+          {
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            originalPrice: product.price,
+            unit: product.unit,
+            quantity: 1
+          }
         ]
       }
     }),
@@ -43,6 +55,11 @@ export const useCartStore = create<CartState>((set) => ({
         quantity <= 0
           ? state.items.filter((i) => i.productId !== productId)
           : state.items.map((i) => (i.productId === productId ? { ...i, quantity } : i))
+    })),
+
+  setPrice: (productId, price) =>
+    set((state) => ({
+      items: state.items.map((i) => (i.productId === productId && price > 0 ? { ...i, price } : i))
     })),
 
   removeItem: (productId) =>

@@ -10,6 +10,7 @@ const selection = {
   id: products.id,
   name: products.name,
   price: products.price,
+  unit: products.unit,
   categoryId: products.categoryId,
   imagePath: products.imagePath,
   active: products.active,
@@ -62,6 +63,7 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
     .values({
       name: input.name.trim(),
       price: round2(input.price),
+      unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       active: input.active === false ? 0 : 1,
       createdAt: now,
@@ -81,6 +83,7 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
     .set({
       name: input.name.trim(),
       price: round2(input.price),
+      unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       active: input.active === false ? 0 : 1,
       updatedAt: Math.floor(Date.now() / 1000)

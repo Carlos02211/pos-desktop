@@ -23,7 +23,10 @@ const createSaleSchema = z.object({
     .array(
       z.object({
         productId: z.number().int().positive(),
-        quantity: z.number().int().positive().max(999)
+        // Entera para productos PIEZA, decimal (kg) para productos KG — validado en el servicio,
+        // que es quien conoce la unidad del producto.
+        quantity: z.number().positive().max(999),
+        price: z.number().positive().max(1_000_000).optional()
       })
     )
     .min(1),

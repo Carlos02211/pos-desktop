@@ -19,14 +19,6 @@ export function crearCliente(input: CustomerInput): Promise<Customer> {
   return api.post<Customer>('/api/clientes', input)
 }
 
-export function actualizarCliente(id: number, input: CustomerInput): Promise<Customer> {
-  return api.put<Customer>(`/api/clientes/${id}`, input)
-}
-
-export function desactivarCliente(id: number): Promise<void> {
-  return api.delete<void>(`/api/clientes/${id}`)
-}
-
 /* ---- Cuentas por cobrar ---- */
 
 export function listCuentas(query: CreditQuery = {}): Promise<CreditAccountListItem[]> {

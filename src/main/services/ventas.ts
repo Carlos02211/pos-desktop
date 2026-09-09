@@ -5,7 +5,7 @@ import type { SaleItemRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
 import { withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { round2, round3 } from '../lib/money'
 import { getActiveSession } from './caja'
 
 export interface SaleResult extends SaleWithItems {
@@ -17,7 +17,9 @@ export interface SaleResult extends SaleWithItems {
  *
  * Reglas de desarrollo aplicadas:
  *  - No se puede vender sin caja abierta.
- *  - El precio y el nombre se toman de la BD (snapshot en `sale_items`), nunca del cliente.
+ *  - El nombre siempre se toma de la BD. El precio también, salvo que el cajero lo edite en el
+ *    momento (ej. descuento a un cliente frecuente) — en ese caso se guarda el precio de catálogo
+ *    en `originalPrice` para dejar rastro de qué se cobró y qué costaba el producto.
  *  - `ticketNumber` es un folio secuencial por sesión de caja.
  */
 export async function createSale(
@@ -32,10 +34,11 @@ export async function createSale(
   if (input.items.length === 0) {
     throw new HttpError(400, 'La venta no tiene productos.')
   }
-  if (input.paymentMethod === 'CREDIT') {
-    if (input.customerId == null) {
-      throw new HttpError(400, 'Elige a qué cliente se le fía.')
-    }
+  if (input.paymentMethod === 'CREDIT' && input.customerId == null) {
+    throw new HttpError(400, 'Elige a qué cliente se le fía.')
+  }
+  let customerName: string | null = null
+  if (input.customerId != null) {
     const [customer] = await db
       .select()
       .from(customers)
@@ -44,6 +47,7 @@ export async function createSale(
     if (!customer || customer.active !== 1) {
       throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
     }
+    customerName = customer.name
   }
 
   return withTx(db, async (tx) => {
@@ -57,16 +61,34 @@ export async function createSale(
       if (!product || product.active !== 1) {
         throw new HttpError(400, `Producto no disponible (id ${line.productId}).`)
       }
-      if (!Number.isInteger(line.quantity) || line.quantity < 1) {
-        throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+      let quantity: number
+      if (product.unit === 'KG') {
+        if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+        }
+        quantity = round3(line.quantity) // precisión de 1 gramo
+      } else {
+        if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+        }
+        quantity = line.quantity
       }
-      const subtotal = round2(product.price * line.quantity)
+      let price = product.price
+      if (line.price != null) {
+        if (!Number.isFinite(line.price) || line.price <= 0) {
+          throw new HttpError(400, `Precio inválido para "${product.name}".`)
+        }
+        price = round2(line.price)
+      }
+      const subtotal = round2(price * quantity)
       total = round2(total + subtotal)
       return {
         productId: product.id,
         name: product.name,
-        price: product.price,
-        quantity: line.quantity,
+        price,
+        originalPrice: price === product.price ? null : product.price,
+        unit: product.unit,
+        quantity,
         subtotal
       }
     })
@@ -108,7 +130,8 @@ export async function createSale(
         paymentMethod: input.paymentMethod,
         amountPaid,
         change,
-        ticketNumber
+        ticketNumber,
+        customerId: input.customerId ?? null
       })
       .returning()
 
@@ -143,7 +166,7 @@ export async function createSale(
       .where(eq(users.id, userId))
       .limit(1)
 
-    return { ...sale, items, userName: user?.username ?? '', creditAccountId }
+    return { ...sale, items, userName: user?.username ?? '', customerName, creditAccountId }
   })
 }
 
@@ -176,11 +199,13 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
         paymentMethod: sales.paymentMethod,
         amountPaid: sales.amountPaid,
         change: sales.change,
+        customerName: customers.name,
         createdAt: sales.createdAt,
         itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
+      .leftJoin(customers, eq(customers.id, sales.customerId))
       .where(where)
       .orderBy(desc(sales.createdAt), desc(sales.id))
       .limit(pageSize)
@@ -202,5 +227,15 @@ export async function getSaleWithItems(db: DB, saleId: number): Promise<SaleWith
     .where(eq(users.id, sale.userId))
     .limit(1)
 
-  return { ...sale, items, userName: user?.username ?? '' }
+  let customerName: string | null = null
+  if (sale.customerId != null) {
+    const [customer] = await db
+      .select({ name: customers.name })
+      .from(customers)
+      .where(eq(customers.id, sale.customerId))
+      .limit(1)
+    customerName = customer?.name ?? null
+  }
+
+  return { ...sale, items, userName: user?.username ?? '', customerName }
 }

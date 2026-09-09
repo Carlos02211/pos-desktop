@@ -3,6 +3,13 @@ export function money(amount: number, symbol = '$'): string {
   return `${symbol}${amount.toFixed(2)}`
 }
 
+/** Cantidad legible: piezas enteras tal cual, kg en gramos si es menos de 1 kg. */
+export function formatQty(quantity: number, unit: 'PIEZA' | 'KG'): string {
+  if (unit !== 'KG') return String(quantity)
+  if (quantity < 1) return `${Math.round(quantity * 1000)} g`
+  return `${quantity.toFixed(3).replace(/\.?0+$/, '')} kg`
+}
+
 /** Fecha y hora legible a partir de un timestamp Unix en segundos. */
 export function dateTime(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString('es-MX', {

@@ -10,17 +10,19 @@ export async function listCategories(
   db: DB,
   includeInactive = false
 ): Promise<CategoryWithCount[]> {
-  const rows = await db
-    .select({
-      id: categories.id,
-      name: categories.name,
-      active: categories.active,
-      productCount: sql<number>`count(${products.id})`
-    })
-    .from(categories)
-    .leftJoin(products, eq(products.categoryId, categories.id))
-    .groupBy(categories.id)
-    .orderBy(asc(categories.name))
+  const rows = (
+    await db
+      .select({
+        id: categories.id,
+        name: categories.name,
+        active: categories.active,
+        productCount: sql<number>`count(${products.id})`
+      })
+      .from(categories)
+      .leftJoin(products, eq(products.categoryId, categories.id))
+      .groupBy(categories.id)
+      .orderBy(asc(categories.name))
+  ).map((r) => ({ ...r, productCount: Number(r.productCount) }))
   return includeInactive ? rows : rows.filter((r) => r.active === 1)
 }
 

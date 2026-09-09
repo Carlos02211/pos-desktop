@@ -34,7 +34,10 @@ export function ProductoBtn({
       </div>
       <div className="p-2">
         <p className="line-clamp-2 text-sm font-medium">{product.name}</p>
-        <p className="mt-0.5 text-sm font-bold text-pos-success">{money(product.price)}</p>
+        <p className="mt-0.5 text-sm font-bold text-pos-success">
+          {money(product.price)}
+          {product.unit === 'KG' && <span className="font-normal text-muted-foreground">/kg</span>}
+        </p>
       </div>
     </button>
   )

@@ -131,7 +131,10 @@ export default function Productos(): React.JSX.Element {
                     </div>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{row.categoryName ?? '—'}</td>
-                  <td className="px-3 py-2 text-right">{money(row.price)}</td>
+                  <td className="px-3 py-2 text-right">
+                    {money(row.price)}
+                    {row.unit === 'KG' && <span className="text-muted-foreground">/kg</span>}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${

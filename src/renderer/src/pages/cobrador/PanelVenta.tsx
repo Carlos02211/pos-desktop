@@ -22,7 +22,7 @@ export default function PanelVenta(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [cobroOpen, setCobroOpen] = useState(false)
 
-  const { items, addItem, setQty, removeItem, clear } = useCartStore()
+  const { items, addItem, setQty, setPrice, removeItem, clear } = useCartStore()
   const total = useMemo(() => cartTotal(items), [items])
 
   const loadCatalog = useCallback(async () => {
@@ -171,7 +171,13 @@ export default function PanelVenta(): React.JSX.Element {
             </p>
           ) : (
             items.map((it) => (
-              <CarritoItem key={it.productId} item={it} onQty={setQty} onRemove={removeItem} />
+              <CarritoItem
+                key={it.productId}
+                item={it}
+                onQty={setQty}
+                onPrice={setPrice}
+                onRemove={removeItem}
+              />
             ))
           )}
         </div>

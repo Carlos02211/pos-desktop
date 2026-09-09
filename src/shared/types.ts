@@ -11,6 +11,8 @@ export type PaymentMethod = SettledMethod | 'CREDIT'
 export type CashSessionStatus = 'OPEN' | 'CLOSED'
 export type CreditAccountStatus = 'OPEN' | 'PAID'
 export type LicenseStatus = 'ACTIVE' | 'REVOKED'
+/** PIEZA = cantidad entera. KG = se vende por peso; la cantidad admite decimales (kg). */
+export type ProductUnit = 'PIEZA' | 'KG'
 
 export interface AuthUser {
   id: number
@@ -33,6 +35,7 @@ export interface Product {
   id: number
   name: string
   price: number
+  unit: ProductUnit
   categoryId: number | null
   imagePath: string | null
   active: number
@@ -61,6 +64,8 @@ export interface Sale {
   amountPaid: number | null
   change: number | null
   ticketNumber: number
+  /** Cliente que compró (opcional salvo en CREDIT, donde es obligatorio). */
+  customerId: number | null
   createdAt: number
 }
 
@@ -70,6 +75,10 @@ export interface SaleItem {
   productId: number
   name: string
   price: number
+  /** Precio de catálogo al momento de la venta, sólo si el cajero lo editó (null = no se tocó). */
+  originalPrice: number | null
+  /** Snapshot de `products.unit` — define si `quantity` son piezas enteras o kg (decimal). */
+  unit: ProductUnit
   quantity: number
   subtotal: number
 }
@@ -94,14 +103,20 @@ export interface CategoryInput {
 export interface ProductInput {
   name: string
   price: number
+  /** Default 'PIEZA' si se omite. */
+  unit?: ProductUnit
   categoryId: number | null
   active?: boolean
 }
 
-/** Línea del carrito que el cliente envía. El precio SIEMPRE lo pone el servidor. */
+/** Línea del carrito que el cliente envía. */
 export interface CartLineInput {
   productId: number
+  /** Piezas enteras si el producto es PIEZA; kg (con decimales) si es KG. */
   quantity: number
+  /** Precio editado por el cajero para esta línea (ej. descuento a un cliente frecuente). Si se
+   *  omite, o coincide con el precio de catálogo, se usa el precio de catálogo tal cual. */
+  price?: number
 }
 
 /** Cuerpo de `POST /api/ventas`. */
@@ -110,7 +125,7 @@ export interface CreateSaleInput {
   paymentMethod: PaymentMethod
   /** CASH: efectivo recibido (>= total). CREDIT: abono inicial en efectivo (0..total). */
   amountPaid?: number
-  /** Requerido cuando `paymentMethod === 'CREDIT'` — a quién se le fía. */
+  /** A quién se le vendió. Opcional en CASH/CARD/TRANSFER; requerido en CREDIT (a quién se le fía). */
   customerId?: number
 }
 
@@ -128,6 +143,7 @@ export interface CloseCashSessionInput {
 export interface SaleWithItems extends Sale {
   items: SaleItem[]
   userName: string
+  customerName: string | null
 }
 
 /** Resultado de intentar imprimir un ticket. Nunca hace fallar la venta. */
@@ -249,6 +265,7 @@ export interface SaleListItem {
   paymentMethod: PaymentMethod
   amountPaid: number | null
   change: number | null
+  customerName: string | null
   itemCount: number
   createdAt: number
 }

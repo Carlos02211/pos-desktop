@@ -36,6 +36,10 @@ export const products = sqliteTable('products', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   price: real('price').notNull(),
+  // PIEZA = cantidad entera (default). KG = se vende por peso, cantidad en kg (admite decimales).
+  unit: text('unit', { enum: ['PIEZA', 'KG'] })
+    .notNull()
+    .default('PIEZA'),
   categoryId: integer('category_id').references(() => categories.id),
   imagePath: text('image_path'), // ruta relativa dentro de userData/uploads/productos/
   active: integer('active').notNull().default(1),
@@ -73,6 +77,8 @@ export const sales = sqliteTable('sales', {
   amountPaid: real('amount_paid'), // efectivo recibido (CASH) o abono inicial (CREDIT)
   change: real('change'), // solo si CASH
   ticketNumber: integer('ticket_number').notNull(), // folio secuencial por sesión de caja
+  // Quién compró — opcional en CASH/CARD/TRANSFER, obligatorio en CREDIT (ver services/ventas.ts).
+  customerId: integer('customer_id').references(() => customers.id),
   createdAt: integer('created_at').notNull().default(now)
 })
 
@@ -85,8 +91,14 @@ export const saleItems = sqliteTable('sale_items', {
     .notNull()
     .references(() => products.id),
   name: text('name').notNull(), // snapshot al momento de la venta
-  price: real('price').notNull(), // snapshot al momento de la venta
-  quantity: integer('quantity').notNull(),
+  price: real('price').notNull(), // precio final cobrado (snapshot, puede venir editado por el cajero)
+  // Precio de catálogo al momento de la venta, sólo si el cajero lo modificó (null = no se tocó).
+  originalPrice: real('original_price'),
+  // Snapshot de products.unit — define si `quantity` es piezas enteras o kg (con decimales).
+  unit: text('unit', { enum: ['PIEZA', 'KG'] })
+    .notNull()
+    .default('PIEZA'),
+  quantity: real('quantity').notNull(),
   subtotal: real('subtotal').notNull()
 })
 
