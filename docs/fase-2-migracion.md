@@ -71,15 +71,21 @@ así que no hay ninguna constante que editar (ver `src/renderer/src/api/client.t
 
 ## Día 2 — Probar la API contra PostgreSQL
 
-Sin tocar código:
+Sin tocar código. Usar **`verify:backend`** (sin `:pg`) — ese script no fija `DATABASE_URL`
+así que sí respeta el valor que le pases en la terminal; `verify:backend:pg` no sirve para esto
+porque trae `DATABASE_URL=pglite://memory` fijo adentro (`cross-env` lo pisa siempre):
 
 ```bash
-DATABASE_URL=postgres://pos:...@localhost:5432/pos pnpm verify:backend:pg
+# PowerShell (en la PC servidor):
+$env:DATABASE_URL = "postgres://pos:...@localhost:5432/pos"
+pnpm verify:backend
+
+# bash/zsh:
+DATABASE_URL=postgres://pos:...@localhost:5432/pos pnpm verify:backend
 ```
 
-> `verify:backend:pg` por defecto usa PGlite (PostgreSQL embebido) para no
-> necesitar servidor. Pasando `DATABASE_URL` de un PostgreSQL real, corre las
-> ~140 comprobaciones contra esa base.
+`verify:backend:pg` sigue sirviendo tal cual para correr las mismas comprobaciones contra
+PGlite embebido (sin necesitar un PostgreSQL real instalado) — es lo que usa el CI/dev local.
 
 ---
 

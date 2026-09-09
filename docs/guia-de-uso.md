@@ -14,11 +14,20 @@ _Solo puedes tener una caja abierta a la vez._
 
 1. Toca los **productos** para agregarlos al carrito (a la derecha).
 2. Ajusta cantidades con **−** y **+**, o quita con la **✕**.
-3. Toca **Cobrar**.
-4. Elige el **método de pago**:
+   - Si el producto se vende **por peso** (kg), en vez de − y + hay un campo para escribir los
+     **gramos**, más botones rápidos: **100 g, 250 g, 500 g, 1 kg**.
+3. ¿Necesitas dar un **precio distinto** al de la etiqueta (ej. descuento)? Toca el precio de
+   esa línea en el carrito y escribe el nuevo — queda registrado para el administrador (se ve
+   en el detalle de la venta cuál era el precio original).
+4. Toca **Cobrar**.
+5. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
    - **Efectivo**: escribe (o toca un botón de monto) lo que te dio el cliente. La app calcula el **cambio**.
-   - **Tarjeta** o **Transferencia**: no pide monto.
-5. Toca **Confirmar venta**. El ticket se imprime solo.
+   - **Tarjeta** o **Transferencia**: no piden monto.
+   - **Fiado**: el cliente paga después. Tenés que elegir o escribir un cliente (obligatorio).
+   - En cualquier método podés escribir el **nombre del cliente** (campo "Cliente") aunque no
+     sea fiado — es opcional, sirve para llevar registro de quién compró. Empezá a escribir y
+     te va a sugerir nombres ya guardados; si escribís uno nuevo, se agrega solo al confirmar.
+6. Toca **Confirmar venta**. El ticket se imprime solo.
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._
 

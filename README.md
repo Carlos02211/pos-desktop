@@ -133,6 +133,30 @@ abonos parciales o liquidación total.
 | Corte de caja: el efectivo esperado suma enganches y abonos en efectivo                     | ✅     |
 | Dashboard "Por cobrar (fiado)" · reportes "crédito otorgado" · evento `cuenta:abono`        | ✅     |
 
+### Módulo extra — Precio editable, venta por peso y clientes ✅
+
+| Entregable                                                                                    | Estado |
+| ----------------------------------------------------------------------------------------------- | ------ |
+| Precio editable en el carrito (`CartLineInput.price?`), con auditoría en `original_price`       | ✅     |
+| `VentaDetalleModal` muestra "precio editado ($orig → $final)" cuando aplica                     | ✅     |
+| Productos por peso: `products.unit` (`PIEZA`/`KG`), precio por kg, cantidad en gramos            | ✅     |
+| Carrito: input de gramos + botones rápidos 100 g / 250 g / 500 g / 1 kg para productos por kg    | ✅     |
+| Ticket y detalle de venta formatean gramos/kg (`formatQty`)                                      | ✅     |
+| `sales.customerId`: toda venta puede llevar cliente (opcional salvo Fiado, ahí obligatorio)      | ✅     |
+| Admin → Ventas muestra columna Cliente; ticket imprime "Cliente: X" si hay                       | ✅     |
+| Admin → Clientes simplificado a tabla estática de nombres (el saldo se ve en Cuentas por cobrar) | ✅     |
+| `CobroModal`: buscador de cliente con sugerencias; un nombre nuevo se crea solo al confirmar     | ✅     |
+
+### Módulo extra — Seguridad del licenciamiento ✅
+
+| Entregable                                                                        | Estado |
+| ----------------------------------------------------------------------------------- | ------ |
+| Se quitó el secreto de licencia público commiteado (`POS_VENDOR_SECRET`)            | ✅     |
+| `electron.vite.config.ts` congela el secreto real dentro del `.exe` al compilar     | ✅     |
+| `scripts/check-vendor-secret.ts` corta `pnpm build:win` si falta o es muy corto     | ✅     |
+| Comparación de clave en tiempo constante (`crypto.timingSafeEqual`)                 | ✅     |
+| Freno de 5 intentos fallidos/minuto por IP en `POST /api/licencia/activar`          | ✅     |
+
 ### Sprint 8 — QA, Pulido y Empaquetado 🚧
 
 | Entregable                                                                         | Estado     |
@@ -144,7 +168,7 @@ abonos parciales o liquidación total.
 | Empaquetado validado con `electron-builder --dir` (arranca, migraciones, nativo)   | ✅         |
 | `docs/guia-cobrador.html` — guía de 1 página imprimible                            | ✅         |
 | `docs/empaquetado-e-instalacion.md`                                                | ✅         |
-| Generar el `.exe` NSIS (requiere Windows/CI) · instalación + capacitación          | ⬜ cliente |
+| Generar el `.exe` NSIS con `POS_VENDOR_SECRET` real (requiere Windows/CI) · instalación + capacitación | ⬜ cliente |
 
 ### Fase 2 — Servidor local multicajero 🟡 (base lista)
 
@@ -156,7 +180,7 @@ PostgreSQL, sirviendo la SPA a tabletas por navegador. Runbook completo en
 | --------------------------------------------------------------------------------------- | ---------- |
 | Capa de datos asíncrona y agnóstica del motor (`DATABASE_URL` elige SQLite/PostgreSQL)  | ✅         |
 | Esquema + migraciones PostgreSQL (`schema.pg.ts`, `pnpm db:generate:pg`)                | ✅         |
-| `verify:backend:pg` — ~140 checks contra PostgreSQL (PGlite, sin servidor)              | ✅         |
+| `verify:backend:pg` — ~145 checks contra PostgreSQL (PGlite, sin servidor)              | ✅         |
 | Servidor sin Electron (`src/server/`) — `0.0.0.0:3000`, sirve la SPA, fallback de rutas | ✅         |
 | Cliente resuelve el `baseURL` solo (mismo origen cuando lo sirve el servidor)           | ✅         |
 | `pnpm build:server` → `dist-server/` (bundle + `public/` + migraciones + pm2 + `.env`)  | ✅         |
@@ -185,7 +209,9 @@ las migraciones y se ejecuta el seed.
 - **Login**: `admin / admin123` (administrador) · `cajero / cajero123` (cobrador)
 - **Activación**: la app arranca en `/activation`. Copia el _ID de este equipo_ que muestra
   la pantalla y genera su clave con `pnpm license:gen <ID>` (en el equipo del proveedor, con
-  el mismo `POS_VENDOR_SECRET`). Pega la clave para activar.
+  el mismo `POS_VENDOR_SECRET` real con el que se compiló el `.exe` del cliente — ver
+  [Empaquetado](#empaquetado)). Pega la clave para activar. En `pnpm dev` no hace falta nada:
+  usa un secreto de desarrollo y avisa por consola que no es apto para producción.
 
 > **Nota pnpm**: los scripts de instalación están autorizados en `pnpm-workspace.yaml`
 > (`allowBuilds`). Si `pnpm install` avisa de _ignored build scripts_, ejecuta
@@ -198,12 +224,13 @@ pnpm verify:backend
 ```
 
 Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
-flujo completo de los Sprints 0–8 más el módulo de cuentas por cobrar (~140 comprobaciones):
+flujo completo de los Sprints 0–8 más los módulos extra (~145 comprobaciones):
 ping + Zod, licencia por hardware (incl. copia a otro equipo → inactiva), auth y roles,
 catálogo, apertura/venta/cierre de caja con folio y cambio, respaldo, CRUD de
 productos/categorías/usuarios con imagen, historial de ventas y cortes, reportes con
-exportación a Excel/PDF, configuración, dashboard, y ventas a crédito con abonos y
-liquidación (corte que suma enganches y abonos en efectivo).
+exportación a Excel/PDF, configuración, dashboard, ventas a crédito con abonos y
+liquidación (corte que suma enganches y abonos en efectivo), precio editado con auditoría,
+venta por peso (kg/gramos), y cliente asociado a cualquier venta.
 Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
 ```bash
@@ -212,6 +239,14 @@ pnpm verify:backend:pg   # las mismas comprobaciones contra PostgreSQL (PGlite e
 
 ## Empaquetado
 
+- **Antes de compilar para un cliente real**, exportar un secreto de licencia propio (una sola
+  vez, guardarlo en un gestor de contraseñas — nunca commitearlo):
+  ```bash
+  export POS_VENDOR_SECRET="$(openssl rand -base64 32)"
+  ```
+  Usar el mismo valor siempre para `pnpm build:win` y para `pnpm license:gen` — si cambia, las
+  claves ya entregadas con el secreto viejo dejan de servir. `scripts/check-vendor-secret.ts`
+  corta el build si falta o es muy corto.
 - `pnpm build:win` (**en Windows** o CI de Windows) → `dist-electron/pos-spartan-tech-<ver>-setup.exe` (NSIS).
 - `pnpm exec electron-builder --dir` → build sin comprimir de la plataforma actual, para validar
   el empaquetado (migraciones en `resources/migrations`, `better-sqlite3` en `app.asar.unpacked`).
@@ -313,16 +348,25 @@ src/
   implementación, no de comportamiento.
 - **Licencia**: `fingerprint = SHA-256(uuid | MAC | serie de disco | hostname)`; la clave es
   `base32(HMAC-SHA256(fingerprint, POS_VENDOR_SECRET))[:25]`. Validación 100 % offline. El
-  `POS_VENDOR_SECRET` debe ser el mismo en la app empaquetada y en `pnpm license:gen`
-  (variable de entorno; hay un valor por defecto sólo para desarrollo).
+  espacio de claves (32²⁵ ≈ 2¹²⁵ combinaciones) hace la fuerza bruta inviable — lo único que
+  sostiene la seguridad real es que `POS_VENDOR_SECRET` no se filtre. **No hay valor por
+  defecto público**: sólo un secreto de desarrollo (avisa por consola si se usa) para
+  `pnpm dev`/`verify:backend`. Un build de producción (`pnpm build:win`) necesita el secreto
+  real puesto en el entorno — `electron.vite.config.ts` lo congela dentro del bundle al
+  compilar, y `scripts/check-vendor-secret.ts` corta el build si falta. Comparación de clave
+  en tiempo constante (`crypto.timingSafeEqual`) + freno de intentos por IP en el endpoint de
+  activación. Debe usarse el mismo secreto en la app empaquetada y en `pnpm license:gen`.
 - **Secreto JWT**: se genera aleatorio en el primer arranque y se guarda cifrado en
   `electron-store` — no es una constante en el binario. Token de 8 h, sólo en memoria en el
   cliente (nunca `localStorage`).
 - **electron-store** es ESM-only; `src/main/lib/store.ts` normaliza el import para que
   funcione tanto en el bundle CJS de electron-vite como en el script de verificación (ESM).
-- **Ventas**: `POST /api/ventas` corre en una transacción. El precio y el nombre se toman de
-  la BD (snapshot en `sale_items`), nunca del cliente. `ticketNumber` es un folio secuencial
-  por sesión de caja. Vender sin caja abierta → 409.
+- **Ventas**: `POST /api/ventas` corre en una transacción. El nombre siempre se toma de la BD
+  (snapshot en `sale_items`); el precio también, salvo que el cajero lo edite en el momento
+  (queda `original_price` como rastro de auditoría). `ticketNumber` es un folio secuencial por
+  sesión de caja. Vender sin caja abierta → 409. Cantidad entera si el producto es `PIEZA`,
+  decimal (kg) si es `KG` — la unidad viaja como snapshot en `sale_items.unit`. `customerId` es
+  opcional salvo en pago `CREDIT`, donde es obligatorio.
 - **Impresora**: `config.printer_interface` (vacío = deshabilitada). Ejemplos:
   `printer:XP-80T` (driver de Windows, requiere añadir un módulo nativo de impresión),
   `tcp://IP:9100` (impresora de red, sin dependencias). La impresión nunca hace fallar la
