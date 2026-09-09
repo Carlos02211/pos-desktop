@@ -15,9 +15,36 @@ import { getStore } from '../lib/store'
  *
  * SpArTaN Tech genera la clave de cada equipo con `pnpm license:gen <fingerprint>`.
  * Para revocar en remoto (Fase 2) se añadiría un ping al servidor de activación.
+ *
+ * IMPORTANTE — `VENDOR_SECRET` es lo único que sostiene la seguridad de este esquema:
+ * quien lo tenga puede generar una clave válida para cualquier equipo. El fallback de
+ * abajo es SÓLO para desarrollo/tests locales (`pnpm dev`, `pnpm verify:backend`) —
+ * un build de producción (`pnpm build`/`build:win`) DEBE compilarse con `POS_VENDOR_SECRET`
+ * real puesto en el entorno, que `electron.vite.config.ts` inyecta al bundle en tiempo de
+ * compilación (el `.exe` final no depende de variables de entorno en la PC del cliente).
+ * `scripts/check-vendor-secret.ts` corta el build si falta.
  */
 
-const VENDOR_SECRET = process.env.POS_VENDOR_SECRET ?? 'SPARTAN-TECH-VENDOR-SECRET-2026'
+const DEV_ONLY_SECRET = 'DEV-ONLY-INSECURE-SECRET-NUNCA-USAR-EN-PRODUCCION'
+// Valores que circularon como público/de ejemplo en algún momento (git history, .env.example
+// viejo) — tratarlos igual que "no configurado" para que nadie los deje puestos sin darse cuenta.
+// Exportado para que `scripts/check-vendor-secret.ts` rechace los mismos valores al compilar.
+export const KNOWN_LEAKED_SECRETS = new Set([
+  'SPARTAN-TECH-VENDOR-SECRET-2026',
+  'CAMBIAR-genera-el-tuyo-con-openssl-rand--base64-32'
+])
+
+const VENDOR_SECRET =
+  process.env.POS_VENDOR_SECRET && !KNOWN_LEAKED_SECRETS.has(process.env.POS_VENDOR_SECRET)
+    ? process.env.POS_VENDOR_SECRET
+    : DEV_ONLY_SECRET
+if (VENDOR_SECRET === DEV_ONLY_SECRET) {
+  console.warn(
+    '[license] POS_VENDOR_SECRET no definido, o es un valor público/de ejemplo conocido — ' +
+      'usando el secreto de desarrollo (inseguro). Un build de producción sin un valor real ' +
+      'propio emite licencias que cualquiera puede falsificar.'
+  )
+}
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
 function base32(buffer: Buffer): string {
@@ -41,6 +68,13 @@ function normalizeKey(key: string): string {
     .trim()
     .toUpperCase()
     .replace(/[^A-Z2-7]/g, '')
+}
+
+/** Compara en tiempo constante — evita filtrar por temporización cuánto de la clave acertó. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)
 }
 
 // El hardware no cambia durante la sesión; `systeminformation` es lento (procesos
@@ -89,7 +123,7 @@ export async function getLicenseStatus(): Promise<LicenseStatusResponse> {
   const active =
     !!storedKey &&
     storedFingerprint === fingerprint &&
-    normalizeKey(storedKey) === normalizeKey(expectedKeyForFingerprint(fingerprint))
+    safeEqual(normalizeKey(storedKey), normalizeKey(expectedKeyForFingerprint(fingerprint)))
 
   return {
     active,
@@ -103,7 +137,7 @@ export async function activateLicense(
 ): Promise<{ ok: true; status: LicenseStatusResponse } | { ok: false; error: string }> {
   const fingerprint = await getHardwareFingerprint()
 
-  if (normalizeKey(key) !== normalizeKey(expectedKeyForFingerprint(fingerprint))) {
+  if (!safeEqual(normalizeKey(key), normalizeKey(expectedKeyForFingerprint(fingerprint)))) {
     return { ok: false, error: 'La clave no es válida para este equipo.' }
   }
 

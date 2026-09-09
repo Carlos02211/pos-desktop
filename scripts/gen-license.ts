@@ -5,7 +5,16 @@
  *   pnpm license:gen --here            usa el fingerprint de este equipo
  *
  * El cliente lee su fingerprint en la pantalla de activación de la app.
- * Debe usarse el mismo POS_VENDOR_SECRET que la app en producción.
+ *
+ * Necesita el mismo POS_VENDOR_SECRET con el que se compiló el .exe que tiene el cliente
+ * (`pnpm build:win` lo congela en el bundle — ver `electron.vite.config.ts`). Exportalo
+ * antes de correr este script:
+ *
+ *   export POS_VENDOR_SECRET="<el secreto real>"
+ *   pnpm license:gen <fingerprint>
+ *
+ * Si no está seteado, este script avisa por consola y usa el secreto de desarrollo — la
+ * clave que genere NO va a servir para activar un build de producción real.
  */
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
 
