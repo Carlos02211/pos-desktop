@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { doublePrecision, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 
 /**
  * Schema de la base de datos — dialecto PostgreSQL (Fase 2 / servidor en red local).
@@ -46,58 +46,85 @@ export const products = pgTable('products', {
   updatedAt: integer('updated_at').notNull().default(now)
 })
 
-export const cashSessions = pgTable('cash_sessions', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  openedAt: integer('opened_at').notNull().default(now),
-  closedAt: integer('closed_at'),
-  openingAmount: doublePrecision('opening_amount').notNull(),
-  closingAmount: doublePrecision('closing_amount'),
-  expectedAmount: doublePrecision('expected_amount'),
-  difference: doublePrecision('difference'),
-  status: text('status', { enum: ['OPEN', 'CLOSED'] })
-    .notNull()
-    .default('OPEN')
-})
+export const cashSessions = pgTable(
+  'cash_sessions',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    openedAt: integer('opened_at').notNull().default(now),
+    closedAt: integer('closed_at'),
+    openingAmount: doublePrecision('opening_amount').notNull(),
+    closingAmount: doublePrecision('closing_amount'),
+    expectedAmount: doublePrecision('expected_amount'),
+    difference: doublePrecision('difference'),
+    status: text('status', { enum: ['OPEN', 'CLOSED'] })
+      .notNull()
+      .default('OPEN')
+  },
+  (t) => [
+    uniqueIndex('cash_sessions_one_open_per_user')
+      .on(t.userId)
+      .where(sql`${t.status} = 'OPEN'`),
+    index('cash_sessions_user_idx').on(t.userId),
+    index('cash_sessions_status_idx').on(t.status)
+  ]
+)
 
-export const sales = pgTable('sales', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  cashSessionId: integer('cash_session_id')
-    .notNull()
-    .references(() => cashSessions.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  total: doublePrecision('total').notNull(),
-  paymentMethod: text('payment_method', {
-    enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT']
-  }).notNull(),
-  amountPaid: doublePrecision('amount_paid'),
-  change: doublePrecision('change'),
-  ticketNumber: integer('ticket_number').notNull(),
-  customerId: integer('customer_id').references(() => customers.id),
-  createdAt: integer('created_at').notNull().default(now)
-})
+export const sales = pgTable(
+  'sales',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    total: doublePrecision('total').notNull(),
+    paymentMethod: text('payment_method', {
+      enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT']
+    }).notNull(),
+    amountPaid: doublePrecision('amount_paid'),
+    change: doublePrecision('change'),
+    ticketNumber: integer('ticket_number').notNull(),
+    customerId: integer('customer_id').references(() => customers.id),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [
+    uniqueIndex('sales_ticket_per_session').on(t.cashSessionId, t.ticketNumber),
+    index('sales_session_idx').on(t.cashSessionId),
+    index('sales_customer_idx').on(t.customerId),
+    index('sales_created_at_idx').on(t.createdAt),
+    index('sales_payment_method_idx').on(t.paymentMethod)
+  ]
+)
 
-export const saleItems = pgTable('sale_items', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  saleId: integer('sale_id')
-    .notNull()
-    .references(() => sales.id),
-  productId: integer('product_id')
-    .notNull()
-    .references(() => products.id),
-  name: text('name').notNull(),
-  price: doublePrecision('price').notNull(),
-  originalPrice: doublePrecision('original_price'),
-  unit: text('unit', { enum: ['PIEZA', 'KG'] })
-    .notNull()
-    .default('PIEZA'),
-  quantity: doublePrecision('quantity').notNull(),
-  subtotal: doublePrecision('subtotal').notNull()
-})
+export const saleItems = pgTable(
+  'sale_items',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    saleId: integer('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    name: text('name').notNull(),
+    price: doublePrecision('price').notNull(),
+    originalPrice: doublePrecision('original_price'),
+    unit: text('unit', { enum: ['PIEZA', 'KG'] })
+      .notNull()
+      .default('PIEZA'),
+    quantity: doublePrecision('quantity').notNull(),
+    subtotal: doublePrecision('subtotal').notNull()
+  },
+  (t) => [
+    index('sale_items_sale_idx').on(t.saleId),
+    index('sale_items_product_idx').on(t.productId)
+  ]
+)
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */
 
@@ -110,39 +137,54 @@ export const customers = pgTable('customers', {
   createdAt: integer('created_at').notNull().default(now)
 })
 
-export const creditAccounts = pgTable('credit_accounts', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  saleId: integer('sale_id').references(() => sales.id),
-  customerId: integer('customer_id')
-    .notNull()
-    .references(() => customers.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  total: doublePrecision('total').notNull(),
-  paid: doublePrecision('paid').notNull().default(0),
-  status: text('status', { enum: ['OPEN', 'PAID'] })
-    .notNull()
-    .default('OPEN'),
-  createdAt: integer('created_at').notNull().default(now),
-  closedAt: integer('closed_at')
-})
+export const creditAccounts = pgTable(
+  'credit_accounts',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    saleId: integer('sale_id').references(() => sales.id),
+    customerId: integer('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    total: doublePrecision('total').notNull(),
+    paid: doublePrecision('paid').notNull().default(0),
+    status: text('status', { enum: ['OPEN', 'PAID'] })
+      .notNull()
+      .default('OPEN'),
+    createdAt: integer('created_at').notNull().default(now),
+    closedAt: integer('closed_at')
+  },
+  (t) => [
+    index('credit_accounts_customer_idx').on(t.customerId),
+    index('credit_accounts_status_idx').on(t.status),
+    index('credit_accounts_sale_idx').on(t.saleId)
+  ]
+)
 
-export const creditPayments = pgTable('credit_payments', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  creditAccountId: integer('credit_account_id')
-    .notNull()
-    .references(() => creditAccounts.id),
-  cashSessionId: integer('cash_session_id')
-    .notNull()
-    .references(() => cashSessions.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  amount: doublePrecision('amount').notNull(),
-  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
-  createdAt: integer('created_at').notNull().default(now)
-})
+export const creditPayments = pgTable(
+  'credit_payments',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    creditAccountId: integer('credit_account_id')
+      .notNull()
+      .references(() => creditAccounts.id),
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    amount: doublePrecision('amount').notNull(),
+    paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [
+    index('credit_payments_account_idx').on(t.creditAccountId),
+    index('credit_payments_session_idx').on(t.cashSessionId)
+  ]
+)
 
 export const config = pgTable('config', {
   key: text('key').primaryKey(),

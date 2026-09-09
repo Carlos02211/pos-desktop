@@ -3,6 +3,8 @@ import type { CashHistoryQuery, CashSessionListItem, CashSessionSummary } from '
 import type { CashSessionRow } from '../db/schema'
 import { cashSessions, creditPayments, sales, users } from '../db/schema'
 import type { DB } from '../db'
+import { withTx, lockRow } from '../db/tx'
+import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 
@@ -19,23 +21,34 @@ export async function getActiveSession(
   return row
 }
 
-/** Una sola caja abierta por usuario a la vez. */
+/**
+ * Una sola caja abierta por usuario a la vez. La garantía real es el índice único
+ * parcial `cash_sessions_one_open_per_user` (ver schema): si dos aperturas entran
+ * a la vez, la BD rechaza la segunda y aquí la traducimos a un 409 legible.
+ */
 export async function openSession(
   db: DB,
   userId: number,
   openingAmount: number
 ): Promise<CashSessionRow> {
-  if (await getActiveSession(db, userId)) {
-    throw new HttpError(409, 'Ya tienes una caja abierta.')
-  }
   if (openingAmount < 0) {
     throw new HttpError(400, 'El monto inicial no puede ser negativo.')
   }
-  const [row] = await db
-    .insert(cashSessions)
-    .values({ userId, openingAmount, status: 'OPEN' })
-    .returning()
-  return row
+  if (await getActiveSession(db, userId)) {
+    throw new HttpError(409, 'Ya tienes una caja abierta.')
+  }
+  try {
+    const [row] = await db
+      .insert(cashSessions)
+      .values({ userId, openingAmount, status: 'OPEN' })
+      .returning()
+    return row
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new HttpError(409, 'Ya tienes una caja abierta.')
+    }
+    throw err
+  }
 }
 
 interface SessionTotals {
@@ -124,27 +137,33 @@ export async function closeSession(
   userId: number,
   closingAmount: number
 ): Promise<CloseResult> {
-  const session = await getActiveSession(db, userId)
-  if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
   if (closingAmount < 0) throw new HttpError(400, 'El efectivo contado no puede ser negativo.')
 
-  const t = await totalsFor(db, session.id)
-  const expectedCash = expectedCashFor(session.openingAmount, t)
-  const difference = round2(closingAmount - expectedCash)
+  return withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
+    // Bloquea la sesión para que ninguna venta en vuelo se cuele entre el cálculo
+    // de totales y el cierre (dejaría el arqueo mal en Fase 2).
+    await lockRow(tx, 'cash_sessions', session.id)
 
-  const [updated] = await db
-    .update(cashSessions)
-    .set({
-      status: 'CLOSED',
-      closedAt: Math.floor(Date.now() / 1000),
-      closingAmount: round2(closingAmount),
-      expectedAmount: expectedCash,
-      difference
-    })
-    .where(eq(cashSessions.id, session.id))
-    .returning()
+    const t = await totalsFor(tx, session.id)
+    const expectedCash = expectedCashFor(session.openingAmount, t)
+    const difference = round2(closingAmount - expectedCash)
 
-  return { session: updated, summary: toSummary(updated, t) }
+    const [updated] = await tx
+      .update(cashSessions)
+      .set({
+        status: 'CLOSED',
+        closedAt: Math.floor(Date.now() / 1000),
+        closingAmount: round2(closingAmount),
+        expectedAmount: expectedCash,
+        difference
+      })
+      .where(eq(cashSessions.id, session.id))
+      .returning()
+
+    return { session: updated, summary: toSummary(updated, t) }
+  })
 }
 
 /** Historial de cortes de caja con el nombre del cobrador (panel de administración). */

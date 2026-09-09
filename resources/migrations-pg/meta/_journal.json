@@ -29,6 +29,13 @@
       "when": 1788727854183,
       "tag": "0003_pale_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788994476874,
+      "tag": "0004_burly_darkhawk",
+      "breakpoints": true
     }
   ]
 }

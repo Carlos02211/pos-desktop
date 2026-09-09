@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 /**
  * Schema de la base de datos — dialecto SQLite (Fase 1 / Electron de escritorio).
@@ -47,60 +47,91 @@ export const products = sqliteTable('products', {
   updatedAt: integer('updated_at').notNull().default(now)
 })
 
-export const cashSessions = sqliteTable('cash_sessions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  openedAt: integer('opened_at').notNull().default(now),
-  closedAt: integer('closed_at'),
-  openingAmount: real('opening_amount').notNull(),
-  closingAmount: real('closing_amount'),
-  expectedAmount: real('expected_amount'), // apertura + ventas en efectivo
-  difference: real('difference'), // closingAmount - expectedAmount
-  status: text('status', { enum: ['OPEN', 'CLOSED'] })
-    .notNull()
-    .default('OPEN')
-})
+export const cashSessions = sqliteTable(
+  'cash_sessions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    openedAt: integer('opened_at').notNull().default(now),
+    closedAt: integer('closed_at'),
+    openingAmount: real('opening_amount').notNull(),
+    closingAmount: real('closing_amount'),
+    expectedAmount: real('expected_amount'), // apertura + ventas en efectivo
+    difference: real('difference'), // closingAmount - expectedAmount
+    status: text('status', { enum: ['OPEN', 'CLOSED'] })
+      .notNull()
+      .default('OPEN')
+  },
+  (t) => [
+    // Como mucho una caja OPEN por usuario a la vez (garantía de BD, no sólo de código).
+    uniqueIndex('cash_sessions_one_open_per_user')
+      .on(t.userId)
+      .where(sql`${t.status} = 'OPEN'`),
+    index('cash_sessions_user_idx').on(t.userId),
+    index('cash_sessions_status_idx').on(t.status)
+  ]
+)
 
-export const sales = sqliteTable('sales', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  cashSessionId: integer('cash_session_id')
-    .notNull()
-    .references(() => cashSessions.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  total: real('total').notNull(),
-  // CREDIT = venta a crédito ("fiado"): parte o nada se paga ahora, el resto abre una cuenta.
-  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT'] }).notNull(),
-  amountPaid: real('amount_paid'), // efectivo recibido (CASH) o abono inicial (CREDIT)
-  change: real('change'), // solo si CASH
-  ticketNumber: integer('ticket_number').notNull(), // folio secuencial por sesión de caja
-  // Quién compró — opcional en CASH/CARD/TRANSFER, obligatorio en CREDIT (ver services/ventas.ts).
-  customerId: integer('customer_id').references(() => customers.id),
-  createdAt: integer('created_at').notNull().default(now)
-})
+export const sales = sqliteTable(
+  'sales',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    total: real('total').notNull(),
+    // CREDIT = venta a crédito ("fiado"): parte o nada se paga ahora, el resto abre una cuenta.
+    paymentMethod: text('payment_method', {
+      enum: ['CASH', 'CARD', 'TRANSFER', 'CREDIT']
+    }).notNull(),
+    amountPaid: real('amount_paid'), // efectivo recibido (CASH) o abono inicial (CREDIT)
+    change: real('change'), // solo si CASH
+    ticketNumber: integer('ticket_number').notNull(), // folio secuencial por sesión de caja
+    // Quién compró — opcional en CASH/CARD/TRANSFER, obligatorio en CREDIT (ver services/ventas.ts).
+    customerId: integer('customer_id').references(() => customers.id),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [
+    // El folio es secuencial por sesión de caja — no puede repetirse (carrera en Fase 2).
+    uniqueIndex('sales_ticket_per_session').on(t.cashSessionId, t.ticketNumber),
+    index('sales_session_idx').on(t.cashSessionId),
+    index('sales_customer_idx').on(t.customerId),
+    index('sales_created_at_idx').on(t.createdAt),
+    index('sales_payment_method_idx').on(t.paymentMethod)
+  ]
+)
 
-export const saleItems = sqliteTable('sale_items', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  saleId: integer('sale_id')
-    .notNull()
-    .references(() => sales.id),
-  productId: integer('product_id')
-    .notNull()
-    .references(() => products.id),
-  name: text('name').notNull(), // snapshot al momento de la venta
-  price: real('price').notNull(), // precio final cobrado (snapshot, puede venir editado por el cajero)
-  // Precio de catálogo al momento de la venta, sólo si el cajero lo modificó (null = no se tocó).
-  originalPrice: real('original_price'),
-  // Snapshot de products.unit — define si `quantity` es piezas enteras o kg (con decimales).
-  unit: text('unit', { enum: ['PIEZA', 'KG'] })
-    .notNull()
-    .default('PIEZA'),
-  quantity: real('quantity').notNull(),
-  subtotal: real('subtotal').notNull()
-})
+export const saleItems = sqliteTable(
+  'sale_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    saleId: integer('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    name: text('name').notNull(), // snapshot al momento de la venta
+    price: real('price').notNull(), // precio final cobrado (snapshot, puede venir editado por el cajero)
+    // Precio de catálogo al momento de la venta, sólo si el cajero lo modificó (null = no se tocó).
+    originalPrice: real('original_price'),
+    // Snapshot de products.unit — define si `quantity` es piezas enteras o kg (con decimales).
+    unit: text('unit', { enum: ['PIEZA', 'KG'] })
+      .notNull()
+      .default('PIEZA'),
+    quantity: real('quantity').notNull(),
+    subtotal: real('subtotal').notNull()
+  },
+  (t) => [
+    index('sale_items_sale_idx').on(t.saleId),
+    index('sale_items_product_idx').on(t.productId)
+  ]
+)
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */
 
@@ -113,41 +144,56 @@ export const customers = sqliteTable('customers', {
   createdAt: integer('created_at').notNull().default(now)
 })
 
-export const creditAccounts = sqliteTable('credit_accounts', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  // Venta que originó la cuenta (null si es una deuda registrada a mano en el futuro).
-  saleId: integer('sale_id').references(() => sales.id),
-  customerId: integer('customer_id')
-    .notNull()
-    .references(() => customers.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  total: real('total').notNull(), // monto adeudado (después del abono inicial de la venta)
-  paid: real('paid').notNull().default(0), // suma de abonos posteriores
-  status: text('status', { enum: ['OPEN', 'PAID'] })
-    .notNull()
-    .default('OPEN'),
-  createdAt: integer('created_at').notNull().default(now),
-  closedAt: integer('closed_at')
-})
+export const creditAccounts = sqliteTable(
+  'credit_accounts',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // Venta que originó la cuenta (null si es una deuda registrada a mano en el futuro).
+    saleId: integer('sale_id').references(() => sales.id),
+    customerId: integer('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    total: real('total').notNull(), // monto adeudado (después del abono inicial de la venta)
+    paid: real('paid').notNull().default(0), // suma de abonos posteriores
+    status: text('status', { enum: ['OPEN', 'PAID'] })
+      .notNull()
+      .default('OPEN'),
+    createdAt: integer('created_at').notNull().default(now),
+    closedAt: integer('closed_at')
+  },
+  (t) => [
+    index('credit_accounts_customer_idx').on(t.customerId),
+    index('credit_accounts_status_idx').on(t.status),
+    index('credit_accounts_sale_idx').on(t.saleId)
+  ]
+)
 
-export const creditPayments = sqliteTable('credit_payments', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  creditAccountId: integer('credit_account_id')
-    .notNull()
-    .references(() => creditAccounts.id),
-  // Sesión de caja que recibió el abono (para el corte del turno).
-  cashSessionId: integer('cash_session_id')
-    .notNull()
-    .references(() => cashSessions.id),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  amount: real('amount').notNull(),
-  paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
-  createdAt: integer('created_at').notNull().default(now)
-})
+export const creditPayments = sqliteTable(
+  'credit_payments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    creditAccountId: integer('credit_account_id')
+      .notNull()
+      .references(() => creditAccounts.id),
+    // Sesión de caja que recibió el abono (para el corte del turno).
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    amount: real('amount').notNull(),
+    paymentMethod: text('payment_method', { enum: ['CASH', 'CARD', 'TRANSFER'] }).notNull(),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [
+    index('credit_payments_account_idx').on(t.creditAccountId),
+    index('credit_payments_session_idx').on(t.cashSessionId)
+  ]
+)
 
 export const config = sqliteTable('config', {
   key: text('key').primaryKey(),

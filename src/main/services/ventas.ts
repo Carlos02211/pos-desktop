@@ -3,7 +3,7 @@ import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../.
 import type { DB } from '../db'
 import type { SaleItemRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
-import { withTx } from '../db/tx'
+import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { round2, round3 } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -27,30 +27,34 @@ export async function createSale(
   userId: number,
   input: CreateSaleInput
 ): Promise<SaleResult> {
-  const session = await getActiveSession(db, userId)
-  if (!session) {
-    throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
-  }
   if (input.items.length === 0) {
     throw new HttpError(400, 'La venta no tiene productos.')
   }
   if (input.paymentMethod === 'CREDIT' && input.customerId == null) {
     throw new HttpError(400, 'Elige a qué cliente se le fía.')
   }
-  let customerName: string | null = null
-  if (input.customerId != null) {
-    const [customer] = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.id, input.customerId))
-      .limit(1)
-    if (!customer || customer.active !== 1) {
-      throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
-    }
-    customerName = customer.name
-  }
 
   return withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) {
+      throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
+    }
+    // Serializa las ventas de esta sesión de caja (folio + cierre) bajo PostgreSQL.
+    await lockRow(tx, 'cash_sessions', session.id)
+
+    let customerName: string | null = null
+    if (input.customerId != null) {
+      const [customer] = await tx
+        .select()
+        .from(customers)
+        .where(eq(customers.id, input.customerId))
+        .limit(1)
+      if (!customer || customer.active !== 1) {
+        throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
+      }
+      customerName = customer.name
+    }
+
     const ids = [...new Set(input.items.map((i) => i.productId))]
     const rows = await tx.select().from(products).where(inArray(products.id, ids))
     const byId = new Map(rows.map((r) => [r.id, r]))
@@ -144,14 +148,10 @@ export async function createSale(
       })
       .returning()
 
-    const items: SaleItemRow[] = []
-    for (const line of lines) {
-      const [item] = await tx
-        .insert(saleItems)
-        .values({ saleId: sale.id, ...line })
-        .returning()
-      items.push(item)
-    }
+    const items: SaleItemRow[] = await tx
+      .insert(saleItems)
+      .values(lines.map((line) => ({ saleId: sale.id, ...line })))
+      .returning()
 
     let creditAccountId: number | undefined
     if (input.paymentMethod === 'CREDIT') {

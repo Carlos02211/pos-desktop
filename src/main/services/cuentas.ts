@@ -8,7 +8,7 @@ import type {
 import type { CreditAccountRow } from '../db/schema'
 import { creditAccounts, creditPayments, customers, sales, users } from '../db/schema'
 import type { DB } from '../db'
-import { withTx } from '../db/tx'
+import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { round2 } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -131,10 +131,14 @@ export async function addAbono(
   userId: number,
   input: AbonoInput
 ): Promise<CreditAccountDetail> {
-  const session = await getActiveSession(db, userId)
-  if (!session) throw new HttpError(409, 'Abre caja para recibir un abono.')
-
   await withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) throw new HttpError(409, 'Abre caja para recibir un abono.')
+
+    // Lock de la cuenta: dos abonos simultáneos a la misma cuenta se serializan
+    // (si no, el segundo UPDATE pisaría el `paid` del primero — lost update).
+    await lockRow(tx, 'credit_accounts', accountId)
+
     const [account] = await tx
       .select()
       .from(creditAccounts)
