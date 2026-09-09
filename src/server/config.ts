@@ -2,6 +2,16 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { usingInsecureVendorSecret } from '../main/services/license'
 
+function loadTls(): { key: Buffer; cert: Buffer } | undefined {
+  const keyPath = process.env.POS_TLS_KEY
+  const certPath = process.env.POS_TLS_CERT
+  if (!keyPath && !certPath) return undefined
+  if (!keyPath || !certPath) {
+    throw new Error('POS_TLS_KEY y POS_TLS_CERT deben definirse juntos (o ninguno).')
+  }
+  return { key: readFileSync(resolve(keyPath)), cert: readFileSync(resolve(certPath)) }
+}
+
 /**
  * Configuración del servidor standalone (Fase 2), toda por variables de entorno.
  * Se carga un `.env` del directorio de trabajo si existe.
@@ -53,6 +63,9 @@ export const serverConfig = {
     process.env.POS_ALLOWED_ORIGINS?.split(',')
       .map((s) => s.trim())
       .filter(Boolean) ?? [],
+
+  /** HTTPS si POS_TLS_KEY + POS_TLS_CERT apuntan a archivos PEM; si no, HTTP. */
+  tls: loadTls(),
 
   version: process.env.npm_package_version ?? '0.1.0'
 }

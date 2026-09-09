@@ -35,6 +35,9 @@ export function CobroModal({
   onDone: (sale: CreateSaleResponse) => void
 }): React.JSX.Element {
   const items = useCartStore((s) => s.items)
+  // Un id por apertura del modal: si el POST se reintenta (timeout / doble clic),
+  // el servidor devuelve la misma venta en vez de duplicarla.
+  const [clientRequestId] = useState(() => crypto.randomUUID())
   const [method, setMethod] = useState<PaymentMethod>('CASH')
   const [paidText, setPaidText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -111,7 +114,8 @@ export function CobroModal({
         })),
         paymentMethod: method,
         amountPaid: method === 'CASH' || method === 'CREDIT' ? paidNum : undefined,
-        customerId: cId
+        customerId: cId,
+        clientRequestId
       })
       onDone(sale)
     } catch (err) {
@@ -126,7 +130,7 @@ export function CobroModal({
   const disabled = submitting || creatingCustomer || cashShort || creditInvalid
 
   return (
-    <Modal title="Cobrar" onClose={onClose}>
+    <Modal title="Cobrar" onClose={onClose} busy={submitting || creatingCustomer}>
       <div className="space-y-4">
         <div className="flex items-baseline justify-between rounded-lg bg-secondary/50 px-3 py-2">
           <span className="text-sm text-muted-foreground">Total</span>

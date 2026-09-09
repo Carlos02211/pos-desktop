@@ -10,6 +10,19 @@ import type { ConfigMap } from './config'
  * informa al cliente que el ticket no salió.
  */
 
+/** Tope de tiempo para hablar con la impresora — una impresora muerta no puede
+ *  colgar la respuesta de la venta más de esto. */
+const PRINTER_TIMEOUT_MS = 4000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}: sin respuesta en ${ms} ms`)), ms).unref()
+    )
+  ])
+}
+
 function fmtMoney(n: number, symbol: string): string {
   return `${symbol}${n.toFixed(2)}`
 }
@@ -65,10 +78,15 @@ export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promi
       interface: iface,
       characterSet: CharacterSet.PC858_EURO,
       removeSpecialCharacters: false,
-      lineCharacter: '-'
+      lineCharacter: '-',
+      options: { timeout: PRINTER_TIMEOUT_MS }
     })
 
-    const connected = await printer.isPrinterConnected()
+    const connected = await withTimeout(
+      printer.isPrinterConnected(),
+      PRINTER_TIMEOUT_MS,
+      'impresora'
+    )
     if (!connected) return { printed: false, error: 'Impresora no conectada' }
 
     const symbol = config.currency_symbol || '$'
@@ -111,7 +129,7 @@ export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promi
     printer.println(config.ticket_footer || '¡Gracias por su compra!')
     printer.cut()
 
-    await printer.execute()
+    await withTimeout(printer.execute(), PRINTER_TIMEOUT_MS, 'impresora')
     return { printed: true }
   } catch (err) {
     return { printed: false, error: err instanceof Error ? err.message : 'Error de impresión' }

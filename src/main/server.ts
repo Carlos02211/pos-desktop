@@ -38,6 +38,8 @@ export interface StartServerOptions extends ServerContext {
   port?: number
   /** Orígenes permitidos para CORS y Socket.io. `true` = cualquiera (sólo dev). */
   allowedOrigins?: string[] | true
+  /** Si se pasa, el servidor habla HTTPS (Fase 2 sobre WiFi). PEM (contenido, no ruta). */
+  tls?: { key: string | Buffer; cert: string | Buffer }
 }
 
 export interface RunningServer {
@@ -52,7 +54,8 @@ const DEFAULT_PORT = 3001
 /** Construye la instancia de Fastify con middleware y rutas, sin escuchar todavía. */
 export async function buildServer(opts: StartServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: opts.isDev ? 'info' : 'warn' }
+    logger: { level: opts.isDev ? 'info' : 'warn' },
+    ...(opts.tls ? { https: { key: opts.tls.key, cert: opts.tls.cert }, trustProxy: false } : {})
   })
 
   app.decorate('posContext', {
@@ -65,10 +68,17 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
   })
 
   // Cabeceras de seguridad en todas las respuestas (no hace falta helmet para esto).
-  app.addHook('onSend', async (_req, reply) => {
+  // La CSP completa de scripts/estilos vive en el <meta> de index.html; aquí van
+  // las directivas de bajo riesgo que no pueden ir en <meta> o conviene forzar.
+  app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('X-Frame-Options', 'DENY')
     reply.header('Referrer-Policy', 'no-referrer')
+    reply.header(
+      'Content-Security-Policy',
+      "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    )
+    return payload
   })
 
   await app.register(cors, {
@@ -134,7 +144,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   const io = initSocket(app.server, opts.allowedOrigins ?? true)
 
-  const url = `http://${host}:${port}`
+  const url = `${opts.tls ? 'https' : 'http'}://${host}:${port}`
   app.log.info(`POS SpArTaN Tech API escuchando en ${url}`)
 
   return {

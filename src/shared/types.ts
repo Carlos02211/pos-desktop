@@ -127,6 +127,8 @@ export interface CreateSaleInput {
   amountPaid?: number
   /** A quién se le vendió. Opcional en CASH/CARD/TRANSFER; requerido en CREDIT (a quién se le fía). */
   customerId?: number
+  /** Token único del intento de cobro — el servidor deduplica reintentos (doble submit / timeout). */
+  clientRequestId?: string
 }
 
 /** Cuerpo de `POST /api/caja/apertura`. */
@@ -157,6 +159,8 @@ export interface CreateSaleResponse extends SaleWithItems {
   print: PrintResult
   /** Si la venta fue a crédito, la cuenta por cobrar que se abrió. */
   creditAccountId?: number
+  /** true si el servidor devolvió una venta ya existente (reintento deduplicado). */
+  duplicate?: boolean
 }
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */

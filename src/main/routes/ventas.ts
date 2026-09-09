@@ -32,8 +32,24 @@ const createSaleSchema = z.object({
     .min(1),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'CREDIT']),
   amountPaid: z.number().nonnegative().max(1_000_000).optional(),
-  customerId: z.number().int().positive().optional()
+  customerId: z.number().int().positive().optional(),
+  /** Token del cliente para deduplicar reintentos de red / doble submit. */
+  clientRequestId: z.string().min(8).max(64).optional()
 })
+
+/**
+ * Dedup de ventas por `clientRequestId`. Si el POST llega dos veces (timeout de
+ * red + reintento, doble clic), la segunda devuelve la misma venta en vez de
+ * crear otra con su propio folio. En memoria: suficiente para un servidor único.
+ */
+const IDEMPOTENCY_TTL_MS = 5 * 60_000
+const recentSales = new Map<string, { saleId: number; at: number }>()
+
+function rememberSale(key: string, saleId: number): void {
+  const now = Date.now()
+  for (const [k, v] of recentSales) if (now - v.at > IDEMPOTENCY_TTL_MS) recentSales.delete(k)
+  recentSales.set(key, { saleId, at: now })
+}
 
 const idParam = z.object({ id: z.coerce.number().int().positive() })
 
@@ -41,7 +57,20 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/ventas', { preHandler: requireRole('COBRADOR') }, async (request, reply) => {
     const input = parse(createSaleSchema, request.body)
     const db = getDb()
+
+    const dedupKey = input.clientRequestId
+      ? `${request.authUser!.id}:${input.clientRequestId}`
+      : null
+    if (dedupKey) {
+      const prev = recentSales.get(dedupKey)
+      if (prev && Date.now() - prev.at <= IDEMPOTENCY_TTL_MS) {
+        const existing = await getSaleWithItems(db, prev.saleId)
+        return reply.code(200).send({ ...existing, print: { printed: false }, duplicate: true })
+      }
+    }
+
     const sale = await createSale(db, request.authUser!.id, input)
+    if (dedupKey) rememberSale(dedupKey, sale.id)
 
     emit('venta:nueva', {
       saleId: sale.id,

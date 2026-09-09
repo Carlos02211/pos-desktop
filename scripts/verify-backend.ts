@@ -800,6 +800,22 @@ async function main(): Promise<void> {
       `venta con precio editado por encima del catálogo -> 400 (status: ${ventaPrecioArriba.status})`
     )
 
+    // ---- Idempotencia: el mismo clientRequestId no crea dos ventas ----
+    const idemBody = {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH' as const,
+      amountPaid: 25,
+      clientRequestId: 'test-req-' + Date.now()
+    }
+    const idem1 = await asCajero('/api/ventas', 'POST', idemBody)
+    const idem2 = await asCajero('/api/ventas', 'POST', idemBody)
+    const s1 = (await idem1.json()) as CreateSaleResponse
+    const s2 = (await idem2.json()) as CreateSaleResponse & { duplicate?: boolean }
+    assert(
+      idem1.status === 201 && idem2.status === 200 && s1.id === s2.id && s2.duplicate === true,
+      `idempotencia: el reintento devuelve la misma venta (${s1.id}/${s2.id}, dup=${s2.duplicate})`
+    )
+
     // ---- Productos por peso (KG) — cantidades fraccionarias en gramos ----
     const papaRes = await asAdmin('/api/productos', 'POST', {
       name: 'Papa',

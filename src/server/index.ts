@@ -37,12 +37,14 @@ async function main(): Promise<void> {
     backupDir: cfg.backupDir,
     uploadsDir: cfg.uploadsDir,
     staticDir: cfg.staticDir,
-    allowedOrigins: cfg.allowedOrigins
+    allowedOrigins: cfg.allowedOrigins,
+    tls: cfg.tls
   })
 
   console.log(
-    `POS SpArTaN Tech — servidor Fase 2 en http://${cfg.host}:${cfg.port}` +
-      ` · motor: ${DIALECT === 'pg' ? 'PostgreSQL' : 'SQLite'}`
+    `POS SpArTaN Tech — servidor Fase 2 en ${server.url}` +
+      ` · motor: ${DIALECT === 'pg' ? 'PostgreSQL' : 'SQLite'}` +
+      (cfg.tls ? ' · TLS on' : '')
   )
 }
 

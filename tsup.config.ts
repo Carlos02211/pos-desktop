@@ -15,7 +15,9 @@ export default defineConfig({
   target: 'node20',
   bundle: true,
   splitting: false,
-  sourcemap: true,
+  // Sin sourcemap: el bundle se despliega a la PC del cliente y el .map expone
+  // todo el código del backend. Para depurar, generar un build local aparte.
+  sourcemap: false,
   clean: false,
   dts: false,
   outExtension: () => ({ js: '.cjs' }),

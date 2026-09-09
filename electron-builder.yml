@@ -6,17 +6,32 @@ directories:
   buildResources: build
   output: dist-electron
 
+# El código de la app ya está compilado en out/**. Se listan explícitamente las
+# rutas a incluir (allowlist) para que el asar no arrastre fuente TS/TSX ni docs.
 files:
+  - out/**
+  - package.json
+  - '!**/*.map'
   - '!**/.vscode/*'
-  - '!src/*'
-  - '!scripts/*'
+  - '!**/*.{ts,tsx}'
+  - '!src'
+  - '!src/**'
+  - '!scripts'
+  - '!scripts/**'
+  - '!docs'
+  - '!docs/**'
+  - '!deploy'
+  - '!deploy/**'
+  - '!dist-server'
+  - '!dist-server/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!drizzle.config.ts'
+  - '!drizzle.config.{ts,pg.ts}'
+  - '!tsup.config.ts'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,pnpm-workspace.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,components.json}'
   - '!.data'
-  - '!.data/*'
+  - '!.data/**'
 
 # Las migraciones SQL se resuelven en runtime desde process.resourcesPath/migrations
 extraResources:
