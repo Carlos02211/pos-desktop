@@ -102,7 +102,13 @@ export function CobroModal({
       const cId = await ensureCustomer()
 
       const sale = await crearVenta({
-        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.price })),
+        // Sólo se manda `price` si el cajero lo editó — si no, el servidor usa el de catálogo
+        // (evita cobrar un precio viejo si el admin lo cambió con el ítem ya en el carrito).
+        items: items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          price: i.price !== i.originalPrice ? i.price : undefined
+        })),
         paymentMethod: method,
         amountPaid: method === 'CASH' || method === 'CREDIT' ? paidNum : undefined,
         customerId: cId

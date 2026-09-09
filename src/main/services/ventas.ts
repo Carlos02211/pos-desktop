@@ -78,7 +78,16 @@ export async function createSale(
         if (!Number.isFinite(line.price) || line.price <= 0) {
           throw new HttpError(400, `Precio inválido para "${product.name}".`)
         }
-        price = round2(line.price)
+        const edited = round2(line.price)
+        // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
+        // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
+        if (edited > round2(product.price)) {
+          throw new HttpError(
+            400,
+            `El precio de "${product.name}" no puede superar el de catálogo.`
+          )
+        }
+        price = edited
       }
       const subtotal = round2(price * quantity)
       total = round2(total + subtotal)
@@ -86,7 +95,7 @@ export async function createSale(
         productId: product.id,
         name: product.name,
         price,
-        originalPrice: price === product.price ? null : product.price,
+        originalPrice: price < round2(product.price) ? round2(product.price) : null,
         unit: product.unit,
         quantity,
         subtotal

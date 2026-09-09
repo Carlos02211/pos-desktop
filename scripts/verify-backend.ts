@@ -790,6 +790,16 @@ async function main(): Promise<void> {
       `venta con precio editado inválido (0) -> 400 (status: ${ventaPrecioInvalido.status})`
     )
 
+    const ventaPrecioArriba = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 999 }],
+      paymentMethod: 'CASH',
+      amountPaid: 999
+    })
+    assert(
+      ventaPrecioArriba.status === 400,
+      `venta con precio editado por encima del catálogo -> 400 (status: ${ventaPrecioArriba.status})`
+    )
+
     // ---- Productos por peso (KG) — cantidades fraccionarias en gramos ----
     const papaRes = await asAdmin('/api/productos', 'POST', {
       name: 'Papa',

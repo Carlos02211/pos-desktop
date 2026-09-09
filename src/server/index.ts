@@ -3,7 +3,7 @@ import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
 import { initStore } from '../main/lib/store'
 import { startServer, type RunningServer } from '../main/server'
-import { serverConfig as cfg } from './config'
+import { assertProductionConfig, serverConfig as cfg } from './config'
 
 /**
  * Servidor standalone de Fase 2 (multicajero en red local).
@@ -20,11 +20,13 @@ import { serverConfig as cfg } from './config'
 let server: RunningServer | null = null
 
 async function main(): Promise<void> {
+  assertProductionConfig()
+
   mkdirSync(cfg.dataDir, { recursive: true })
   initStore(cfg.dataDir)
 
   const db = await initDb(cfg.dbPath, cfg.migrationsDir)
-  await runSeed(db)
+  await runSeed(db, { production: process.env.POS_ALLOW_INSECURE !== '1' })
 
   server = await startServer({
     host: cfg.host,

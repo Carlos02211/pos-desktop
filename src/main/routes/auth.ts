@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getDb } from '../db'
+import { Throttle } from '../lib/throttle'
 import { parse } from '../lib/validate'
 import { requireAuth } from '../middleware/auth'
 import { login } from '../services/auth'
@@ -10,10 +11,31 @@ const loginSchema = z.object({
   password: z.string().min(1).max(200)
 })
 
+// Freno de fuerza bruta: por IP y por (IP, usuario). 10 fallos en 5 min bloquean 5 min.
+const loginThrottle = new Throttle({ max: 10, windowMs: 5 * 60_000 })
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/api/auth/login', async (request) => {
+  app.post('/api/auth/login', async (request, reply) => {
     const { username, password } = parse(loginSchema, request.body)
-    return await login(getDb(), username, password)
+    const ipKey = request.ip
+    const userKey = `${request.ip}|${username.toLowerCase()}`
+
+    if (loginThrottle.isBlocked(ipKey) || loginThrottle.isBlocked(userKey)) {
+      return reply
+        .code(429)
+        .send({ error: 'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.' })
+    }
+
+    try {
+      const result = await login(getDb(), username, password)
+      loginThrottle.clear(ipKey)
+      loginThrottle.clear(userKey)
+      return result
+    } catch (err) {
+      loginThrottle.recordFailure(ipKey)
+      loginThrottle.recordFailure(userKey)
+      throw err
+    }
   })
 
   // JWT stateless: el servidor no guarda sesión. El cliente descarta el token.

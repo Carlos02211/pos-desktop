@@ -38,7 +38,15 @@ const VENDOR_SECRET =
   process.env.POS_VENDOR_SECRET && !KNOWN_LEAKED_SECRETS.has(process.env.POS_VENDOR_SECRET)
     ? process.env.POS_VENDOR_SECRET
     : DEV_ONLY_SECRET
-if (VENDOR_SECRET === DEV_ONLY_SECRET) {
+
+/**
+ * true si el secreto activo es el de desarrollo (no se configuró uno propio, o el
+ * configurado es un valor público/filtrado conocido). Un servidor de producción NO
+ * debe arrancar en este estado — ver `src/server/index.ts`.
+ */
+export const usingInsecureVendorSecret = VENDOR_SECRET === DEV_ONLY_SECRET
+
+if (usingInsecureVendorSecret) {
   console.warn(
     '[license] POS_VENDOR_SECRET no definido, o es un valor público/de ejemplo conocido — ' +
       'usando el secreto de desarrollo (inseguro). Un build de producción sin un valor real ' +

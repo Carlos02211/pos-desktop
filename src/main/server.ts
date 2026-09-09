@@ -64,7 +64,15 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     staticDir: opts.staticDir
   })
 
+  // Cabeceras de seguridad en todas las respuestas (no hace falta helmet para esto).
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff')
+    reply.header('X-Frame-Options', 'DENY')
+    reply.header('Referrer-Policy', 'no-referrer')
+  })
+
   await app.register(cors, {
+    // `[]` (Fase 2 sin POS_ALLOWED_ORIGINS) = sólo mismo origen. `true` = cualquiera (sólo dev).
     origin: opts.allowedOrigins ?? true,
     credentials: true
   })
