@@ -3,7 +3,33 @@
 **Fecha:** 2026-09-09 · **Rama:** `main` (árbol de trabajo sucio: 38 modificados + 13 sin seguir)
 **Modo:** solo lectura. Sin cambios en el repo.
 **Especialistas ejecutados en paralelo:** arquitectura · seguridad · base de datos · backend · frontend · devops
-**Informes individuales:** `scratchpad/audit-{architect,security,database,backend,frontend,devops}.md`
+**Informes individuales:** `docs/auditoria-2026-09-09/{architect,security,database,backend,frontend,devops}.md`
+
+---
+
+## 0. Estado de remediación (actualizado 2026-09-09)
+
+Las correcciones viven en la rama **`fase2/dinero-centavos`** (parte de
+`fase2/hardening-auditoria`). No mergeadas a `main` todavía.
+
+**Cerrado:** C1–C6 · Socket.io autenticado · TLS opcional · folio/caja únicos + índices en
+todas las FK · locks de fila (venta/abono/cierre) · dinero → centavos · idempotencia de
+venta · `sqlite-to-postgres` con verificación · JWT allowlist + issuer · `DUMMY_HASH` real ·
+`PRAGMA foreign_keys` a nivel de conexión · CORS = mismo origen · cabeceras + CSP básica ·
+electron-builder allowlist · sourcemap off · throttle de login · paridad de esquemas
+automatizada (`pnpm check:schema`) · zona horaria configurable · uploads validados por magic
+bytes · `JWT_SECRET` por entorno · `clearInvalidConfig:false` · filtro de historial por
+CREDIT · CI (GitHub Actions) · **movimientos de caja (retiros/ingresos)** · impresora con
+timeout.
+
+**Parcial:** tope de descuento máx. (sólo rechaza precio > catálogo) · PDF/Excel síncronos ·
+helmet completo + CSP de scripts · focus-trap en modales · script de backups PG en el repo ·
+`.ps1` idempotente para el runbook.
+
+**Abierto:** ver §7. **Omitido por decisión (coste):** firma del `.exe`, auto-update.
+
+**Antes de mergear:** rotar `POS_VENDOR_SECRET`; probar contra PostgreSQL real; correr
+`migrate:sqlite-to-pg` con la BD real.
 
 ---
 
