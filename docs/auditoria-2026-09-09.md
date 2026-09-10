@@ -15,18 +15,25 @@ Las correcciones viven en la rama **`fase2/dinero-centavos`** (parte de
 **Cerrado:** C1–C6 · Socket.io autenticado · TLS opcional · folio/caja únicos + índices en
 todas las FK · locks de fila (venta/abono/cierre) · dinero → centavos · idempotencia de
 venta · `sqlite-to-postgres` con verificación · JWT allowlist + issuer · `DUMMY_HASH` real ·
-`PRAGMA foreign_keys` a nivel de conexión · CORS = mismo origen · cabeceras + CSP básica ·
-electron-builder allowlist · sourcemap off · throttle de login · paridad de esquemas
-automatizada (`pnpm check:schema`) · zona horaria configurable · uploads validados por magic
-bytes · `JWT_SECRET` por entorno · `clearInvalidConfig:false` · filtro de historial por
-CREDIT · CI (GitHub Actions) · **movimientos de caja (retiros/ingresos)** · impresora con
-timeout.
+`PRAGMA foreign_keys` a nivel de conexión · CORS = mismo origen · cabeceras + **CSP completa
+para la SPA** · electron-builder allowlist · sourcemap off · throttle de login · paridad de
+esquemas automatizada (`pnpm check:schema`) · zona horaria configurable · uploads validados
+por magic bytes · `JWT_SECRET` por entorno · `clearInvalidConfig:false` · filtro de historial
+por CREDIT · CI (GitHub Actions) · movimientos de caja (retiros/ingresos) · impresora con
+timeout · **tope de descuento máx. configurable** · `license` con índice único · Electron
+`sandbox:true` + `will-navigate` · `openCreditAccount` eliminado · **focus-trap en modales** ·
+**combobox de cliente accesible por teclado** · **renombrar clientes en el admin** ·
+re-renders de `PanelVenta` (selectores + memo) · blob URL leak · **`deploy/backup-pg.ps1`** +
+**`deploy/setup-server.ps1`** (idempotente).
 
-**Parcial:** tope de descuento máx. (sólo rechaza precio > catálogo) · PDF/Excel síncronos ·
-helmet completo + CSP de scripts · focus-trap en modales · script de backups PG en el repo ·
-`.ps1` idempotente para el runbook.
+**Parcial / aceptado:** exportación de reportes a PDF/Excel síncrona — bloquea el event loop
+~1-2 s en un reporte mensual. Aceptado para negocios chicos (acción de admin poco frecuente,
+dataset pequeño); el fix real es un worker thread. `@fastify/helmet` completo (hoy: CSP +
+headers a mano, cubre lo esencial).
 
-**Abierto:** ver §7. **Omitido por decisión (coste):** firma del `.exe`, auto-update.
+**Abierto:** 3 fuentes de verdad para tipos (interface/Zod/Drizzle) — refactor arquitectónico.
+
+**Omitido por decisión (coste):** firma del `.exe`, auto-update.
 
 **Antes de mergear:** rotar `POS_VENDOR_SECRET`; probar contra PostgreSQL real; correr
 `migrate:sqlite-to-pg` con la BD real.

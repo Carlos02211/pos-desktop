@@ -147,6 +147,12 @@ dev/CI sin instalar PostgreSQL.
 
 ## Día 3 — Servidor standalone + pm2
 
+> **Atajo:** el repo trae **`deploy/setup-server.ps1`** — idempotente, cubre los
+> pasos 3-6 de abajo + el firewall del Día 4 (instala Node 22, copia el bundle,
+> `npm install --omit=dev`, `pm2 start`, `pm2-logrotate`, regla de firewall).
+> Correrlo como Administrador junto a `dist-server\`. Los pasos manuales siguen
+> documentados por si algo falla.
+
 1. En la máquina de desarrollo:
 
    ```bash
