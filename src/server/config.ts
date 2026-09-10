@@ -1,6 +1,12 @@
-import { existsSync, readFileSync } from 'fs'
+import './load-env' // idempotente; garantiza el .env aunque config se importe suelto
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { usingInsecureVendorSecret } from '../main/services/license'
+
+/**
+ * Configuración del servidor standalone (Fase 2), toda por variables de entorno
+ * (el `.env` lo carga `./load-env`, importado como primera línea del entry).
+ */
 
 function loadTls(): { key: Buffer; cert: Buffer } | undefined {
   const keyPath = process.env.POS_TLS_KEY
@@ -11,27 +17,6 @@ function loadTls(): { key: Buffer; cert: Buffer } | undefined {
   }
   return { key: readFileSync(resolve(keyPath)), cert: readFileSync(resolve(certPath)) }
 }
-
-/**
- * Configuración del servidor standalone (Fase 2), toda por variables de entorno.
- * Se carga un `.env` del directorio de trabajo si existe.
- */
-
-function loadDotEnv(): void {
-  // Node 20.6+ trae `--env-file`, pero pm2 no siempre lo pasa: lo hacemos a mano.
-  const path = resolve(process.cwd(), '.env')
-  if (!existsSync(path)) return
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    if (/^\s*(#|$)/.test(line)) continue
-    const m = /^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line)
-    if (!m) continue
-    if (process.env[m[1]] === undefined) {
-      process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
-    }
-  }
-}
-
-loadDotEnv()
 
 const dataDir = resolve(process.env.POS_DATA_DIR ?? './data')
 

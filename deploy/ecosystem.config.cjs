@@ -23,6 +23,8 @@ module.exports = {
     {
       name: 'pos-server',
       script: 'server.cjs',
+      // `.env`, `public/` y `migrations-pg/` se resuelven relativo a esta carpeta.
+      cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,

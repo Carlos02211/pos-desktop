@@ -13,7 +13,7 @@ const API_PORT = 3001
 let server: RunningServer | null = null
 
 async function bootBackend(): Promise<void> {
-  initStore(paths.dataDir)
+  await initStore(paths.dataDir, 'electron')
   const db = await initDb(paths.dbPath, paths.migrationsDir)
   await runSeed(db)
   server = await startServer({

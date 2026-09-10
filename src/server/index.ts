@@ -1,3 +1,4 @@
+import './load-env' // DEBE ir primero: carga .env antes de que ningún módulo lea process.env
 import { mkdirSync } from 'fs'
 import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
   assertProductionConfig()
 
   mkdirSync(cfg.dataDir, { recursive: true })
-  initStore(cfg.dataDir)
+  await initStore(cfg.dataDir, 'file')
 
   const db = await initDb(cfg.dbPath, cfg.migrationsDir)
   await runSeed(db, { production: process.env.POS_ALLOW_INSECURE !== '1' })

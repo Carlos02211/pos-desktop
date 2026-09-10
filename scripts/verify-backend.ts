@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       stdio: 'inherit'
     })
 
-    initStore(dir)
+    await initStore(dir, 'file')
     const db = await initDb(dbPath, MIGRATIONS)
     await runSeed(db)
 
