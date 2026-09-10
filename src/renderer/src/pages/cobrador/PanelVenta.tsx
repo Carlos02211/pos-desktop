@@ -6,6 +6,7 @@ import { getCategorias, getProductos } from '@/api/catalogo'
 import { getSesionActiva } from '@/api/caja'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
+import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
 import { money } from '@/lib/format'
 import { socket } from '@/lib/socket'
@@ -21,6 +22,7 @@ export default function PanelVenta(): React.JSX.Element {
   const [activeCat, setActiveCat] = useState<number | null>(null)
   const [search, setSearch] = useState('')
   const [cobroOpen, setCobroOpen] = useState(false)
+  const [movimientoOpen, setMovimientoOpen] = useState(false)
 
   const { items, addItem, setQty, setPrice, removeItem, clear } = useCartStore()
   const total = useMemo(() => cartTotal(items), [items])
@@ -156,6 +158,12 @@ export default function PanelVenta(): React.JSX.Element {
               Cuentas
             </button>
             <button
+              onClick={() => setMovimientoOpen(true)}
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+            >
+              Efectivo
+            </button>
+            <button
               onClick={() => navigate('/cobrador/cierre')}
               className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
             >
@@ -209,6 +217,7 @@ export default function PanelVenta(): React.JSX.Element {
       {cobroOpen && (
         <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
       )}
+      {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
     </div>
   )
 }

@@ -386,11 +386,36 @@ export interface CashSessionSummary {
   totalCredit: number
   /** Abonos a cuentas anteriores recibidos en el turno (en efectivo). */
   abonosCash: number
+  /** Ingresos manuales de efectivo a la caja durante el turno. */
+  cashIn: number
+  /** Retiros manuales de efectivo de la caja durante el turno (gastos, depósitos). */
+  cashOut: number
   /**
    * Efectivo esperado en caja:
-   * apertura + ventas en efectivo + abonos iniciales de ventas fiadas + abonos en efectivo.
+   * apertura + ventas en efectivo + abonos iniciales de ventas fiadas + abonos en
+   * efectivo + ingresos manuales − retiros manuales.
    */
   expectedCash: number
+}
+
+export type CashMovementType = 'IN' | 'OUT'
+
+export interface CashMovement {
+  id: number
+  cashSessionId: number
+  userId: number
+  type: CashMovementType
+  /** Monto (siempre positivo). */
+  amount: number
+  reason: string
+  createdAt: number
+}
+
+/** Cuerpo de `POST /api/caja/movimiento`. */
+export interface CashMovementInput {
+  type: CashMovementType
+  amount: number
+  reason: string
 }
 
 export interface BusinessConfig {

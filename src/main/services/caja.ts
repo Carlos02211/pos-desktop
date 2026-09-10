@@ -1,7 +1,13 @@
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
-import type { CashHistoryQuery, CashSessionListItem, CashSessionSummary } from '../../shared/types'
-import type { CashSessionRow } from '../db/schema'
-import { cashSessions, creditPayments, sales, users } from '../db/schema'
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
+import type {
+  CashHistoryQuery,
+  CashMovement,
+  CashMovementInput,
+  CashSessionListItem,
+  CashSessionSummary
+} from '../../shared/types'
+import type { CashMovementRow, CashSessionRow } from '../db/schema'
+import { cashMovements, cashSessions, creditPayments, sales, users } from '../db/schema'
 import type { DB } from '../db'
 import { withTx, lockRow } from '../db/tx'
 import { isUniqueViolation } from '../lib/db-errors'
@@ -73,6 +79,10 @@ interface SessionTotals {
   creditDownCash: number
   /** Abonos en efectivo a cuentas anteriores recibidos en el turno. */
   abonosCash: number
+  /** Ingresos manuales de efectivo. */
+  cashIn: number
+  /** Retiros manuales de efectivo. */
+  cashOut: number
 }
 
 async function totalsFor(db: DB, cashSessionId: number): Promise<SessionTotals> {
@@ -97,6 +107,14 @@ async function totalsFor(db: DB, cashSessionId: number): Promise<SessionTotals> 
     .from(creditPayments)
     .where(eq(creditPayments.cashSessionId, cashSessionId))
 
+  const [mov] = await db
+    .select({
+      cashIn: sql<number>`coalesce(sum(case when ${cashMovements.type} = 'IN' then ${cashMovements.amount} else 0 end), 0)`,
+      cashOut: sql<number>`coalesce(sum(case when ${cashMovements.type} = 'OUT' then ${cashMovements.amount} else 0 end), 0)`
+    })
+    .from(cashMovements)
+    .where(eq(cashMovements.cashSessionId, cashSessionId))
+
   // Todas las columnas sumadas son centavos enteros → la suma es exacta.
   return {
     salesCount: Number(s.salesCount),
@@ -106,13 +124,15 @@ async function totalsFor(db: DB, cashSessionId: number): Promise<SessionTotals> 
     totalTransfer: Number(s.totalTransfer),
     totalCredit: Number(s.totalCredit),
     creditDownCash: Number(s.creditDownCash),
-    abonosCash: Number(abono.abonosCash)
+    abonosCash: Number(abono.abonosCash),
+    cashIn: Number(mov.cashIn),
+    cashOut: Number(mov.cashOut)
   }
 }
 
 /** Efectivo esperado en caja, en CENTAVOS. */
 function expectedCashCentsFor(openingAmountCents: number, t: SessionTotals): number {
-  return openingAmountCents + t.totalCash + t.creditDownCash + t.abonosCash
+  return openingAmountCents + t.totalCash + t.creditDownCash + t.abonosCash + t.cashIn - t.cashOut
 }
 
 /** `t` y `session` vienen en centavos; el resumen sale en pesos para la API. */
@@ -126,8 +146,72 @@ function toSummary(session: CashSessionRow, t: SessionTotals): CashSessionSummar
     totalTransfer: fromCents(t.totalTransfer),
     totalCredit: fromCents(t.totalCredit),
     abonosCash: fromCents(t.abonosCash),
+    cashIn: fromCents(t.cashIn),
+    cashOut: fromCents(t.cashOut),
     expectedCash: fromCents(expectedCashCentsFor(session.openingAmount, t))
   }
+}
+
+/** Registra un retiro o ingreso de efectivo en el turno abierto del usuario. */
+export async function addCashMovement(
+  db: DB,
+  userId: number,
+  input: CashMovementInput
+): Promise<CashMovement> {
+  const reason = input.reason.trim()
+  if (reason.length < 2) throw new HttpError(400, 'Indica el motivo del movimiento.')
+  if (input.type !== 'IN' && input.type !== 'OUT') {
+    throw new HttpError(400, 'Tipo de movimiento inválido.')
+  }
+  const amountCents = toCents(input.amount)
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    throw new HttpError(400, 'El monto debe ser mayor a cero.')
+  }
+
+  return withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) throw new HttpError(409, 'Abre caja para registrar un movimiento.')
+    await lockRow(tx, 'cash_sessions', session.id)
+
+    if (input.type === 'OUT') {
+      const t = await totalsFor(tx, session.id)
+      const available = expectedCashCentsFor(session.openingAmount, t)
+      if (amountCents > available) {
+        throw new HttpError(
+          400,
+          `No hay suficiente efectivo en caja (disponible ${fromCents(available).toFixed(2)}).`
+        )
+      }
+    }
+
+    const [row] = await tx
+      .insert(cashMovements)
+      .values({
+        cashSessionId: session.id,
+        userId,
+        type: input.type,
+        amount: amountCents,
+        reason
+      })
+      .returning()
+    return movementToApi(row)
+  })
+}
+
+function movementToApi(row: CashMovementRow): CashMovement {
+  return { ...row, amount: fromCents(row.amount) }
+}
+
+/** Movimientos de efectivo del turno abierto del usuario. */
+export async function listSessionMovements(db: DB, userId: number): Promise<CashMovement[]> {
+  const session = await getActiveSession(db, userId)
+  if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
+  const rows = await db
+    .select()
+    .from(cashMovements)
+    .where(eq(cashMovements.cashSessionId, session.id))
+    .orderBy(asc(cashMovements.createdAt))
+  return rows.map(movementToApi)
 }
 
 /** Resumen del turno abierto del usuario (para la pantalla de cierre). */

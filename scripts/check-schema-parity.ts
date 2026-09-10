@@ -53,6 +53,7 @@ const TABLES = [
   'customers',
   'creditAccounts',
   'creditPayments',
+  'cashMovements',
   'config',
   'license'
 ] as const

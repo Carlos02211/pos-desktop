@@ -43,6 +43,13 @@
       "when": 1788996631124,
       "tag": "0005_wild_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788998653178,
+      "tag": "0006_light_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

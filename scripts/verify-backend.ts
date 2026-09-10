@@ -28,6 +28,7 @@ import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
 import type {
+  CashMovement,
   CashSession,
   CashSessionListItem,
   CashSessionSummary,
@@ -308,6 +309,36 @@ async function main(): Promise<void> {
       `resumen: efectivo esperado 550 (got ${resumen.expectedCash})`
     )
 
+    // ---- Movimientos de efectivo (retiro / ingreso) ----
+    const retiro = await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'OUT',
+      amount: 30,
+      reason: 'Compra de bolsas'
+    })
+    assert(retiro.status === 201, `retiro de efectivo -> 201 (status: ${retiro.status})`)
+    await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'IN',
+      amount: 5,
+      reason: 'Devolución de vuelto'
+    })
+    const retiroExcesivo = await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'OUT',
+      amount: 100000,
+      reason: 'Prueba'
+    })
+    assert(
+      retiroExcesivo.status === 400,
+      `retiro mayor al efectivo en caja -> 400 (status: ${retiroExcesivo.status})`
+    )
+    const movs = (await (await asCajero('/api/caja/movimientos')).json()) as CashMovement[]
+    assert(movs.length === 2, `movimientos: se listan los 2 del turno (got ${movs.length})`)
+    const resumen2 = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    // 550 esperado − 30 retiro + 5 ingreso = 525
+    assert(
+      resumen2.cashOut === 30 && resumen2.cashIn === 5 && resumen2.expectedCash === 525,
+      `resumen: retiros 30, ingresos 5, esperado 525 (got ${resumen2.cashOut}/${resumen2.cashIn}/${resumen2.expectedCash})`
+    )
+
     const reimpr = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
     assert(reimpr.status === 502, `reimprimir sin impresora -> 502 (status: ${reimpr.status})`)
 
@@ -318,8 +349,9 @@ async function main(): Promise<void> {
       backup: { ok: boolean; path?: string; skipped?: string }
     }
     assert(cierreBody.session.status === 'CLOSED', 'cierre: sesión queda CLOSED')
-    assert(cierreBody.session.expectedAmount === 550, 'cierre: efectivo esperado 550')
-    assert(cierreBody.session.difference === -10, 'cierre: diferencia -10 (faltante)')
+    // esperado = 500 apertura + 50 efectivo − 30 retiro + 5 ingreso = 525
+    assert(cierreBody.session.expectedAmount === 525, 'cierre: efectivo esperado 525')
+    assert(cierreBody.session.difference === 15, 'cierre: diferencia +15 (sobrante)')
     if (PG) {
       assert(
         cierreBody.backup.ok && cierreBody.backup.skipped === 'postgres',
@@ -541,7 +573,7 @@ async function main(): Promise<void> {
     assert(
       cortes[0].userName === 'cajero' &&
         cortes[0].status === 'CLOSED' &&
-        cortes[0].difference === -10,
+        cortes[0].difference === 15,
       'cortes: nombre del cobrador, estado y diferencia'
     )
     assert(

@@ -196,6 +196,25 @@ export const creditPayments = sqliteTable(
   ]
 )
 
+/** Retiros / ingresos de efectivo durante el turno (gastos, cambio, depósitos). */
+export const cashMovements = sqliteTable(
+  'cash_movements',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    type: text('type', { enum: ['IN', 'OUT'] }).notNull(),
+    amount: integer('amount').notNull(), // centavos, siempre positivo
+    reason: text('reason').notNull(),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [index('cash_movements_session_idx').on(t.cashSessionId)]
+)
+
 export const config = sqliteTable('config', {
   key: text('key').primaryKey(),
   value: text('value').notNull()
@@ -221,5 +240,6 @@ export type SaleItemRow = typeof saleItems.$inferSelect
 export type CustomerRow = typeof customers.$inferSelect
 export type CreditAccountRow = typeof creditAccounts.$inferSelect
 export type CreditPaymentRow = typeof creditPayments.$inferSelect
+export type CashMovementRow = typeof cashMovements.$inferSelect
 export type ConfigRow = typeof config.$inferSelect
 export type LicenseRow = typeof license.$inferSelect

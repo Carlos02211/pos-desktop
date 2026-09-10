@@ -6,9 +6,11 @@ import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { backupDatabase } from '../services/backup'
 import {
+  addCashMovement,
   closeSession,
   getActiveSession,
   getSessionSummary,
+  listSessionMovements,
   listSessions,
   openSession,
   sessionToApi
@@ -21,6 +23,12 @@ const openSchema = z.object({
 
 const closeSchema = z.object({
   closingAmount: z.number().nonnegative().max(1_000_000)
+})
+
+const movementSchema = z.object({
+  type: z.enum(['IN', 'OUT']),
+  amount: z.number().positive().max(1_000_000),
+  reason: z.string().min(2).max(120)
 })
 
 const historyQuerySchema = z.object({
@@ -38,6 +46,20 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
     return getSessionSummary(getDb(), request.authUser!.id)
   })
+
+  app.get('/api/caja/movimientos', { preHandler: requireRole('COBRADOR') }, async (request) => {
+    return listSessionMovements(getDb(), request.authUser!.id)
+  })
+
+  app.post(
+    '/api/caja/movimiento',
+    { preHandler: requireRole('COBRADOR') },
+    async (request, reply) => {
+      const body = parse(movementSchema, request.body)
+      const movement = await addCashMovement(getDb(), request.authUser!.id, body)
+      return reply.code(201).send(movement)
+    }
+  )
 
   // Historial de cortes de caja (panel de administración).
   app.get('/api/caja/historial', { preHandler: requireRole('ADMIN') }, async (request) => {

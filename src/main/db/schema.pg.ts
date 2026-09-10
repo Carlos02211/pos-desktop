@@ -186,6 +186,24 @@ export const creditPayments = pgTable(
   ]
 )
 
+export const cashMovements = pgTable(
+  'cash_movements',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    cashSessionId: integer('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    type: text('type', { enum: ['IN', 'OUT'] }).notNull(),
+    amount: integer('amount').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [index('cash_movements_session_idx').on(t.cashSessionId)]
+)
+
 export const config = pgTable('config', {
   key: text('key').primaryKey(),
   value: text('value').notNull()
