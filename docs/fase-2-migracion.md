@@ -147,64 +147,43 @@ dev/CI sin instalar PostgreSQL.
 
 ## Día 3 — Servidor standalone + pm2
 
-> **Atajo:** el repo trae **`deploy/setup-server.ps1`** — idempotente, cubre los
-> pasos 3-6 de abajo + el firewall del Día 4 (instala Node 22, copia el bundle,
-> `npm install --omit=dev`, `pm2 start`, `pm2-logrotate`, regla de firewall).
-> Correrlo como Administrador junto a `dist-server\`. Los pasos manuales siguen
-> documentados por si algo falla.
+**Pasos concretos y probados: [`fase-2-instalacion-windows.md`](fase-2-instalacion-windows.md).**
+Resumen:
 
-1. En la máquina de desarrollo:
+1. En la máquina de desarrollo: `pnpm build:server` → `dist-server/`. Renombrar a
+   `pos-server/` y pasar **sólo esa carpeta** a la PC del cliente (es autocontenida:
+   `server.cjs` + `public/` + `migrations-pg/` + `package.json` + los `.ps1`). **No**
+   hace falta el repo, ni `pnpm`, ni Python, ni VS Build Tools — el bundle no tiene
+   módulos nativos.
 
-   ```bash
-   pnpm build:server        # genera dist-server/ (incluye resources/migrations-pg)
-   ```
-
-2. Copiar `dist-server/` a la PC servidor (p. ej. `C:\pos-server`).
-   **No** correr `pnpm db:generate:pg` en el servidor — las migraciones ya vienen
-   en el bundle.
-
-3. En la PC servidor (Node **22 LTS**):
-
-   ```powershell
-   cd C:\pos-server
-   copy .env.example .env      # y editar .env (ver abajo)
-   npm install --omit=dev      # reconstruye better-sqlite3 para ESTE Node
-   npm install -g pm2
-   pm2 start ecosystem.config.cjs
-   pm2 save
-   ```
-
-   **`.env` mínimo de producción** (el servidor **aborta** si falta alguno):
+2. En `C:\pos-server`: `copy .env.example .env` y editar. El servidor **aborta** si falta:
 
    ```ini
    PORT=3000
    HOST=0.0.0.0
-
-   # Obligatorio. Instancia real, no pglite://.
-   DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos
-
+   DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos   # real, no pglite://
    POS_DATA_DIR=C:\pos-server\data
-
-   # Obligatorio. Generar UNA vez con `openssl rand -base64 32`, guardar en un
-   # gestor de contraseñas. Debe ser EL MISMO que se usa con `pnpm license:gen`.
-   POS_VENDOR_SECRET=<secreto-real-largo-y-aleatorio>
-
-   # Opcional. Si se omite, el servidor genera la contraseña de `admin` al azar
-   # y la imprime UNA vez en el log de pm2 (`pm2 logs pos-server`). Anotarla.
-   # POS_ADMIN_PASSWORD=<mínimo 8 caracteres>
+   POS_VENDOR_SECRET=<secreto real — `openssl rand -base64 32`, el MISMO que usás con license:gen>
+   # POS_ADMIN_PASSWORD=<opcional, mín. 8 chars; si se omite se genera al azar>
+   # JWT_SECRET=<opcional, mín. 32 chars; si se omite se guarda en POS_DATA_DIR>
    ```
 
-4. **Primer arranque — anotar la contraseña de `admin`:**
+3. PowerShell **como Administrador** en `C:\pos-server`:
 
    ```powershell
-   pm2 logs pos-server --lines 50
+   Set-ExecutionPolicy -Scope Process Bypass
+   .\setup-server.ps1
    ```
 
-   Buscar el bloque `POS SpArTaN Tech — usuario administrador inicial`. No se
-   vuelve a mostrar. Cambiarla desde el panel al primer login.
+   Instala Node 22 si falta, `npm install --omit=dev` (rápido, sin `node-gyp`), pm2 +
+   `pm2-logrotate`, abre el firewall y comprueba `/api/ping`.
 
-5. **Servicio de Windows** con [`pm2-installer`](https://github.com/jessety/pm2-installer)
-   para que arranque solo al encender la PC:
+4. **Contraseña de `admin`** (sólo el primer arranque, si no pusiste `POS_ADMIN_PASSWORD`):
+   `pm2 logs pos-server --lines 50` → bloque `POS SpArTaN Tech — usuario administrador
+   inicial`. No se vuelve a mostrar. En producción **no** se crea el `cajero` de prueba.
+
+5. **Servicio de Windows** (arranque automático) con
+   [`pm2-installer`](https://github.com/jessety/pm2-installer):
 
    ```powershell
    npm install pm2-installer --no-save
@@ -212,17 +191,18 @@ dev/CI sin instalar PostgreSQL.
    npm run setup
    ```
 
-6. **Rotación de logs de pm2** (si no, crecen sin límite):
+Los que `setup-server.ps1` ya hace (por si hay que reproducirlos a mano): `npm install
+--omit=dev`, `npm i -g pm2`, `pm2 start ecosystem.config.cjs`, `pm2 save`, la regla de
+firewall del Día 4, y la rotación de logs:
 
-   ```powershell
-   pm2 install pm2-logrotate
-   pm2 set pm2-logrotate:max_size 10M
-   pm2 set pm2-logrotate:retain 14
-   pm2 set pm2-logrotate:compress true
-   ```
+```powershell
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 14
+pm2 set pm2-logrotate:compress true
+```
 
-7. Probar en el propio servidor: `http://localhost:3000/api/ping`
-   → `{"phase":2,"engine":"postgres","db":"connected"}`.
+Probar: `http://localhost:3000/api/ping` → `{"phase":2,"engine":"postgres","db":"connected"}`.
 
 ---
 

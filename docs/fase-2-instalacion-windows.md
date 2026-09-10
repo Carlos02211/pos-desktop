@@ -1,251 +1,177 @@
-# Fase 2 — Checklist real de instalación en Windows
+# Fase 2 — Instalación del servidor en Windows
 
-Complemento de [`docs/fase-2-migracion.md`](fase-2-migracion.md) (el runbook por días). Este
-archivo documenta los pasos **tal como pasaron de verdad** en una VM de prueba (Windows 11),
-con los errores concretos que salieron y cómo se resolvieron — para no repetirlos en la PC
-real del cliente.
+Guía concreta para instalar el **servidor** de Fase 2 en la PC del cliente (o una VM de
+prueba). Runbook conceptual por días: [`fase-2-migracion.md`](fase-2-migracion.md).
 
-**Estado: Día 1 y Día 2 completos y verificados. Día 3 en adelante (sección 6), pendiente — retomar ahí.**
-
-> **Cambios de la auditoría 2026-09-09 que afectan la instalación** (ver
-> [`docs/auditoria-2026-09-09.md`](auditoria-2026-09-09.md)): el servidor ahora **exige**
-> `DATABASE_URL` (PostgreSQL real) y `POS_VENDOR_SECRET` propio, o no arranca; no siembra el
-> `cajero` de prueba; la contraseña de `admin` se genera al azar; el Socket.io exige JWT;
-> HTTPS opcional; los importes se guardan en centavos. Todo esto está reflejado abajo.
+> **Lo que va a la PC del cliente es UNA sola carpeta: `pos-server/`** (el resultado de
+> `pnpm build:server`, renombrado). Es autocontenida. **No** hace falta clonar el repo, ni
+> `pnpm`, ni Python, ni Visual Studio Build Tools — el bundle no tiene módulos nativos.
 
 ---
 
-## 0. Software a instalar (todo, de una vez, para no ir de a poco)
+## Parte A — En la máquina de desarrollo (una vez, o en cada actualización)
 
-| Software | Para qué | Nota |
-| --- | --- | --- |
-| PostgreSQL 16 | La base de datos de Fase 2 | Dejar `listen_addresses = 'localhost'` |
-| Node.js 22 LTS | Correr el proyecto y el servidor | Trae `npm` incluido |
-| Python 3.12 | `node-gyp` lo necesita para compilar módulos nativos (`better-sqlite3`) | Ver gotcha abajo |
-| Visual Studio Build Tools 2022 | El compilador de C++ que `node-gyp` necesita | **Con el workload "Desktop development with C++"** — ver gotcha abajo, es fácil que quede sin instalar |
-
-Con `winget` (viene en Windows 11):
-
-```powershell
-winget install -e --id Python.Python.3.12
-winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools"
+```bash
+pnpm install
+pnpm build:server        # → genera dist-server/
 ```
 
-**Gotcha real que pasó**: el `--override` del segundo comando NO agregó el workload de C++ —
-sólo instaló las "core features" de Build Tools. `node-gyp` fallaba con:
+`dist-server/` contiene y nada más:
 
-```
-gyp ERR! find VS - missing any VC++ toolset
-```
+| Archivo / carpeta | Qué es |
+| --- | --- |
+| `server.cjs` | el servidor (bundle único) |
+| `public/` | la app web (React) que se sirve a las tabletas |
+| `migrations-pg/` | migraciones de PostgreSQL (se aplican solas al arrancar) |
+| `package.json` | dependencias de runtime (sin `better-sqlite3` → sin compilador) |
+| `.env.example` | plantilla de configuración |
+| `ecosystem.config.cjs` | configuración de pm2 |
+| `setup-server.ps1` | instalación idempotente (Node, `npm install`, pm2, firewall) |
+| `backup-pg.ps1` | respaldo programado de PostgreSQL |
+| `LEEME.txt` | resumen de lo anterior |
 
-**Arreglo que funcionó**: abrir **Visual Studio Installer** (ya queda instalado) → sección
-"Visual Studio Build Tools 2022" → botón **Modificar** → marcar **"Desktop development with
-C++"** → Modificar, y esperar a que instale (varios GB). Confiar en la interfaz gráfica acá,
-no en reintentar el flag de `winget`.
+Renombrar `dist-server/` → `pos-server/` y pasarla a la PC del cliente (USB, o
+arrastre por SPICE si es una VM). **Nada más del repo.**
 
 ---
 
-## 1. PostgreSQL 16
+## Parte B — En la PC del cliente / VM (Windows 10/11 x64)
 
-Instalador de la web oficial. Anotar la contraseña del usuario `postgres` (superusuario).
-Después, crear el usuario y la base de la app (`psql` o pgAdmin):
+### B1. PostgreSQL 16
+
+Instalador de <https://www.postgresql.org/download/windows/>. Anotar la contraseña del
+superusuario `postgres`. Dejar `listen_addresses = 'localhost'` en `postgresql.conf` (sólo
+la app local habla con la base; las tabletas nunca tocan PostgreSQL).
+
+Crear la base y el usuario de la app — abrir **SQL Shell (psql)** del menú inicio:
 
 ```sql
 CREATE USER pos WITH PASSWORD 'una-clave-larga';
 CREATE DATABASE pos OWNER pos;
 ```
 
----
+### B2. (Sólo si se migran datos de Fase 1)
 
-## 2. Transferir el código del proyecto a la máquina
-
-Si es una VM de prueba en QEMU/libvirt con SPICE: **arrastrar y soltar la carpeta directo
-desde el explorador de archivos del host a la ventana de la VM** funcionó de una — mucho
-más simple que armar un túnel de red.
-
-**Lo que NO funcionó y no vale la pena intentar de nuevo**: servir el proyecto por HTTP
-(`python -m http.server`) para bajarlo con `Invoke-WebRequest` desde la VM. Si la VM quedó en
-una red tipo `192.168.122.0/24` (NAT por defecto de libvirt, `virbr0`) o en un macvtap bridge,
-en ningún caso la VM pudo hablarle de vuelta al host — es una limitación de red, no de
-firewall (aunque también hubo que abrir un puerto con `ufw` antes de descartar esa vía).
-Ir directo al arrastre.
-
----
-
-## 3. Node.js + pnpm
-
-Node.js 22 LTS desde la web oficial (incluye `npm`).
-
-```powershell
-corepack enable
-```
-
-**Gotcha real**: si esta PowerShell no es de Administrador, tira:
-
-```
-Internal Error: EPERM: operation not permitted, open 'C:\Program Files\nodejs\pnpx'
-```
-
-**Arreglo**: cerrar y abrir PowerShell **como administrador** sólo para este comando. El resto
-de los pasos no necesita administrador.
-
-Después, al primer `pnpm install` (o cualquier `pnpm ...`):
-
-```
-No se puede cargar el archivo ...\pnpm.ps1 porque la ejecución de scripts está deshabilitada
-```
-
-**Arreglo** (una sola vez, con PowerShell normal, sin admin):
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
----
-
-## 4. `pnpm install` en el proyecto
-
-```powershell
-cd C:\pos-desktop
-pnpm install
-```
-
-Con Python y VS Build Tools ya instalados (paso 0), esto compila `better-sqlite3` dos veces:
-una para el Node normal de Windows, y otra para el ABI de Electron (vía el `postinstall`
-`electron-builder install-app-deps`, que corre automático al final de `pnpm install`). Si
-falla acá, revisar el paso 0 antes que nada — casi siempre es Python o el workload de C++.
-
----
-
-## 5. Migraciones de PostgreSQL
-
-**No correr `pnpm db:generate:pg` en el servidor.** Las migraciones ya vienen generadas en
-`resources/migrations-pg/` (y en `dist-server/` cuando se hace `pnpm build:server`). El
-servidor las aplica solo al arrancar (`initDb`), y el script de migración de datos también.
-
-Si sólo querés confirmar que el esquema del código coincide con lo generado, en la máquina de
-desarrollo: `pnpm db:generate:pg` no debería crear ningún archivo nuevo.
-
-> La migración `0005-pg` convierte los importes de coma flotante a enteros de centavos con
-> `ALTER COLUMN … USING round(x * 100)`. Se aplica sobre tablas vacías en un despliegue nuevo;
-> sobre datos existentes convierte los valores. No hay acción manual.
-
----
-
-## 6. Verificar contra PostgreSQL real
-
-**Gotcha importante, ya corregido en `docs/fase-2-migracion.md` y en el código, pero
-documentado acá por si se repite en otra copia vieja del proyecto**: `verify:backend:pg` NO
-sirve para esto — trae `DATABASE_URL=pglite://memory` fijo adentro del propio script
-(`cross-env` lo pisa siempre, sin importar lo que pongas antes en la terminal). Usar
-**`verify:backend`** (sin `:pg`):
-
-```powershell
-$env:DATABASE_URL = "postgres://pos:una-clave-larga@localhost:5432/pos"
-pnpm verify:backend
-```
-
-**Otro gotcha real**: a diferencia de SQLite/PGlite (arrancan de un archivo temporal/memoria
-nueva cada corrida), este PostgreSQL persiste entre corridas. Si corrés `verify:backend` una
-segunda vez contra la misma base, va a fallar por datos que dejó la corrida anterior (más
-categorías/productos de los que el test espera al arrancar). Antes de cada corrida de prueba
-repetida, vaciar la base (conectado como `postgres`, no como `pos`):
-
-```sql
-DROP DATABASE pos;
-CREATE DATABASE pos OWNER pos;
-```
-
-Esto es sólo para pruebas repetidas — en el despliegue real se corre una sola vez, recién
-migrada la base, así que no aplica ahí.
-
-Con todo esto, las ~145 comprobaciones deberían pasar en verde contra el PostgreSQL real.
-
----
-
-## 6. Servidor standalone (Día 3) — pendiente de probar en VM
-
-En la máquina de desarrollo:
+Desde la máquina de desarrollo, con la última `pos.db`:
 
 ```bash
-pnpm build:server        # genera dist-server/ (ya incluye resources/migrations-pg)
+DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos \
+  pnpm migrate:sqlite-to-pg -- --source "C:\ruta\a\pos.db"
 ```
 
-Arrastrar `dist-server/` a `C:\pos-server` en la máquina servidor.
+El script aplica las migraciones, copia los datos convirtiendo importes a centavos, y
+**verifica** las sumas de control (aborta con ROLLBACK si algo no cuadra). Instalación
+nueva sin datos previos: saltear este paso.
+
+### B3. Copiar `pos-server/` y configurar el `.env`
+
+Copiar la carpeta a `C:\pos-server`. Crear el `.env`:
 
 ```powershell
 cd C:\pos-server
 copy .env.example .env
-npm install --omit=dev
-npm install -g pm2
-pm2 start ecosystem.config.cjs
-pm2 save
+notepad .env
 ```
 
-### `.env` — el servidor ABORTA el arranque si falta algo (validación nueva)
+Mínimo a completar (**el servidor no arranca si falta alguno**):
 
 ```ini
 PORT=3000
 HOST=0.0.0.0
-DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos   # obligatorio, no pglite://
+DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos
 POS_DATA_DIR=C:\pos-server\data
-POS_VENDOR_SECRET=<secreto-real-de openssl rand -base64 32>       # obligatorio, no el de ejemplo
-# POS_ADMIN_PASSWORD=<mín. 8 chars>   # opcional; si se omite se genera al azar
+POS_VENDOR_SECRET=<secreto real — openssl rand -base64 32, el MISMO que usás con license:gen>
+# POS_ADMIN_PASSWORD=<opcional, mín. 8 chars; si se omite se genera al azar>
 ```
 
-**Errores de arranque esperados si el `.env` está mal** (aparecen en `pm2 logs pos-server`):
+### B4. Instalar y arrancar
 
+**PowerShell como Administrador**, en `C:\pos-server`:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup-server.ps1
 ```
-❌ El servidor no puede arrancar en producción:
-   - DATABASE_URL no está definida. La Fase 2 requiere PostgreSQL ...
-   - POS_VENDOR_SECRET no configurado, o es un valor público/de ejemplo conocido ...
-```
 
-(para una prueba local rápida se puede forzar el arranque con `POS_ALLOW_INSECURE=1`, que
-además siembra un `cajero` de prueba — **nunca en la PC del cliente**).
+El script, de forma idempotente:
 
-### Contraseña de `admin` en el primer arranque
+1. instala **Node.js 22 LTS** con `winget` si no está (el bundle no necesita compilador);
+2. `npm install --omit=dev` (rápido, sin `node-gyp`);
+3. `npm install -g pm2`, `pm2 start ecosystem.config.cjs`, `pm2 save`, `pm2-logrotate`;
+4. abre el puerto TCP en el firewall (perfil Privado);
+5. comprueba `http://localhost:3000/api/ping`.
 
-Si no se puso `POS_ADMIN_PASSWORD`, el servidor la genera al azar y la imprime **una sola
-vez**. Recuperarla:
+**Contraseña de `admin`** (sólo el primer arranque, si no pusiste `POS_ADMIN_PASSWORD`):
 
 ```powershell
 pm2 logs pos-server --lines 50
 ```
 
-Buscar el bloque `POS SpArTaN Tech — usuario administrador inicial`. Ya no se crea el usuario
-`cajero / cajero123` en producción.
+Buscar el bloque `POS SpArTaN Tech — usuario administrador inicial`. No se vuelve a mostrar;
+cambiarla al primer login. En producción **no** se crea el usuario `cajero` de prueba.
 
-### Rotación de logs de pm2
-
-```powershell
-pm2 install pm2-logrotate
-pm2 set pm2-logrotate:max_size 10M
-pm2 set pm2-logrotate:retain 14
-pm2 set pm2-logrotate:compress true
-```
-
-### Servicio de Windows
+### B5. Arranque automático al encender la PC (servicio de Windows)
 
 ```powershell
+cd C:\pos-server
 npm install pm2-installer --no-save
 npm run configure
 npm run setup
 ```
 
-Después: **Día 4** (IP fija, firewall del puerto 3000, y TLS opcional con `mkcert` +
-`POS_TLS_KEY`/`POS_TLS_CERT` — ver [`fase-2-migracion.md`](fase-2-migracion.md)) y **Día 5**
-(QA multicajero: folios únicos, socket autenticado, cierres de caja al centavo).
+### B6. Activar la licencia
 
-### Licencia en el servidor
+El servidor sirve la misma SPA, así que la primera vez pide **activar licencia**. Abrir
+`http://localhost:3000/`, copiar el *ID de este equipo* y generar la clave en la máquina del
+proveedor:
 
-El servidor de Fase 2 sirve la misma SPA, así que también pide **activar licencia** la
-primera vez — con el fingerprint de la PC servidor, generando la clave con
-`pnpm license:gen` y el **mismo `POS_VENDOR_SECRET` real** del `.env`. La activación está
-limitada a 5 intentos fallidos por minuto y por IP.
+```bash
+POS_VENDOR_SECRET="<el mismo secreto real>" pnpm license:gen <ID>
+```
 
-### Respaldo de PostgreSQL
+Pegar la clave y activar. (5 intentos fallidos por minuto y por IP.)
 
-Programar `backup-pg.ps1` (script completo con timestamp ISO, verificación y retención en
-[`fase-2-migracion.md`](fase-2-migracion.md) → "Respaldo de PostgreSQL"). El `pg_dump` con
-`%DATE%` del runbook viejo no sirve (locale de Windows).
+### B7. Red y tabletas
+
+- **IP fija** para la PC servidor en el router (reserva DHCP), p. ej. `192.168.1.10`.
+- El firewall ya lo abrió `setup-server.ps1`.
+- En cada tableta: abrir `http://192.168.1.10:3000/` en Chrome, "Agregar a pantalla de inicio".
+- **HTTPS (recomendado si van por WiFi)**: `mkcert` + `POS_TLS_KEY`/`POS_TLS_CERT` en el
+  `.env` + importar la CA de mkcert en cada tableta. Ver
+  [`fase-2-migracion.md`](fase-2-migracion.md) → "Día 4".
+
+### B8. Respaldo
+
+Editar las 4 variables de `C:\pos-server\backup-pg.ps1` y programarlo (diario). Ver
+[`fase-2-migracion.md`](fase-2-migracion.md) → "Respaldo de PostgreSQL".
+
+---
+
+## Verificar la API contra el PostgreSQL real (opcional, en dev)
+
+Desde la máquina de desarrollo, apuntando a la base del cliente (o una local):
+
+```powershell
+$env:DATABASE_URL = "postgres://pos:...@localhost:5432/pos"
+pnpm verify:backend        # NO `:pg` — ese trae DATABASE_URL=pglite fijo adentro
+```
+
+~156 comprobaciones en verde. El CI ya corre esto en cada push contra un PostgreSQL 16 real.
+
+Este PostgreSQL persiste entre corridas: para repetir la prueba, `DROP DATABASE pos; CREATE
+DATABASE pos OWNER pos;` (como `postgres`) antes de cada una.
+
+---
+
+## Gotchas reales encontrados en la VM (Windows 11)
+
+- **`Set-ExecutionPolicy`**: PowerShell bloquea los scripts `.ps1` por defecto.
+  `setup-server.ps1` se corre con `-Scope Process Bypass` (no persiste el cambio).
+- **`corepack enable` pide admin** (`EPERM ... nodejs\pnpx`) — sólo relevante en la máquina
+  de desarrollo (el cliente usa `npm`, no `pnpm`).
+- **Transferir archivos a una VM**: el arrastre-soltar por SPICE (QEMU/libvirt) funcionó de
+  una; servir por HTTP para bajar con `Invoke-WebRequest` NO (la VM en NAT `virbr0` no puede
+  hablarle de vuelta al host).
+- **Python / VS Build Tools: YA NO hacen falta** para el servidor (el bundle no tiene
+  `better-sqlite3`). Sólo se necesitan en la máquina de desarrollo si además se compila el
+  `.exe` de Fase 1.
