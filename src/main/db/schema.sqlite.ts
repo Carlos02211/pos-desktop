@@ -220,15 +220,24 @@ export const config = sqliteTable('config', {
   value: text('value').notNull()
 })
 
-export const license = sqliteTable('license', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  fingerprint: text('fingerprint').notNull(), // SHA-256 del hardware
-  key: text('key').notNull(),
-  activatedAt: integer('activated_at').notNull().default(now),
-  status: text('status', { enum: ['ACTIVE', 'REVOKED'] })
-    .notNull()
-    .default('ACTIVE')
-})
+export const license = sqliteTable(
+  'license',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    fingerprint: text('fingerprint').notNull(), // SHA-256 del hardware
+    key: text('key').notNull(),
+    activatedAt: integer('activated_at').notNull().default(now),
+    status: text('status', { enum: ['ACTIVE', 'REVOKED'] })
+      .notNull()
+      .default('ACTIVE')
+  },
+  (t) => [
+    // Como mucho una licencia ACTIVE a la vez.
+    uniqueIndex('license_one_active')
+      .on(sql`(1)`)
+      .where(sql`${t.status} = 'ACTIVE'`)
+  ]
+)
 
 export type UserRow = typeof users.$inferSelect
 export type NewUserRow = typeof users.$inferInsert

@@ -41,7 +41,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -50,6 +50,17 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // El renderer sólo debe cargar su propia SPA. Cualquier navegación a un origen
+  // externo (p. ej. desde un XSS) se bloquea y se abre en el navegador del sistema.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const target = new URL(url)
+    const current = new URL(mainWindow.webContents.getURL())
+    if (target.origin !== current.origin) {
+      event.preventDefault()
+      shell.openExternal(url)
+    }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

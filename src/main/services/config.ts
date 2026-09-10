@@ -12,6 +12,7 @@ const DEFAULTS: ConfigResponse = {
   ticket_footer: '¡Gracias por su compra!',
   currency_symbol: '$',
   business_utc_offset: '',
+  max_line_discount_pct: '100',
   printer_interface: '',
   backup_dir: ''
 }

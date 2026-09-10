@@ -23,6 +23,13 @@ const configSchema = z.object({
       message: 'Offset UTC inválido (minutos, entre -840 y 840, o vacío).'
     })
     .optional(),
+  max_line_discount_pct: z
+    .string()
+    .max(3)
+    .refine((s) => Number.isInteger(Number(s)) && Number(s) >= 0 && Number(s) <= 100, {
+      message: 'El descuento máximo debe ser un entero entre 0 y 100.'
+    })
+    .optional(),
   printer_interface: z.string().max(200).optional(),
   backup_dir: z.string().max(400).optional()
 })

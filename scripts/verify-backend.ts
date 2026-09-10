@@ -855,6 +855,28 @@ async function main(): Promise<void> {
       `venta con precio editado por encima del catálogo -> 400 (status: ${ventaPrecioArriba.status})`
     )
 
+    // ---- Tope de descuento por línea (config del negocio) ----
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '10' })
+    const ventaDescuentoGrande = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 20 }], // catálogo 25 → 20% descuento
+      paymentMethod: 'CASH',
+      amountPaid: 20
+    })
+    assert(
+      ventaDescuentoGrande.status === 400,
+      `venta con descuento > máximo permitido -> 400 (status: ${ventaDescuentoGrande.status})`
+    )
+    const ventaDescuentoOk = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 23 }], // 8% descuento, dentro del 10%
+      paymentMethod: 'CASH',
+      amountPaid: 23
+    })
+    assert(
+      ventaDescuentoOk.status === 201,
+      `venta con descuento dentro del máximo -> 201 (status: ${ventaDescuentoOk.status})`
+    )
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '100' })
+
     // ---- Importes grandes / centavos: sin deriva de coma flotante ----
     const costalRes = await asAdmin('/api/productos', 'POST', {
       name: 'Costal de papa',

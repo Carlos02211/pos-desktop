@@ -103,15 +103,26 @@ export default function Configuracion(): React.JSX.Element {
           />
         </Field>
 
-        <Field label="Zona horaria (minutos respecto de UTC — ej. -360 para GMT-6)">
-          <input
-            value={form.business_utc_offset}
-            onChange={(e) => set('business_utc_offset', e.target.value)}
-            placeholder="Vacío = usa la hora del servidor"
-            inputMode="numeric"
-            className={inputClass}
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Zona horaria (min. vs UTC, ej. -360)">
+            <input
+              value={form.business_utc_offset}
+              onChange={(e) => set('business_utc_offset', e.target.value)}
+              placeholder="Vacío = hora del servidor"
+              inputMode="numeric"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Descuento máx. del cobrador (%)">
+            <input
+              value={form.max_line_discount_pct}
+              onChange={(e) => set('max_line_discount_pct', e.target.value)}
+              placeholder="100 = sin límite"
+              inputMode="numeric"
+              className={inputClass}
+            />
+          </Field>
+        </div>
 
         <Field label="Logo (ticket y reportes PDF)">
           <div className="flex items-center gap-3">

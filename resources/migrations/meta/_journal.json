@@ -57,6 +57,13 @@
       "when": 1788998652282,
       "tag": "0007_smooth_yellowjacket",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788999374194,
+      "tag": "0008_remarkable_menace",
+      "breakpoints": true
     }
   ]
 }

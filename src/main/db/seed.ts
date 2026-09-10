@@ -16,6 +16,9 @@ const DEFAULT_CONFIG: Record<string, string> = {
   // Minutos respecto de UTC para calcular "hoy" y los tramos de los reportes.
   // Vacío = usa el huso del servidor. Ej.: -360 (GMT-6, centro de México).
   business_utc_offset: '',
+  // Descuento máximo (%) que un cobrador puede aplicar al editar el precio de una
+  // línea. '100' = sin límite (comportamiento por defecto). '0' = no se puede editar.
+  max_line_discount_pct: '100',
   // Interfaz de node-thermal-printer. Vacío = impresión deshabilitada.
   // Ejemplos: "printer:XP-80T" (driver de Windows), "tcp://192.168.1.100:9100", "/dev/usb/lp0".
   printer_interface: '',

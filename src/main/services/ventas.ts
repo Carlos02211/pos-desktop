@@ -13,9 +13,16 @@ import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
+import { getConfigMap } from './config'
 
 export interface SaleResult extends SaleWithItems {
   creditAccountId?: number
+}
+
+/** % de descuento válido (0–100); un valor ausente/ inválido = 100 (sin límite). */
+function clampPct(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 100
+  return Math.min(100, n)
 }
 
 /** Pasa los importes de la fila de venta (centavos) a pesos para la API. */
@@ -81,6 +88,9 @@ export async function createSale(
       customerName = customer.name
     }
 
+    // Descuento máximo por línea que el cobrador puede aplicar (config del negocio).
+    const maxDiscountPct = clampPct(Number((await getConfigMap(tx))['max_line_discount_pct']))
+
     const ids = [...new Set(input.items.map((i) => i.productId))]
     const rows = await tx.select().from(products).where(inArray(products.id, ids))
     const byId = new Map(rows.map((r) => [r.id, r]))
@@ -115,6 +125,15 @@ export async function createSale(
           throw new HttpError(
             400,
             `El precio de "${product.name}" no puede superar el de catálogo.`
+          )
+        }
+        const minAllowedCents = Math.ceil((product.price * (100 - maxDiscountPct)) / 100)
+        if (editedCents < minAllowedCents) {
+          throw new HttpError(
+            400,
+            maxDiscountPct === 0
+              ? `No está permitido editar el precio de "${product.name}".`
+              : `El descuento en "${product.name}" supera el máximo permitido (${maxDiscountPct}%).`
           )
         }
         priceCents = editedCents

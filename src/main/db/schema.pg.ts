@@ -209,12 +209,20 @@ export const config = pgTable('config', {
   value: text('value').notNull()
 })
 
-export const license = pgTable('license', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  fingerprint: text('fingerprint').notNull(),
-  key: text('key').notNull(),
-  activatedAt: integer('activated_at').notNull().default(now),
-  status: text('status', { enum: ['ACTIVE', 'REVOKED'] })
-    .notNull()
-    .default('ACTIVE')
-})
+export const license = pgTable(
+  'license',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    fingerprint: text('fingerprint').notNull(),
+    key: text('key').notNull(),
+    activatedAt: integer('activated_at').notNull().default(now),
+    status: text('status', { enum: ['ACTIVE', 'REVOKED'] })
+      .notNull()
+      .default('ACTIVE')
+  },
+  (t) => [
+    uniqueIndex('license_one_active')
+      .on(sql`(1)`)
+      .where(sql`${t.status} = 'ACTIVE'`)
+  ]
+)

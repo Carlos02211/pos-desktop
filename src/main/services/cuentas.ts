@@ -5,7 +5,6 @@ import type {
   CreditAccountListItem,
   CreditQuery
 } from '../../shared/types'
-import type { CreditAccountRow } from '../db/schema'
 import { creditAccounts, creditPayments, customers, sales, users } from '../db/schema'
 import type { DB } from '../db'
 import { lockRow, withTx } from '../db/tx'
@@ -35,33 +34,6 @@ function withBalance<T extends { total: number; paid: number }>(row: T): T & { b
     paid: fromCents(row.paid),
     balance: fromCents(row.total - row.paid)
   }
-}
-
-/** Crea la cuenta por cobrar de una venta a crédito. Se llama dentro de la transacción de venta. */
-export async function openCreditAccount(
-  db: DB,
-  params: { saleId: number; customerId: number; userId: number; amount: number }
-): Promise<CreditAccountRow> {
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, params.customerId))
-    .limit(1)
-  if (!customer || customer.active !== 1) {
-    throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
-  }
-  const [row] = await db
-    .insert(creditAccounts)
-    .values({
-      saleId: params.saleId,
-      customerId: params.customerId,
-      userId: params.userId,
-      total: toCents(params.amount),
-      paid: 0,
-      status: 'OPEN'
-    })
-    .returning()
-  return row
 }
 
 export async function listCreditAccounts(

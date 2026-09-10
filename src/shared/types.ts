@@ -349,6 +349,8 @@ export interface ConfigResponse {
   currency_symbol: string
   /** Minutos respecto de UTC para "hoy" y los tramos de reportes. Vacío = huso del servidor. */
   business_utc_offset: string
+  /** Descuento máximo (%) que el cobrador puede aplicar al editar un precio. '100' = sin límite. */
+  max_line_discount_pct: string
   printer_interface: string
   backup_dir: string
 }
