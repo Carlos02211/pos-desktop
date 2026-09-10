@@ -15,7 +15,7 @@ const salesQuerySchema = z.object({
   from: z.coerce.number().int().nonnegative().optional(),
   to: z.coerce.number().int().nonnegative().optional(),
   userId: z.coerce.number().int().positive().optional(),
-  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER']).optional()
+  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'CREDIT']).optional()
 })
 
 const createSaleSchema = z.object({

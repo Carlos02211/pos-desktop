@@ -3,13 +3,15 @@ import type { DashboardData, OpenSessionInfo, SaleListItem } from '../../shared/
 import type { DB } from '../db'
 import { cashSessions, customers, saleItems, sales, users } from '../db/schema'
 import { fromCents } from '../lib/money'
+import { businessOffsetMinutes, dayStartUnix, nowParts } from '../lib/timezone'
+import { getConfigMap } from './config'
 import { totalReceivable } from './cuentas'
 
-/** Indicadores del día en curso (hora local del servidor). */
+/** Indicadores del día en curso (zona horaria del negocio, `config.business_utc_offset`). */
 export async function getDashboard(db: DB): Promise<DashboardData> {
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-  const from = Math.floor(start.getTime() / 1000)
+  const offset = businessOffsetMinutes(await getConfigMap(db))
+  const t0 = nowParts(offset)
+  const from = dayStartUnix(t0.year, t0.month, t0.day, offset)
   const to = from + 86_400 - 1
   const inToday = and(gte(sales.createdAt, from), lte(sales.createdAt, to))
 

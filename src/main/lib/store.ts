@@ -36,7 +36,10 @@ export function initStore(cwd: string): ConfigStore {
     cwd,
     name: 'pos-config',
     encryptionKey: ENCRYPTION_KEY,
-    clearInvalidConfig: true
+    // `false`: si el archivo se corrompe (corte de luz a mitad de escritura) NO
+    // se borra en silencio — perderíamos el jwt_secret (invalida sesiones) y la
+    // licencia. Mejor que el arranque falle ruidosamente y se restaure el backup.
+    clearInvalidConfig: false
   })
   return _store
 }
@@ -47,11 +50,16 @@ export function getStore(): ConfigStore {
 }
 
 /**
- * Secreto para firmar los JWT. Se genera una sola vez por instalación y se
- * persiste cifrado. Mejor que una constante en el binario: si alguien extrae
- * el código no puede falsificar tokens de una instalación concreta.
+ * Secreto para firmar los JWT.
+ *
+ * - Servidor Fase 2: si `JWT_SECRET` está en el entorno, se usa ese (no depende
+ *   de que `POS_DATA_DIR` persista, y no queda cifrado con una clave del binario).
+ * - Electron / dev: se genera una vez por instalación y se persiste en el store.
  */
 export function getJwtSecret(): string {
+  const fromEnv = process.env.JWT_SECRET?.trim()
+  if (fromEnv && fromEnv.length >= 32) return fromEnv
+
   const store = getStore()
   let secret = store.get('jwt_secret')
   if (!secret) {

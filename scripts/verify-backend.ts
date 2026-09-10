@@ -16,6 +16,7 @@
  *
  * Uso:  pnpm verify:backend
  */
+import { execFileSync } from 'child_process'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -65,6 +66,11 @@ async function main(): Promise<void> {
   let server: Awaited<ReturnType<typeof startServer>> | null = null
 
   try {
+    // Paridad de esquemas SQLite ↔ PostgreSQL (falla el proceso si divergen).
+    execFileSync('npx', ['tsx', join(process.cwd(), 'scripts', 'check-schema-parity.ts')], {
+      stdio: 'inherit'
+    })
+
     initStore(dir)
     const db = await initDb(dbPath, MIGRATIONS)
     await runSeed(db)
@@ -412,6 +418,23 @@ async function main(): Promise<void> {
     assert(imgPath.startsWith('productos/') && imgPath.endsWith('.png'), 'imagen: ruta relativa')
     const served = await fetch(`${base}/uploads/${imgPath}`)
     assert(served.status === 200, `imagen servida en /uploads/ -> 200 (status: ${served.status})`)
+
+    // Un archivo que NO es imagen aunque diga image/png -> rechazado (magic bytes).
+    const fakeForm = new FormData()
+    fakeForm.append(
+      'file',
+      new Blob([Buffer.from('<html>not an image</html>')], { type: 'image/png' }),
+      'x.png'
+    )
+    const fakeRes = await fetch(`${base}/api/productos/${refresco.id}/imagen`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+      body: fakeForm
+    })
+    assert(
+      fakeRes.status === 400,
+      `imagen: archivo no-imagen con Content-Type falso -> 400 (status: ${fakeRes.status})`
+    )
 
     // Soft delete de producto.
     const del = await asAdmin(`/api/productos/${refresco.id}`, 'DELETE')

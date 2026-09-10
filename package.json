@@ -25,6 +25,7 @@
     "build:win": "tsx scripts/check-vendor-secret.ts && pnpm build && electron-builder --win",
     "build:server": "tsx scripts/build-server.ts",
     "server:dev": "cross-env POS_ALLOW_INSECURE=1 DATABASE_URL=pglite://.data/server-pg POS_MIGRATIONS_DIR=resources/migrations-pg POS_STATIC_DIR=out/renderer POS_DATA_DIR=.data/server tsx src/server/index.ts",
+    "check:schema": "tsx scripts/check-schema-parity.ts",
     "db:generate": "drizzle-kit generate",
     "db:generate:pg": "drizzle-kit generate --config drizzle.config.pg.ts",
     "db:studio": "drizzle-kit studio",

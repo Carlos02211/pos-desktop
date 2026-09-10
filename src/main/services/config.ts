@@ -11,6 +11,7 @@ const DEFAULTS: ConfigResponse = {
   logo_path: '',
   ticket_footer: '¡Gracias por su compra!',
   currency_symbol: '$',
+  business_utc_offset: '',
   printer_interface: '',
   backup_dir: ''
 }

@@ -101,6 +101,12 @@ export function assertProductionConfig(): void {
     )
   }
 
+  // JWT_SECRET es opcional (si no está, se autogenera y persiste en POS_DATA_DIR),
+  // pero si se define tiene que ser suficientemente largo.
+  if (process.env.JWT_SECRET !== undefined && process.env.JWT_SECRET.trim().length < 32) {
+    errors.push('JWT_SECRET, si se define, debe tener al menos 32 caracteres.')
+  }
+
   if (errors.length > 0) {
     console.error(
       '\n❌ El servidor no puede arrancar en producción:\n' +

@@ -347,6 +347,8 @@ export interface ConfigResponse {
   logo_path: string
   ticket_footer: string
   currency_symbol: string
+  /** Minutos respecto de UTC para "hoy" y los tramos de reportes. Vacío = huso del servidor. */
+  business_utc_offset: string
   printer_interface: string
   backup_dir: string
 }

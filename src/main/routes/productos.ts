@@ -1,12 +1,11 @@
-import { createWriteStream } from 'fs'
-import { mkdir, unlink } from 'fs/promises'
+import { mkdir, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { pipeline } from 'stream/promises'
 import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getDb } from '../db'
 import { HttpError } from '../lib/http-error'
+import { extForImage, sniffImage } from '../lib/image-type'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
@@ -28,12 +27,6 @@ const productSchema = z.object({
   active: z.boolean().optional()
 })
 const idParam = z.object({ id: z.coerce.number().int().positive() })
-
-const IMAGE_EXT: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/webp': '.webp'
-}
 
 export async function productosRoutes(app: FastifyInstance): Promise<void> {
   // COBRADOR ve sólo activos; ADMIN puede pedir todos con ?all=1
@@ -73,17 +66,18 @@ export async function productosRoutes(app: FastifyInstance): Promise<void> {
 
       const data = await request.file()
       if (!data) throw new HttpError(400, 'No se recibió ningún archivo.')
-      const ext = IMAGE_EXT[data.mimetype]
-      if (!ext) throw new HttpError(400, 'Formato no soportado (usa PNG, JPG o WebP).')
+      const buffer = await data.toBuffer()
+      if (data.file.truncated) {
+        throw new HttpError(413, 'La imagen supera el tamaño máximo (3 MB).')
+      }
+      // No se confía en data.mimetype (lo pone el cliente): se comprueban los magic bytes.
+      const kind = sniffImage(buffer)
+      if (!kind) throw new HttpError(400, 'El archivo no es una imagen PNG, JPG o WebP válida.')
 
       const dir = join(app.posContext.uploadsDir, 'productos')
       await mkdir(dir, { recursive: true })
-      const filename = `${randomUUID()}${ext}`
-      await pipeline(data.file, createWriteStream(join(dir, filename)))
-      if (data.file.truncated) {
-        await unlink(join(dir, filename)).catch(() => {})
-        throw new HttpError(413, 'La imagen supera el tamaño máximo (3 MB).')
-      }
+      const filename = `${randomUUID()}${extForImage(kind)}`
+      await writeFile(join(dir, filename), buffer)
 
       const relative = `productos/${filename}`
       const product = await setProductImage(db, id, relative)
