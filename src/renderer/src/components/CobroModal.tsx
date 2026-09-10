@@ -47,6 +47,7 @@ export function CobroModal({
   const [clienteQuery, setClienteQuery] = useState('')
   const [clienteId, setClienteId] = useState<number | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestion, setActiveSuggestion] = useState(0)
   const [creatingCustomer, setCreatingCustomer] = useState(false)
 
   useEffect(() => {
@@ -65,6 +66,22 @@ export function CobroModal({
     setClienteId(c.id)
     setClienteQuery(c.name)
     setShowSuggestions(false)
+  }
+
+  function onClienteKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (!showSuggestions || clienteSuggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveSuggestion((i) => (i + 1) % clienteSuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveSuggestion((i) => (i - 1 + clienteSuggestions.length) % clienteSuggestions.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      pickCliente(clienteSuggestions[activeSuggestion] ?? clienteSuggestions[0])
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+    }
   }
 
   const paid = Number.parseFloat(paidText.replace(',', '.'))
@@ -163,11 +180,22 @@ export function CobroModal({
           <input
             autoFocus={method !== 'CASH'}
             value={clienteQuery}
+            role="combobox"
+            aria-expanded={showSuggestions && clienteSuggestions.length > 0}
+            aria-controls="cliente-listbox"
+            aria-autocomplete="list"
+            aria-activedescendant={
+              showSuggestions && clienteSuggestions.length > 0
+                ? `cliente-opt-${activeSuggestion}`
+                : undefined
+            }
             onChange={(e) => {
               setClienteQuery(e.target.value)
               setClienteId(null)
               setShowSuggestions(true)
+              setActiveSuggestion(0)
             }}
+            onKeyDown={onClienteKeyDown}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
             placeholder="Busca un cliente o escribe uno nuevo…"
@@ -183,13 +211,23 @@ export function CobroModal({
             </p>
           )}
           {showSuggestions && clienteSuggestions.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-              {clienteSuggestions.map((c) => (
+            <div
+              id="cliente-listbox"
+              role="listbox"
+              className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+            >
+              {clienteSuggestions.map((c, i) => (
                 <button
                   key={c.id}
+                  id={`cliente-opt-${i}`}
+                  role="option"
+                  aria-selected={i === activeSuggestion}
                   type="button"
+                  onMouseEnter={() => setActiveSuggestion(i)}
                   onMouseDown={() => pickCliente(c)}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-secondary"
+                  className={`block w-full px-3 py-2 text-left text-sm ${
+                    i === activeSuggestion ? 'bg-secondary' : ''
+                  }`}
                 >
                   {c.name}
                   {c.balance > 0 ? ` (debe ${money(c.balance)})` : ''}
