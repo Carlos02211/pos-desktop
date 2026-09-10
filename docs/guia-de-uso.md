@@ -31,7 +31,19 @@ _Solo puedes tener una caja abierta a la vez._
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._
 
-## 3. Cerrar caja (al terminar el turno)
+## 3. Sacar o meter efectivo de la caja
+
+Si durante el turno **sacas** dinero de la caja (comprar bolsas, un gasto, llevar
+al banco) o **metes** dinero (el dueño deja cambio):
+
+1. Toca **Efectivo** (arriba del carrito).
+2. Elige **Retiro** o **Ingreso**, escribe el **monto** y el **motivo**.
+3. Toca **Registrar**.
+
+Así el **efectivo esperado** del cierre queda correcto y no marca faltante por error.
+Un retiro no puede ser mayor al efectivo que hay en la caja.
+
+## 4. Cerrar caja (al terminar el turno)
 
 1. Toca **Cerrar caja** (arriba del carrito).
 2. Revisa el resumen del turno: verás el **efectivo esperado en caja**.
@@ -40,6 +52,8 @@ _Si la impresora no responde, la venta **igual queda registrada**; aparece un av
    - **Verde** = sobra dinero.
    - **Rojo** = falta dinero.
 5. Toca **Cerrar caja**. Se guarda un **respaldo automático** de los datos.
+
+_El resumen muestra los retiros e ingresos de efectivo que registraste en el turno._
 
 ## Problemas comunes
 
