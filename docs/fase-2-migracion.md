@@ -291,29 +291,10 @@ dev/CI sin instalar PostgreSQL.
 
 ## Respaldo de PostgreSQL
 
-En PostgreSQL el cierre de caja ya no copia un archivo. Programar un respaldo con
-el Programador de tareas de Windows. **No usar `%DATE%`** (depende del locale y
-genera nombres inválidos). Script `backup-pg.ps1`:
-
-```powershell
-$ErrorActionPreference = "Stop"
-$stamp   = Get-Date -Format "yyyyMMdd-HHmmss"
-$dir     = "C:\pos-server\backups"
-$dump    = "$dir\pos_$stamp.dump"
-$env:PGPASSWORD = "una-clave-larga"
-
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-& "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe" -U pos -Fc pos -f $dump
-
-# Verifica que el dump no esté corrupto
-& "C:\Program Files\PostgreSQL\16\bin\pg_restore.exe" --list $dump | Out-Null
-
-# Retención: borra los de más de 14 días
-Get-ChildItem "$dir\pos_*.dump" | Where-Object LastWriteTime -lt (Get-Date).AddDays(-14) | Remove-Item
-
-# (Opcional) copiar a un segundo disco / NAS
-# Copy-Item $dump "\\NAS\backups\pos\"
-```
+En PostgreSQL el cierre de caja ya no copia un archivo. El repo trae
+**`deploy/backup-pg.ps1`** (timestamp ISO, verificación con `pg_restore --list`,
+retención y copia fuera del equipo). Ajustar las 4 variables del principio y
+programarlo. **No usar `%DATE%`** (depende del locale y genera nombres inválidos).
 
 Tarea programada (diaria, 23:30):
 

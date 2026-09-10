@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
@@ -29,11 +29,16 @@ export function ProductoFormModal({
   const price = Number.parseFloat(priceText.replace(',', '.'))
   const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
 
-  const preview = file
-    ? URL.createObjectURL(file)
-    : product?.imagePath
-      ? `${API_BASE_URL}/uploads/${product.imagePath}`
-      : null
+  // Un solo object URL por archivo seleccionado; se libera al cambiarlo o cerrar.
+  const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
+  useEffect(() => {
+    return () => {
+      if (fileUrl) URL.revokeObjectURL(fileUrl)
+    }
+  }, [fileUrl])
+
+  const preview =
+    fileUrl ?? (product?.imagePath ? `${API_BASE_URL}/uploads/${product.imagePath}` : null)
 
   async function save(): Promise<void> {
     setError('')

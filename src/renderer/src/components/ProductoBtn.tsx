@@ -1,9 +1,10 @@
+import { memo } from 'react'
 import type { ProductWithCategory } from '@shared/types'
 import { API_BASE_URL } from '@/api/client'
 import { money } from '@/lib/format'
 
 /** Botón grande de producto (mínimo 120×120) para el grid del cobrador. */
-export function ProductoBtn({
+export const ProductoBtn = memo(function ProductoBtn({
   product,
   onSelect
 }: {
@@ -41,4 +42,4 @@ export function ProductoBtn({
       </div>
     </button>
   )
-}
+})

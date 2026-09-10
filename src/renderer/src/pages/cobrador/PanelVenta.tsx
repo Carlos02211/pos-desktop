@@ -24,7 +24,13 @@ export default function PanelVenta(): React.JSX.Element {
   const [cobroOpen, setCobroOpen] = useState(false)
   const [movimientoOpen, setMovimientoOpen] = useState(false)
 
-  const { items, addItem, setQty, setPrice, removeItem, clear } = useCartStore()
+  // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
+  const items = useCartStore((s) => s.items)
+  const addItem = useCartStore((s) => s.addItem)
+  const setQty = useCartStore((s) => s.setQty)
+  const setPrice = useCartStore((s) => s.setPrice)
+  const removeItem = useCartStore((s) => s.removeItem)
+  const clear = useCartStore((s) => s.clear)
   const total = useMemo(() => cartTotal(items), [items])
 
   const loadCatalog = useCallback(async () => {

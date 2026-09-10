@@ -68,15 +68,28 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
   })
 
   // Cabeceras de seguridad en todas las respuestas (no hace falta helmet para esto).
-  // La CSP completa de scripts/estilos vive en el <meta> de index.html; aquí van
-  // las directivas de bajo riesgo que no pueden ir en <meta> o conviene forzar.
+  const servingSpa = !!opts.staticDir
+  // Para la SPA servida por el propio servidor (Fase 2), una CSP completa. En
+  // Electron (sin staticDir) la CSP vive en el <meta> de index.html.
+  const spaCsp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'", // Tailwind / libs inyectan <style> en runtime
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self'", // API + Socket.io del mismo origen
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'"
+  ].join('; ')
+
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('X-Frame-Options', 'DENY')
     reply.header('Referrer-Policy', 'no-referrer')
     reply.header(
       'Content-Security-Policy',
-      "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+      servingSpa ? spaCsp : "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
     )
     return payload
   })
