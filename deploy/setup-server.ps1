@@ -60,11 +60,16 @@ $ErrorActionPreference = "Continue"
 pm2 delete pos-server *> $null
 pm2 start ecosystem.config.cjs
 if ($LASTEXITCODE -ne 0) { throw "pm2 start falló (código $LASTEXITCODE). Revisá 'pm2 logs pos-server'." }
+# pm2-installer (servicio de Windows) ya trae su propio rotador, @jessety/pm2-logrotate:
+# instalar además pm2-logrotate deja dos rotadores peleándose por los mismos archivos.
+$modules = (pm2 jlist 2>$null | Out-String | ConvertFrom-Json) | ForEach-Object { $_.name }
+if ($modules -notcontains "@jessety/pm2-logrotate") {
+  if ($modules -notcontains "pm2-logrotate") { pm2 install pm2-logrotate *> $null }
+  pm2 set pm2-logrotate:max_size 10M  | Out-Null
+  pm2 set pm2-logrotate:retain 14     | Out-Null
+  pm2 set pm2-logrotate:compress true | Out-Null
+}
 pm2 save
-pm2 install pm2-logrotate *> $null
-pm2 set pm2-logrotate:max_size 10M  | Out-Null
-pm2 set pm2-logrotate:retain 14     | Out-Null
-pm2 set pm2-logrotate:compress true | Out-Null
 $ErrorActionPreference = "Stop"
 
 # --- Firewall ---------------------------------------------------
@@ -84,4 +89,8 @@ try {
 }
 Write-Host ""
 Write-Host "Contraseña de admin (sólo el primer arranque):  pm2 logs pos-server --lines 50"
-Write-Host "Arranque automático al encender la PC (servicio de Windows):  ver 'pm2-installer' en el runbook."
+if (Get-Service -Name "pm2*" -ErrorAction SilentlyContinue) {
+  Write-Host "Arranque automático: servicio de Windows 'pm2' instalado (pm2-installer)." -ForegroundColor Green
+} else {
+  Write-Host "Arranque automático: falta el servicio de Windows — ver 'B5. pm2-installer' en la guía." -ForegroundColor Yellow
+}

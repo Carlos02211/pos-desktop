@@ -112,12 +112,47 @@ cambiarla al primer login. En producción **no** se crea el usuario `cajero` de 
 
 ### B5. Arranque automático al encender la PC (servicio de Windows)
 
+[pm2-installer](https://github.com/jessety/pm2-installer) crea el servicio de Windows **pm2**,
+que corre como _Servicio local_ y levanta el POS al encender la PC, **antes de que nadie
+inicie sesión**. Se descarga como carpeta aparte (no es una dependencia del POS).
+
+> En una instalación nueva conviene hacer este paso **antes de B4**: así `setup-server.ps1`
+> registra el POS directamente en el pm2 del servicio. Si B4 ya se hizo, empezar por apagar
+> el pm2 del usuario (primer bloque).
+
+PowerShell **como Administrador**:
+
+```powershell
+# Sólo si B4 ya se hizo: apagar el pm2 del usuario (pm2.cmd evita el bloqueo de scripts)
+pm2.cmd kill
+npm uninstall -g pm2
+
+# Descargar pm2-installer e instalar el servicio
+cd C:\
+Invoke-WebRequest https://github.com/jessety/pm2-installer/archive/refs/heads/main.zip -OutFile C:\pm2-installer.zip
+Expand-Archive C:\pm2-installer.zip -DestinationPath C:\
+cd C:\pm2-installer-main
+npm run configure          # npm global -> C:\ProgramData\npm (visible para el servicio)
+npm run configure-policy   # permite scripts: ya no hace falta el Bypass
+npm run setup              # instala pm2 + servicio "pm2" + @jessety/pm2-logrotate
+
+# El servicio (Servicio local, SID S-1-5-19 — el nombre cambia según el idioma de
+# Windows) necesita leer C:\pos-server y escribir en data\
+icacls C:\pos-server /grant "*S-1-5-19:(OI)(CI)M" /T
+```
+
+**Cerrar PowerShell y abrir uno nuevo como Administrador** (toma `PM2_HOME` =
+`C:\ProgramData\pm2\home`) y registrar el POS en el pm2 del servicio:
+
 ```powershell
 cd C:\pos-server
-npm install pm2-installer --no-save
-npm run configure
-npm run setup
+.\setup-server.ps1
+Get-Service pm2      # Running
+pm2 ls               # pos-server online
 ```
+
+Prueba: reiniciar la PC **sin iniciar sesión** y abrir `http://<IP>:3000/api/ping` desde
+otro equipo de la red.
 
 ### B6. Activar la licencia
 

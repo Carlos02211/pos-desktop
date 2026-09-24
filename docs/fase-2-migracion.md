@@ -185,11 +185,9 @@ inicial`. No se vuelve a mostrar. En producción **no** se crea el `cajero` de p
 5. **Servicio de Windows** (arranque automático) con
    [`pm2-installer`](https://github.com/jessety/pm2-installer):
 
-   ```powershell
-   npm install pm2-installer --no-save
-   npm run configure
-   npm run setup
-   ```
+   pm2-installer se descarga como carpeta aparte, necesita permisos sobre `C:\pos-server` y
+   conviene instalarlo **antes** de `setup-server.ps1`. Pasos exactos (probados en la VM):
+   [`fase-2-instalacion-windows.md` → B5](fase-2-instalacion-windows.md).
 
 Los que `setup-server.ps1` ya hace (por si hay que reproducirlos a mano): `npm install
 --omit=dev`, `npm i -g pm2`, `pm2 start ecosystem.config.cjs`, `pm2 save`, la regla de
