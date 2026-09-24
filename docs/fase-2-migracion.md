@@ -157,7 +157,7 @@ Resumen:
    hace falta el repo, ni `pnpm`, ni Python, ni VS Build Tools — el bundle no tiene
    módulos nativos.
 
-2. En `C:\pos-server`: `copy .env.example .env` y editar. El servidor **aborta** si falta:
+2. En `C:\pos-server`: `copy env-ejemplo.txt .env` y editar. El servidor **aborta** si falta:
 
    ```ini
    PORT=3000

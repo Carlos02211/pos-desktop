@@ -18,17 +18,17 @@ pnpm build:server        # → genera dist-server/
 
 `dist-server/` contiene y nada más:
 
-| Archivo / carpeta      | Qué es                                                          |
-| ---------------------- | --------------------------------------------------------------- |
-| `server.cjs`           | el servidor (bundle único)                                      |
-| `public/`              | la app web (React) que se sirve a las tabletas                  |
-| `migrations-pg/`       | migraciones de PostgreSQL (se aplican solas al arrancar)        |
-| `package.json`         | dependencias de runtime (sin `better-sqlite3` → sin compilador) |
-| `.env.example`         | plantilla de configuración                                      |
-| `ecosystem.config.cjs` | configuración de pm2                                            |
-| `setup-server.ps1`     | instalación idempotente (Node, `npm install`, pm2, firewall)    |
-| `backup-pg.ps1`        | respaldo programado de PostgreSQL                               |
-| `LEEME.txt`            | resumen de lo anterior                                          |
+| Archivo / carpeta      | Qué es                                                                      |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `server.cjs`           | el servidor (bundle único)                                                  |
+| `public/`              | la app web (React) que se sirve a las tabletas                              |
+| `migrations-pg/`       | migraciones de PostgreSQL (se aplican solas al arrancar)                    |
+| `package.json`         | dependencias de runtime (sin `better-sqlite3` → sin compilador)             |
+| `env-ejemplo.txt`      | plantilla del `.env` (nombre visible: los `.archivos` se pierden al copiar) |
+| `ecosystem.config.cjs` | configuración de pm2                                                        |
+| `setup-server.ps1`     | instalación idempotente (Node, `npm install`, pm2, firewall)                |
+| `backup-pg.ps1`        | respaldo programado de PostgreSQL                                           |
+| `LEEME.txt`            | resumen de lo anterior                                                      |
 
 Renombrar `dist-server/` → `pos-server/` y pasarla a la PC del cliente (USB, o
 arrastre por SPICE si es una VM). **Nada más del repo.**
@@ -65,11 +65,12 @@ nueva sin datos previos: saltear este paso.
 
 ### B3. Copiar `pos-server/` y configurar el `.env`
 
-Copiar la carpeta a `C:\pos-server`. Crear el `.env`:
+Copiar la carpeta a `C:\pos-server`. Crear el `.env` (o dejar que `setup-server.ps1` lo cree
+desde la plantilla y lo abra en el Bloc de notas la primera vez):
 
 ```powershell
 cd C:\pos-server
-copy .env.example .env
+copy env-ejemplo.txt .env
 notepad .env
 ```
 

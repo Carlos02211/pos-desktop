@@ -4,7 +4,7 @@
  *   pnpm build:server
  *     1. pnpm build            → out/renderer  (build de React)
  *     2. tsup                  → dist-server/server.cjs
- *     3. copia public/ migrations-pg/ ecosystem .env.example *.ps1
+ *     3. copia public/ migrations-pg/ ecosystem env-ejemplo.txt *.ps1
  *     4. genera dist-server/package.json SOLO con las deps de runtime del servidor
  *        (PostgreSQL) — sin better-sqlite3, así el cliente NO necesita compilador.
  *
@@ -48,7 +48,12 @@ run('pnpm exec tsup')
 cpSync(join(root, 'out/renderer'), join(out, 'public'), { recursive: true })
 cpSync(join(root, 'resources/migrations-pg'), join(out, 'migrations-pg'), { recursive: true })
 cpSync(join(root, 'deploy/ecosystem.config.cjs'), join(out, 'ecosystem.config.cjs'))
-cpSync(join(root, 'deploy/.env.example'), join(out, '.env.example'))
+// La plantilla va con nombre visible y CRLF: un `.env.example` (archivo oculto en Linux)
+// se pierde al arrastrar la carpeta a Windows, y el Bloc de notas prefiere CRLF.
+writeFileSync(
+  join(out, 'env-ejemplo.txt'),
+  readFileSync(join(root, 'deploy/.env.example'), 'utf8').replace(/\r?\n/g, '\r\n')
+)
 // Los .ps1 van con BOM UTF-8: Windows PowerShell 5.1 lee los archivos sin BOM como
 // Windows-1252, y los bytes de «—» / acentos rompen el parser (0x94 = comilla ”).
 for (const ps1 of ['setup-server.ps1', 'backup-pg.ps1']) {
@@ -95,7 +100,7 @@ writeFileSync(
     '  public/               la app web (React) que se sirve a las tabletas',
     '  migrations-pg/        migraciones de PostgreSQL (se aplican solas al arrancar)',
     '  package.json          dependencias de runtime (sin better-sqlite3 → sin compilador)',
-    '  .env.example          copiar a .env y editar (DATABASE_URL)',
+    '  env-ejemplo.txt       plantilla: setup-server.ps1 la copia a .env (editar DATABASE_URL)',
     '  ecosystem.config.cjs  configuración de pm2',
     '  setup-server.ps1      instalación idempotente (Node, npm install, pm2, firewall)',
     '  backup-pg.ps1         respaldo programado de PostgreSQL',

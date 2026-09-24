@@ -4,7 +4,8 @@
 # Es idempotente: se puede volver a correr tras una actualización del bundle.
 #
 #   1. Copiá esta carpeta completa como  C:\pos-server
-#   2. Editá  C:\pos-server\.env  (copialo de .env.example) — DATABASE_URL
+#   2. Corré setup-server.ps1: si no hay .env lo crea desde env-ejemplo.txt y lo abre;
+#      completá DATABASE_URL, guardá y volvé a correrlo
 #   3. PowerShell COMO ADMINISTRADOR:
 #        cd C:\pos-server
 #        Set-ExecutionPolicy -Scope Process Bypass
@@ -22,8 +23,11 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 # --- .env --------------------------------------------------------------
 Step ".env"
 if (-not (Test-Path ".\.env")) {
-  Copy-Item ".\.env.example" ".\.env"
-  Write-Host "Se creó .env desde el ejemplo. EDITALO (DATABASE_URL) y volvé a correr." -ForegroundColor Yellow
+  $template = @(".\env-ejemplo.txt", ".\.env.example") | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $template) { throw "No está env-ejemplo.txt: copiá de nuevo la carpeta completa del servidor." }
+  Copy-Item $template ".\.env"
+  Write-Host "Se creó .env desde $template. Completá DATABASE_URL, guardá y volvé a correr este script." -ForegroundColor Yellow
+  Start-Process notepad.exe ".\.env"
   exit 1
 }
 $envText = Get-Content ".\.env" -Raw

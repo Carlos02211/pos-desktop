@@ -14,7 +14,7 @@
  *   pm2 set pm2-logrotate:retain 14
  *   pm2 set pm2-logrotate:compress true
  *
- * La configuración de la app se toma de un `.env` junto a este (ver `.env.example`).
+ * La configuración de la app se toma de un `.env` junto a este (plantilla: `env-ejemplo.txt` en el bundle).
  * El servidor ABORTA el arranque si falta DATABASE_URL (PostgreSQL real)
  * (revisar `pm2 logs pos-server` tras el primer `pm2 start`).
  */
