@@ -4,7 +4,7 @@
 # Es idempotente: se puede volver a correr tras una actualización del bundle.
 #
 #   1. Copiá esta carpeta completa como  C:\pos-server
-#   2. Editá  C:\pos-server\.env  (copialo de .env.example) — DATABASE_URL y POS_VENDOR_SECRET
+#   2. Editá  C:\pos-server\.env  (copialo de .env.example) — DATABASE_URL
 #   3. PowerShell COMO ADMINISTRADOR:
 #        cd C:\pos-server
 #        Set-ExecutionPolicy -Scope Process Bypass
@@ -23,15 +23,12 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 Step ".env"
 if (-not (Test-Path ".\.env")) {
   Copy-Item ".\.env.example" ".\.env"
-  Write-Host "Se creó .env desde el ejemplo. EDITALO (DATABASE_URL, POS_VENDOR_SECRET) y volvé a correr." -ForegroundColor Yellow
+  Write-Host "Se creó .env desde el ejemplo. EDITALO (DATABASE_URL) y volvé a correr." -ForegroundColor Yellow
   exit 1
 }
 $envText = Get-Content ".\.env" -Raw
 if ($envText -notmatch "(?m)^\s*DATABASE_URL\s*=\s*postgres") {
   throw ".env: falta DATABASE_URL con una URL de PostgreSQL (postgres://...)."
-}
-if ($envText -match "CAMBIAR-genera-el-tuyo|SPARTAN-TECH-VENDOR-SECRET-2026") {
-  throw ".env: POS_VENDOR_SECRET sigue con el valor de ejemplo. Generá uno con 'openssl rand -base64 32'."
 }
 
 # --- Node 22 ---------------------------------------------------------

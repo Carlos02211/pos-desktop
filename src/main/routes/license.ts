@@ -7,7 +7,7 @@ import { parse } from '../lib/validate'
 import { activateLicense, getLicenseStatus } from '../services/license'
 
 const activateSchema = z.object({
-  key: z.string().min(10).max(80)
+  key: z.string().min(10).max(200)
 })
 
 // Freno simple por IP a los intentos fallidos. No es la defensa real (el espacio de

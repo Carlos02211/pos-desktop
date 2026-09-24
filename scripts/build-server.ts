@@ -95,7 +95,7 @@ writeFileSync(
     '  public/               la app web (React) que se sirve a las tabletas',
     '  migrations-pg/        migraciones de PostgreSQL (se aplican solas al arrancar)',
     '  package.json          dependencias de runtime (sin better-sqlite3 → sin compilador)',
-    '  .env.example          copiar a .env y editar (DATABASE_URL, POS_VENDOR_SECRET)',
+    '  .env.example          copiar a .env y editar (DATABASE_URL)',
     '  ecosystem.config.cjs  configuración de pm2',
     '  setup-server.ps1      instalación idempotente (Node, npm install, pm2, firewall)',
     '  backup-pg.ps1         respaldo programado de PostgreSQL',

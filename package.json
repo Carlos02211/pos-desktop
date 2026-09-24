@@ -22,7 +22,7 @@
     "build": "pnpm typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm build && electron-builder --dir",
-    "build:win": "tsx scripts/check-vendor-secret.ts && pnpm build && electron-builder --win",
+    "build:win": "pnpm build && electron-builder --win",
     "build:server": "tsx scripts/build-server.ts",
     "server:dev": "cross-env POS_ALLOW_INSECURE=1 DATABASE_URL=pglite://.data/server-pg POS_MIGRATIONS_DIR=resources/migrations-pg POS_STATIC_DIR=out/renderer POS_DATA_DIR=.data/server tsx src/server/index.ts",
     "check:schema": "tsx scripts/check-schema-parity.ts",
@@ -32,7 +32,8 @@
     "migrate:sqlite-to-pg": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/sqlite-to-postgres.ts",
     "verify:backend": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/verify-backend.ts",
     "verify:backend:pg": "cross-env DATABASE_URL=pglite://memory ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/verify-backend.ts",
-    "license:gen": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/gen-license.ts"
+    "license:gen": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/gen-license.ts",
+    "license:keygen": "tsx scripts/license-keygen.ts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

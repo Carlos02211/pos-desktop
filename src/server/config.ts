@@ -1,7 +1,6 @@
 import './load-env' // idempotente; garantiza el .env aunque config se importe suelto
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { usingInsecureVendorSecret } from '../main/services/license'
 
 /**
  * Configuración del servidor standalone (Fase 2), toda por variables de entorno
@@ -76,14 +75,6 @@ export function assertProductionConfig(): void {
     )
   } else if (process.env.DATABASE_URL.startsWith('pglite://')) {
     errors.push('DATABASE_URL apunta a PGlite (embebido, mono-conexión) — usá PostgreSQL real.')
-  }
-
-  // El secreto de licencias no puede ser el de desarrollo ni un valor filtrado.
-  if (usingInsecureVendorSecret) {
-    errors.push(
-      'POS_VENDOR_SECRET no configurado, o es un valor público/de ejemplo conocido. ' +
-        'Generá uno con `openssl rand -base64 32`.'
-    )
   }
 
   // JWT_SECRET es opcional (si no está, se autogenera y persiste en POS_DATA_DIR),

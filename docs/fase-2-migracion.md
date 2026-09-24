@@ -27,18 +27,18 @@ Router (IP fija 192.168.1.10)
 
 ## Qué trae ya el repositorio
 
-| Pieza                                | Dónde                                                           |
-| ------------------------------------ | ------------------------------------------------------------- |
-| Driver dual SQLite / PostgreSQL      | `src/main/db/index.ts` (elige por `DATABASE_URL`)             |
-| Esquema PostgreSQL                   | `src/main/db/schema.pg.ts` (espejo de `schema.sqlite.ts`)     |
-| Migraciones PostgreSQL               | `resources/migrations-pg/` — **ya generadas, no re-generar en el servidor** |
-| Servidor sin Electron                | `src/server/index.ts` (+ validación de arranque en `config.ts`) |
-| Script de migración de datos         | `scripts/sqlite-to-postgres.ts` (`pnpm migrate:sqlite-to-pg`)  |
-| Bundle de despliegue                 | `pnpm build:server` → `dist-server/`                          |
-| Config de pm2 + `.env`               | `deploy/ecosystem.config.cjs`, `deploy/.env.example`          |
-| Autenticación de Socket.io           | `src/main/socket.ts` — handshake con JWT (transparente para el cliente) |
-| HTTPS opcional                       | `POS_TLS_KEY` / `POS_TLS_CERT` en el `.env`                   |
-| Rate-limit de login y de activación  | `src/main/lib/throttle.ts`                                    |
+| Pieza                               | Dónde                                                                       |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| Driver dual SQLite / PostgreSQL     | `src/main/db/index.ts` (elige por `DATABASE_URL`)                           |
+| Esquema PostgreSQL                  | `src/main/db/schema.pg.ts` (espejo de `schema.sqlite.ts`)                   |
+| Migraciones PostgreSQL              | `resources/migrations-pg/` — **ya generadas, no re-generar en el servidor** |
+| Servidor sin Electron               | `src/server/index.ts` (+ validación de arranque en `config.ts`)             |
+| Script de migración de datos        | `scripts/sqlite-to-postgres.ts` (`pnpm migrate:sqlite-to-pg`)               |
+| Bundle de despliegue                | `pnpm build:server` → `dist-server/`                                        |
+| Config de pm2 + `.env`              | `deploy/ecosystem.config.cjs`, `deploy/.env.example`                        |
+| Autenticación de Socket.io          | `src/main/socket.ts` — handshake con JWT (transparente para el cliente)     |
+| HTTPS opcional                      | `POS_TLS_KEY` / `POS_TLS_CERT` en el `.env`                                 |
+| Rate-limit de login y de activación | `src/main/lib/throttle.ts`                                                  |
 
 El cliente resuelve el `baseURL` solo: servido por HTTP/HTTPS usa el **mismo
 origen**, así que no hay ninguna constante que editar
@@ -49,8 +49,9 @@ origen**, así que no hay ninguna constante que editar
 - **PostgreSQL es obligatorio.** El servidor standalone **aborta el arranque** si
   `DATABASE_URL` no está, o si apunta a `pglite://` (SQLite no es seguro con varias
   tabletas concurrentes). Se puede saltar sólo en pruebas con `POS_ALLOW_INSECURE=1`.
-- **`POS_VENDOR_SECRET` real es obligatorio.** El servidor aborta si falta o si es
-  el valor de ejemplo / un valor filtrado conocido.
+- **Licencias firmadas con Ed25519.** El servidor sólo tiene la clave pública; las claves
+  se emiten con `pnpm license:gen <ID>` en la máquina del proveedor (ya no hay
+  `POS_VENDOR_SECRET`).
 - **No hay usuario `cajero` de prueba en producción.** El seed sólo crea `admin`;
   su contraseña sale de `POS_ADMIN_PASSWORD` o se genera al azar y se imprime **una
   vez** en el log de pm2.
@@ -163,7 +164,6 @@ Resumen:
    HOST=0.0.0.0
    DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos   # real, no pglite://
    POS_DATA_DIR=C:\pos-server\data
-   POS_VENDOR_SECRET=<secreto real — `openssl rand -base64 32`, el MISMO que usás con license:gen>
    # POS_ADMIN_PASSWORD=<opcional, mín. 8 chars; si se omite se genera al azar>
    # JWT_SECRET=<opcional, mín. 32 chars; si se omite se guarda en POS_DATA_DIR>
    ```
@@ -180,7 +180,7 @@ Resumen:
 
 4. **Contraseña de `admin`** (sólo el primer arranque, si no pusiste `POS_ADMIN_PASSWORD`):
    `pm2 logs pos-server --lines 50` → bloque `POS SpArTaN Tech — usuario administrador
-   inicial`. No se vuelve a mostrar. En producción **no** se crea el `cajero` de prueba.
+inicial`. No se vuelve a mostrar. En producción **no** se crea el `cajero` de prueba.
 
 5. **Servicio de Windows** (arranque automático) con
    [`pm2-installer`](https://github.com/jessety/pm2-installer):

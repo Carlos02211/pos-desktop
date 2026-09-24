@@ -24,5 +24,8 @@ export default defineConfig({
   skipNodeModulesBundle: true,
   // Todo lo que no sea ruta relativa = dependencia externa: se resuelve de
   // node_modules en el servidor (ver el package.json que genera build-server.ts).
-  external: [/^[^./]/]
+  external: [/^[^./]/],
+  // La clave pública de licencias queda fija en el código: en la PC del cliente no se
+  // puede sustituir por otra vía entorno (ver src/main/services/license.ts).
+  define: { 'process.env.POS_LICENSE_PUBLIC_KEY': '""' }
 })

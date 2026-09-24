@@ -18,17 +18,17 @@ pnpm build:server        # → genera dist-server/
 
 `dist-server/` contiene y nada más:
 
-| Archivo / carpeta | Qué es |
-| --- | --- |
-| `server.cjs` | el servidor (bundle único) |
-| `public/` | la app web (React) que se sirve a las tabletas |
-| `migrations-pg/` | migraciones de PostgreSQL (se aplican solas al arrancar) |
-| `package.json` | dependencias de runtime (sin `better-sqlite3` → sin compilador) |
-| `.env.example` | plantilla de configuración |
-| `ecosystem.config.cjs` | configuración de pm2 |
-| `setup-server.ps1` | instalación idempotente (Node, `npm install`, pm2, firewall) |
-| `backup-pg.ps1` | respaldo programado de PostgreSQL |
-| `LEEME.txt` | resumen de lo anterior |
+| Archivo / carpeta      | Qué es                                                          |
+| ---------------------- | --------------------------------------------------------------- |
+| `server.cjs`           | el servidor (bundle único)                                      |
+| `public/`              | la app web (React) que se sirve a las tabletas                  |
+| `migrations-pg/`       | migraciones de PostgreSQL (se aplican solas al arrancar)        |
+| `package.json`         | dependencias de runtime (sin `better-sqlite3` → sin compilador) |
+| `.env.example`         | plantilla de configuración                                      |
+| `ecosystem.config.cjs` | configuración de pm2                                            |
+| `setup-server.ps1`     | instalación idempotente (Node, `npm install`, pm2, firewall)    |
+| `backup-pg.ps1`        | respaldo programado de PostgreSQL                               |
+| `LEEME.txt`            | resumen de lo anterior                                          |
 
 Renombrar `dist-server/` → `pos-server/` y pasarla a la PC del cliente (USB, o
 arrastre por SPICE si es una VM). **Nada más del repo.**
@@ -80,7 +80,6 @@ PORT=3000
 HOST=0.0.0.0
 DATABASE_URL=postgres://pos:una-clave-larga@localhost:5432/pos
 POS_DATA_DIR=C:\pos-server\data
-POS_VENDOR_SECRET=<secreto real — openssl rand -base64 32, el MISMO que usás con license:gen>
 # POS_ADMIN_PASSWORD=<opcional, mín. 8 chars; si se omite se genera al azar>
 ```
 
@@ -122,14 +121,19 @@ npm run setup
 ### B6. Activar la licencia
 
 El servidor sirve la misma SPA, así que la primera vez pide **activar licencia**. Abrir
-`http://localhost:3000/`, copiar el *ID de este equipo* y generar la clave en la máquina del
-proveedor:
+`http://localhost:3000/`, copiar el _ID de este equipo_ y generar la clave en la máquina del
+proveedor (firma con la clave privada de `~/.config/spartan-pos/license-private.pem`):
 
 ```bash
-POS_VENDOR_SECRET="<el mismo secreto real>" pnpm license:gen <ID>
+pnpm license:gen <ID>
 ```
 
-Pegar la clave y activar. (5 intentos fallidos por minuto y por IP.)
+La clave es larga (~103 caracteres en grupos de 5): mandarla por WhatsApp/correo y **pegarla**
+completa. Pegar la clave y activar. (5 intentos fallidos por minuto y por IP.)
+
+La PC del cliente sólo tiene la clave **pública** (embebida en `server.cjs`): aunque alguien
+lea el `.env` o el bundle, no puede generar claves para otros equipos. Si cambia el hardware
+o el **nombre del equipo**, cambia el ID y hay que emitir una clave nueva.
 
 ### B7. Red y tabletas
 

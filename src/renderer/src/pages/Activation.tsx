@@ -58,7 +58,7 @@ export default function Activation(): React.JSX.Element {
 
         <TextField
           label="Clave de activación"
-          placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+          placeholder="Pega aquí la clave completa (XXXXX-XXXXX-…)"
           autoFocus
           spellCheck={false}
           autoCapitalize="characters"

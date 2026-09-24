@@ -15,7 +15,7 @@
  *   pm2 set pm2-logrotate:compress true
  *
  * La configuración de la app se toma de un `.env` junto a este (ver `.env.example`).
- * El servidor ABORTA el arranque si falta DATABASE_URL o POS_VENDOR_SECRET real
+ * El servidor ABORTA el arranque si falta DATABASE_URL (PostgreSQL real)
  * (revisar `pm2 logs pos-server` tras el primer `pm2 start`).
  */
 module.exports = {

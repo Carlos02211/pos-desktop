@@ -5,12 +5,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    // Congela POS_VENDOR_SECRET dentro del bundle al compilar (ver scripts/check-vendor-secret.ts):
-    // el .exe empaquetado no lee variables de entorno en la PC del cliente, así que el secreto
-    // real tiene que quedar fijo en el código en el momento de correr `pnpm build`/`build:win`.
-    define: {
-      'process.env.POS_VENDOR_SECRET': JSON.stringify(process.env.POS_VENDOR_SECRET ?? '')
-    },
+    // La clave pública de licencias queda fija en el código: el .exe ignora cualquier
+    // POS_LICENSE_PUBLIC_KEY del entorno (ver src/main/services/license.ts).
+    define: { 'process.env.POS_LICENSE_PUBLIC_KEY': '""' },
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {

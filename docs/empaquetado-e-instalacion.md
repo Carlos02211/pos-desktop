@@ -8,15 +8,13 @@ no puede crear el `.exe` desde Linux/macOS sin Wine.
 En un equipo Windows 10/11 x64 con Node **22** y pnpm:
 
 ```powershell
-$env:POS_VENDOR_SECRET = "<el secreto real del proveedor>"   # obligatorio
 pnpm install
-pnpm build:win        # = check-vendor-secret + pnpm build + electron-builder --win
+pnpm build:win        # = pnpm build + electron-builder --win
 ```
 
-`build:win` **corta el build** (`scripts/check-vendor-secret.ts`) si `POS_VENDOR_SECRET`
-no está, es corto, o es un valor de ejemplo/filtrado conocido — así ningún `.exe` de
-producción sale firmado con el secreto de desarrollo. El valor se congela dentro del bundle
-al compilar (`electron.vite.config.ts`).
+No hace falta ningún secreto para compilar: el `.exe` sólo lleva la clave **pública** de
+licencias (`PRODUCTION_PUBLIC_KEY` en `src/main/services/license.ts`), que no permite
+fabricar claves. La privada nunca sale de la máquina del proveedor.
 
 Salida: `dist-electron/pos-spartan-tech-<versión>-setup.exe`
 
@@ -42,8 +40,8 @@ el binario nativo de `better-sqlite3` (`asarUnpack` de `**/*.node`) y ejecuta el
 3. Al primer arranque la app crea la base de datos en
    `%APPDATA%\pos-spartan-tech\pos.db` y muestra la **pantalla de activación**.
 4. Copiar el **ID del equipo** que muestra la pantalla y generar la clave con
-   `pnpm license:gen <ID>` (en el equipo del proveedor, con el mismo `POS_VENDOR_SECRET`
-   que la app empaquetada — se fija con la variable de entorno al hacer `build:win`).
+   `pnpm license:gen <ID>` en el equipo del proveedor (firma con la clave privada de
+   `~/.config/spartan-pos/license-private.pem`).
 5. Pegar la clave y activar. Entrar con `admin / admin123` y cambiar la contraseña
    desde **Admin → Usuarios**.
 6. En **Admin → Configuración**: nombre del negocio, logo, pie de ticket, símbolo de

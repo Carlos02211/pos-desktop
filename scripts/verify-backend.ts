@@ -17,6 +17,7 @@
  * Uso:  pnpm verify:backend
  */
 import { execFileSync } from 'child_process'
+import crypto from 'crypto'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -26,7 +27,7 @@ import { users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
 import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
-import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
+import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
   CashMovement,
   CashSession,
@@ -52,8 +53,14 @@ import type {
 // `verify:backend`     → SQLite en un directorio temporal.
 // `verify:backend:pg`  → PostgreSQL embebido (PGlite) vía DATABASE_URL=pglite://<dir>.
 const PG = !!process.env.DATABASE_URL
+
+// Par Ed25519 efímero: el servidor (corriendo desde el código fuente) verifica con esta
+// pública en lugar de la de producción, y el test firma con la privada.
+const { privateKey: testLicenseKey } = crypto.generateKeyPairSync('ed25519')
+process.env.POS_LICENSE_PUBLIC_KEY = publicKeyOf(testLicenseKey)
 const MIGRATIONS = join(process.cwd(), 'resources', PG ? 'migrations-pg' : 'migrations')
-const PORT = 3001
+// VERIFY_PORT permite correrlo con `pnpm dev` abierto (que ocupa el 3001).
+const PORT = Number(process.env.VERIFY_PORT) || 3001
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`✗ ${msg}`)
@@ -130,7 +137,29 @@ async function main(): Promise<void> {
 
     const fingerprint = await getHardwareFingerprint()
     assert(fingerprint === status1.fingerprint, 'licencia: fingerprint estable entre llamadas')
-    const validKey = expectedKeyForFingerprint(fingerprint)
+    const validKey = signLicense(fingerprint, testLicenseKey)
+
+    // Una letra cambiada invalida la firma.
+    const flipped = validKey.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))
+    const badSig = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: flipped })
+    })
+    assert(badSig.status === 403, `licencia: firma alterada -> 403 (status: ${badSig.status})`)
+
+    // Firmada con OTRA clave privada (p. ej. alguien que generó su propio par) -> rechazada.
+    const { privateKey: rogueKey } = crypto.generateKeyPairSync('ed25519')
+    const rogue = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: signLicense(fingerprint, rogueKey) })
+    })
+    assert(
+      rogue.status === 403,
+      `licencia: firmada con otra clave -> 403 (status: ${rogue.status})`
+    )
+
     const activated = await fetch(`${base}/api/licencia/activar`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
