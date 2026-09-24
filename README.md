@@ -350,8 +350,9 @@ src/
   congelan a vacío en los builds. Freno de intentos por IP en el endpoint de activación.
   Límite honesto: nada offline impide parchear el binario para saltarse la verificación.
 - **Secreto JWT**: se genera aleatorio en el primer arranque y se guarda cifrado en
-  `electron-store` — no es una constante en el binario. Token de 8 h, sólo en memoria en el
-  cliente (nunca `localStorage`).
+  `electron-store` — no es una constante en el binario. Token de 8 h en `sessionStorage` del
+  cliente (sobrevive a un F5, se borra al cerrar la pestaña; nunca `localStorage`) y se
+  revalida con `/api/auth/me` al restaurarlo.
 - **electron-store** es ESM-only; `src/main/lib/store.ts` normaliza el import para que
   funcione tanto en el bundle CJS de electron-vite como en el script de verificación (ESM).
 - **Ventas**: `POST /api/ventas` corre en una transacción. El nombre siempre se toma de la BD

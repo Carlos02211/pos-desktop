@@ -35,3 +35,5 @@ useAuthStore.subscribe((state, prev) => {
   if (state.token && !prev.token) socket.connect()
   else if (!state.token && prev.token) socket.disconnect()
 })
+// Sesión restaurada tras una recarga: ya hay token al arrancar.
+if (useAuthStore.getState().token) socket.connect()
