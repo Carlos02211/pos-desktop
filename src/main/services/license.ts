@@ -62,6 +62,9 @@ function base32Decode(text: string): Buffer {
       bits -= 8
     }
   }
+  // Los bits sobrantes del último carácter son relleno y deben ser 0. Si no se exige, la
+  // misma firma admite varias escrituras (p. ej. terminar en A, B, C… es la misma clave).
+  if ((value & ((1 << bits) - 1)) !== 0) throw new Error('relleno base32 no canónico')
   return Buffer.from(bytes)
 }
 

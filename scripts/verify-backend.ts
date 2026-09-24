@@ -148,6 +148,20 @@ async function main(): Promise<void> {
     })
     assert(badSig.status === 403, `licencia: firma alterada -> 403 (status: ${badSig.status})`)
 
+    // Cambiar el ÚLTIMO carácter sólo toca bits de relleno: debe rechazarse igual (una sola
+    // escritura válida por firma).
+    const lastChar = validKey.slice(-1)
+    const paddedVariant = validKey.slice(0, -1) + (lastChar === 'A' ? 'C' : 'A')
+    const badPad = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: paddedVariant })
+    })
+    assert(
+      badPad.status === 403,
+      `licencia: último carácter alterado -> 403 (status: ${badPad.status})`
+    )
+
     // Firmada con OTRA clave privada (p. ej. alguien que generó su propio par) -> rechazada.
     const { privateKey: rogueKey } = crypto.generateKeyPairSync('ed25519')
     const rogue = await fetch(`${base}/api/licencia/activar`, {
