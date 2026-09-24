@@ -51,13 +51,20 @@ npm install --omit=dev --no-audit --no-fund
 # --- pm2 -----------------------------------------------------------
 Step "pm2"
 if (-not (Get-Command pm2 -ErrorAction SilentlyContinue)) { npm install -g pm2 }
-pm2 delete pos-server 2>$null | Out-Null
+# En Windows PowerShell 5.1, con ErrorActionPreference=Stop, cualquier stderr de un
+# ejecutable redirigido (2>$null) se vuelve error terminante. pm2 escribe en stderr
+# cosas normales (p. ej. "pos-server not found" al borrar un proceso que no existe),
+# así que en este bloque se valida con $LASTEXITCODE en vez de con el stream de error.
+$ErrorActionPreference = "Continue"
+pm2 delete pos-server *> $null
 pm2 start ecosystem.config.cjs
+if ($LASTEXITCODE -ne 0) { throw "pm2 start falló (código $LASTEXITCODE). Revisá 'pm2 logs pos-server'." }
 pm2 save
-pm2 install pm2-logrotate 2>$null | Out-Null
+pm2 install pm2-logrotate *> $null
 pm2 set pm2-logrotate:max_size 10M  | Out-Null
 pm2 set pm2-logrotate:retain 14     | Out-Null
 pm2 set pm2-logrotate:compress true | Out-Null
+$ErrorActionPreference = "Stop"
 
 # --- Firewall ---------------------------------------------------
 Step "Regla de firewall TCP $Port (perfil Privado)"
