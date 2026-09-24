@@ -49,8 +49,12 @@ cpSync(join(root, 'out/renderer'), join(out, 'public'), { recursive: true })
 cpSync(join(root, 'resources/migrations-pg'), join(out, 'migrations-pg'), { recursive: true })
 cpSync(join(root, 'deploy/ecosystem.config.cjs'), join(out, 'ecosystem.config.cjs'))
 cpSync(join(root, 'deploy/.env.example'), join(out, '.env.example'))
-cpSync(join(root, 'deploy/setup-server.ps1'), join(out, 'setup-server.ps1'))
-cpSync(join(root, 'deploy/backup-pg.ps1'), join(out, 'backup-pg.ps1'))
+// Los .ps1 van con BOM UTF-8: Windows PowerShell 5.1 lee los archivos sin BOM como
+// Windows-1252, y los bytes de «—» / acentos rompen el parser (0x94 = comilla ”).
+for (const ps1 of ['setup-server.ps1', 'backup-pg.ps1']) {
+  const text = readFileSync(join(root, 'deploy', ps1), 'utf8').replace(/^\uFEFF/, '')
+  writeFileSync(join(out, ps1), '\uFEFF' + text.replace(/\r?\n/g, '\r\n'))
+}
 // Sin sourcemap en producción (expone el código del backend).
 rmSync(join(out, 'server.cjs.map'), { force: true })
 
