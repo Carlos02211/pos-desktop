@@ -6,6 +6,7 @@ import { crearCliente, listClientes } from '@/api/cuentas'
 import { crearVenta } from '@/api/ventas'
 import { Modal } from '@/components/Modal'
 import { money } from '@/lib/format'
+import { randomId } from '@/lib/utils'
 import { useCartStore } from '@/stores/cart.store'
 
 const METHODS: { value: PaymentMethod; label: string }[] = [
@@ -37,7 +38,7 @@ export function CobroModal({
   const items = useCartStore((s) => s.items)
   // Un id por apertura del modal: si el POST se reintenta (timeout / doble clic),
   // el servidor devuelve la misma venta en vez de duplicarla.
-  const [clientRequestId] = useState(() => crypto.randomUUID())
+  const [clientRequestId] = useState(() => randomId())
   const [method, setMethod] = useState<PaymentMethod>('CASH')
   const [paidText, setPaidText] = useState('')
   const [submitting, setSubmitting] = useState(false)
