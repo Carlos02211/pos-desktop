@@ -171,14 +171,53 @@ La PC del cliente sólo tiene la clave **pública** (embebida en `server.cjs`): 
 lea el `.env` o el bundle, no puede generar claves para otros equipos. Si cambia el hardware
 o el **nombre del equipo**, cambia el ID y hay que emitir una clave nueva.
 
-### B7. Red y tabletas
+### B7. Red: IP fija, perfil Privado y HTTPS
 
-- **IP fija** para la PC servidor en el router (reserva DHCP), p. ej. `192.168.1.10`.
-- El firewall ya lo abrió `setup-server.ps1`.
-- En cada tableta: abrir `http://192.168.1.10:3000/` en Chrome, "Agregar a pantalla de inicio".
-- **HTTPS (recomendado si van por WiFi)**: `mkcert` + `POS_TLS_KEY`/`POS_TLS_CERT` en el
-  `.env` + importar la CA de mkcert en cada tableta. Ver
-  [`fase-2-migracion.md`](fase-2-migracion.md) → "Día 4".
+El certificado HTTPS se emite para una IP concreta, así que el orden es **IP fija → HTTPS**.
+Todo en PowerShell **como Administrador**, en `C:\pos-server`, frente a la PC (no por
+escritorio remoto: al cambiar la IP se corta la conexión).
+
+**1. IP fija.** Primero, en el router, **reservar la IP para esta PC** (reserva DHCP por MAC)
+o elegir una IP **fuera del rango DHCP** del router. Después:
+
+```powershell
+.\ip-fija.ps1                    # propone la IP / puerta de enlace / DNS actuales y pide confirmar
+.\ip-fija.ps1 -Ip 192.168.1.10   # u otra IP de la misma red
+.\ip-fija.ps1 -VolverADhcp       # deshacer
+```
+
+**2. Perfil de red Privado.** La regla del firewall es para el perfil Privado; si Windows
+marcó la red como **Pública**, bloquea a las cajas. `setup-server.ps1` lo avisa al final. Para
+cambiarlo: `Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Private`.
+
+**3. HTTPS** (recomendado si hay cajas/tabletas por WiFi; además lo exigen algunas funciones
+del navegador y la instalación como app):
+
+```powershell
+.\setup-https.ps1
+```
+
+Instala mkcert, crea una **CA local propia de esta PC** (Windows pide confirmar: "Sí"),
+emite el certificado para la IP, escribe `POS_TLS_KEY` / `POS_TLS_CERT` / `POS_TLS_CA` en el
+`.env`, reinicia el servidor y muestra la **fecha de vencimiento** (~2 años — anotarla; el
+log del servidor avisa 60 días antes). Para renovar, o si cambia la IP: volver a correrlo
+**con el mismo usuario de Windows** (la clave de la CA queda en su carpeta de mkcert, fuera
+de `C:\pos-server`).
+
+**4. En cada caja / tableta, una sola vez:** abrir `https://<IP>:3000/ca.crt` (el navegador
+avisa "no seguro" porque todavía no confía: continuar) e instalar el certificado:
+
+- **Android:** Ajustes → Seguridad → Más ajustes → Cifrado y credenciales → Instalar un
+  certificado → Certificado de CA → `CA-POS-SpArTaN.crt`.
+- **iPhone/iPad:** instalar el perfil descargado y luego Ajustes → General → Información →
+  Ajustes de confianza de certificados → activarlo.
+- **Windows:** doble clic al `.crt` → Instalar certificado → Equipo local → "Entidades de
+  certificación raíz de confianza".
+
+Después, `https://<IP>:3000/` abre sin avisos. Las URLs `http://` dejan de funcionar.
+
+**Checklist de red del cliente:** IP fija ✔ · red Privada ✔ · las tabletas en la red
+principal, no en la de **invitados** (muchos routers aíslan a los dispositivos entre sí) ✔.
 
 ### B8. Respaldo
 

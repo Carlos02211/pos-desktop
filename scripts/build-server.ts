@@ -4,7 +4,7 @@
  *   pnpm build:server
  *     1. pnpm build            → out/renderer  (build de React)
  *     2. tsup                  → dist-server/server.cjs
- *     3. copia public/ migrations-pg/ ecosystem env-ejemplo.txt *.ps1
+ *     3. copia public/ migrations-pg/ ecosystem env-ejemplo.txt *.ps1 (con BOM)
  *     4. genera dist-server/package.json SOLO con las deps de runtime del servidor
  *        (PostgreSQL) — sin better-sqlite3, así el cliente NO necesita compilador.
  *
@@ -56,7 +56,7 @@ writeFileSync(
 )
 // Los .ps1 van con BOM UTF-8: Windows PowerShell 5.1 lee los archivos sin BOM como
 // Windows-1252, y los bytes de «—» / acentos rompen el parser (0x94 = comilla ”).
-for (const ps1 of ['setup-server.ps1', 'backup-pg.ps1']) {
+for (const ps1 of ['setup-server.ps1', 'ip-fija.ps1', 'setup-https.ps1', 'backup-pg.ps1']) {
   const text = readFileSync(join(root, 'deploy', ps1), 'utf8').replace(/^\uFEFF/, '')
   writeFileSync(join(out, ps1), '\uFEFF' + text.replace(/\r?\n/g, '\r\n'))
 }
@@ -103,6 +103,8 @@ writeFileSync(
     '  env-ejemplo.txt       plantilla: setup-server.ps1 la copia a .env (editar DATABASE_URL)',
     '  ecosystem.config.cjs  configuración de pm2',
     '  setup-server.ps1      instalación idempotente (Node, npm install, pm2, firewall)',
+    '  ip-fija.ps1           fija la IP de esta PC (las cajas la buscan siempre en la misma)',
+    '  setup-https.ps1       HTTPS en la red local con mkcert (después de ip-fija.ps1)',
     '  backup-pg.ps1         respaldo programado de PostgreSQL',
     '',
     'Pasos: ver docs/fase-2-instalacion-windows.md (o correr setup-server.ps1 como admin).'

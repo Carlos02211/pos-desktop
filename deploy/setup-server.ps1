@@ -81,11 +81,49 @@ if (-not (Get-NetFirewallRule -DisplayName "POS SpArTaN Tech" -ErrorAction Silen
 
 Step "Listo"
 Start-Sleep -Seconds 2
+$tls = $envText -match "(?m)^\s*POS_TLS_CERT\s*=\s*\S"
+$scheme = if ($tls) { "https" } else { "http" }
+# PowerShell 5.1 negocia TLS 1.0 por defecto; Node exige 1.2+.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 try {
-  $ping = Invoke-RestMethod "http://localhost:$Port/api/ping" -TimeoutSec 5
+  $ping = Invoke-RestMethod "${scheme}://localhost:$Port/api/ping" -TimeoutSec 5
   Write-Host "  /api/ping → engine=$($ping.engine) db=$($ping.db)" -ForegroundColor Green
 } catch {
   Write-Host "  No respondió /api/ping todavía — revisá 'pm2 logs pos-server'." -ForegroundColor Yellow
+}
+
+# --- Red: lo que impide que las cajas lleguen aunque el servidor funcione ---------
+Step "Red"
+$route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+  Sort-Object RouteMetric | Select-Object -First 1
+if ($route) {
+  $alias = $route.InterfaceAlias
+  $ip = (Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 |
+    Where-Object { $_.PrefixOrigin -ne "WellKnown" } | Select-Object -First 1).IPAddress
+  Write-Host "  Las cajas entran por:  ${scheme}://${ip}:$Port/" -ForegroundColor Cyan
+
+  # La regla del firewall es sólo para el perfil Privado: en una red "Pública" Windows
+  # bloquea a las cajas aunque todo lo demás esté bien.
+  $netProfile = Get-NetConnectionProfile -InterfaceAlias $alias -ErrorAction SilentlyContinue
+  if ($netProfile -and $netProfile.NetworkCategory -eq "Public") {
+    Write-Host "  ATENCIÓN: la red '$($netProfile.Name)' está como PÚBLICA — el firewall bloquea a las cajas." -ForegroundColor Yellow
+    Write-Host "  Si es la red del negocio, marcala como privada:" -ForegroundColor Yellow
+    Write-Host "    Set-NetConnectionProfile -InterfaceAlias '$alias' -NetworkCategory Private"
+  } else {
+    Write-Host "  Perfil de red: $($netProfile.NetworkCategory)"
+  }
+
+  if ((Get-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4).Dhcp -eq "Enabled") {
+    Write-Host "  ATENCIÓN: IP automática (DHCP). Si el router la cambia, las cajas no encuentran" -ForegroundColor Yellow
+    Write-Host "  el servidor. Fijala con:  .\ip-fija.ps1" -ForegroundColor Yellow
+  } else {
+    Write-Host "  IP fija: $ip"
+  }
+  if (-not $tls) {
+    Write-Host "  HTTPS desactivado — recomendado si las cajas van por WiFi:  .\setup-https.ps1" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "  Sin ruta por defecto: esta PC no parece estar conectada a la red." -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "Contraseña de admin (sólo el primer arranque):  pm2 logs pos-server --lines 50"

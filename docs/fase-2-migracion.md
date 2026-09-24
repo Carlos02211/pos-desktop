@@ -220,29 +220,11 @@ Probar: `http://localhost:3000/api/ping` → `{"phase":2,"engine":"postgres","db
    origen"; una web externa no puede llamar a la API. Sólo poner
    `POS_ALLOWED_ORIGINS=http://otro-host:puerto` si alojas la SPA en otro lado.
 
-4. **TLS (recomendado si las tabletas van por WiFi).** Sin TLS, las contraseñas y
-   los tokens JWT viajan en claro por la red y son capturables. Con
-   [`mkcert`](https://github.com/FiloSottile/mkcert):
-
-   ```powershell
-   mkcert -install
-   mkcert 192.168.1.10 pos.local          # genera 2 archivos .pem
-   ```
-
-   En el `.env`:
-
-   ```ini
-   POS_TLS_KEY=C:\pos-server\certs\192.168.1.10+1-key.pem
-   POS_TLS_CERT=C:\pos-server\certs\192.168.1.10+1.pem
-   ```
-
-   Copiar `rootCA.pem` de mkcert (`mkcert -CAROOT`) e **importarlo como autoridad
-   de confianza en cada tableta** (Android: Ajustes → Seguridad → Cifrado y
-   credenciales → Instalar un certificado → Certificado de CA). Luego las tabletas
-   abren `https://192.168.1.10:3000/`.
-
-   Si el cliente rechaza la complejidad y la LAN es cableada y de confianza, se
-   puede dejar en HTTP y documentarlo como riesgo aceptado.
+4. **IP fija + TLS.** `ip-fija.ps1` y después `setup-https.ps1` (mkcert, CA local, `.env` y
+   reinicio automáticos; la CA se descarga en `https://<IP>:3000/ca.crt`). Pasos y cómo
+   instalar la CA en cada tableta: [`fase-2-instalacion-windows.md` → B7](fase-2-instalacion-windows.md).
+   Sin TLS, las contraseñas y los JWT viajan en claro por el WiFi. Si el cliente lo rechaza
+   y la LAN es cableada y de confianza, se puede dejar en HTTP como riesgo aceptado.
 
 5. En cada tableta/laptop: abrir la URL en Chrome y crear un acceso directo a
    pantalla completa.

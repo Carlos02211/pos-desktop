@@ -38,8 +38,12 @@ export interface StartServerOptions extends ServerContext {
   port?: number
   /** Orígenes permitidos para CORS y Socket.io. `true` = cualquiera (sólo dev). */
   allowedOrigins?: string[] | true
-  /** Si se pasa, el servidor habla HTTPS (Fase 2 sobre WiFi). PEM (contenido, no ruta). */
-  tls?: { key: string | Buffer; cert: string | Buffer }
+  /**
+   * Si se pasa, el servidor habla HTTPS (Fase 2 sobre WiFi). PEM (contenido, no ruta).
+   * `ca` = certificado PÚBLICO de la autoridad local (mkcert): se publica en `/ca.crt` para
+   * que cada tableta lo descargue e instale como de confianza.
+   */
+  tls?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer }
 }
 
 export interface RunningServer {
@@ -110,6 +114,18 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     prefix: '/uploads/',
     decorateReply: false
   })
+
+  // CA local para instalar en las tabletas (es pública; la clave privada nunca sale del
+  // servidor). Antes de instalarla el navegador avisa "no seguro": se acepta una vez.
+  const caCert = opts.tls?.ca
+  if (caCert) {
+    app.get('/ca.crt', async (_request, reply) =>
+      reply
+        .type('application/x-x509-ca-cert')
+        .header('content-disposition', 'attachment; filename="CA-POS-SpArTaN.crt"')
+        .send(caCert)
+    )
+  }
 
   // Fase 2: sirve la SPA de React desde el propio servidor. Las rutas `/api/*`
   // y `/uploads/*` ya están registradas y tienen prioridad; el resto cae aquí,

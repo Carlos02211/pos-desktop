@@ -1,4 +1,5 @@
 import './load-env' // idempotente; garantiza el .env aunque config se importe suelto
+import { X509Certificate } from 'crypto'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
@@ -7,14 +8,38 @@ import { resolve } from 'path'
  * (el `.env` lo carga `./load-env`, importado como primera línea del entry).
  */
 
-function loadTls(): { key: Buffer; cert: Buffer } | undefined {
+function loadTls(): { key: Buffer; cert: Buffer; ca?: Buffer } | undefined {
   const keyPath = process.env.POS_TLS_KEY
   const certPath = process.env.POS_TLS_CERT
   if (!keyPath && !certPath) return undefined
   if (!keyPath || !certPath) {
     throw new Error('POS_TLS_KEY y POS_TLS_CERT deben definirse juntos (o ninguno).')
   }
-  return { key: readFileSync(resolve(keyPath)), cert: readFileSync(resolve(certPath)) }
+  const cert = readFileSync(resolve(certPath))
+  warnIfExpiring(cert)
+  const caPath = process.env.POS_TLS_CA
+  return {
+    key: readFileSync(resolve(keyPath)),
+    cert,
+    ...(caPath ? { ca: readFileSync(resolve(caPath)) } : {})
+  }
+}
+
+/** Los certificados de mkcert duran ~2 años: avisar en el log con tiempo para renovarlo. */
+function warnIfExpiring(pem: Buffer): void {
+  const validTo = new Date(new X509Certificate(pem).validTo)
+  const days = Math.floor((validTo.getTime() - Date.now()) / 86_400_000)
+  if (days < 0) {
+    console.error(
+      `[tls] El certificado VENCIÓ el ${validTo.toISOString().slice(0, 10)} — las cajas ` +
+        'verán "no seguro". Renovarlo con setup-https.ps1.'
+    )
+  } else if (days <= 60) {
+    console.warn(
+      `[tls] El certificado vence en ${days} días (${validTo.toISOString().slice(0, 10)}). ` +
+        'Renovarlo con setup-https.ps1.'
+    )
+  }
 }
 
 const dataDir = resolve(process.env.POS_DATA_DIR ?? './data')
