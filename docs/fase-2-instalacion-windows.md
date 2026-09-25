@@ -242,6 +242,12 @@ avisa "no seguro" porque todavía no confía: continuar) e instalar el certifica
 
 Después, `https://<IP>:3000/` abre sin avisos. Las URLs `http://` dejan de funcionar.
 
+**5. Instalarla como app en cada caja / tableta** (opcional, recomendado): con HTTPS ya
+funcionando, en la pantalla de inicio de sesión aparece **"Instalar como app en este
+equipo"** (Chrome/Edge). También desde el menú del navegador: "Instalar aplicación" en PC,
+"Agregar a la pantalla principal" en Android/iPhone. Queda un ícono con el nombre del
+negocio que abre el POS en su propia ventana, sin barra del navegador.
+
 **Checklist de red del cliente:** IP fija ✔ · red Privada ✔ · las tabletas en la red
 principal, no en la de **invitados** (muchos routers aíslan a los dispositivos entre sí) ✔.
 

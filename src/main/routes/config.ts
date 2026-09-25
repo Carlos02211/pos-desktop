@@ -46,6 +46,28 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     return { businessName: c.business_name, logoPath: c.logo_path }
   })
 
+  // Manifiesto para instalar el POS como app (PWA) en PCs y tabletas: la app instalada
+  // lleva el nombre del negocio. Los íconos son estáticos (public/).
+  app.get('/manifest.webmanifest', async (_request, reply) => {
+    const name = (await getConfig(getDb())).business_name.trim() || 'Punto de venta'
+    return reply.type('application/manifest+json').send({
+      name,
+      short_name: name.length > 12 ? 'POS' : name,
+      description: `Punto de venta de ${name}`,
+      lang: 'es-MX',
+      start_url: '/',
+      scope: '/',
+      display: 'standalone',
+      background_color: '#0b1020',
+      theme_color: '#0b1020',
+      icons: [
+        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    })
+  })
+
   app.get('/api/config', { preHandler: requireRole('ADMIN') }, async () => await getConfig(getDb()))
 
   app.put('/api/config', { preHandler: requireRole('ADMIN') }, async (request) => {
