@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { DatabaseBackup, Loader2, Radio, WifiOff } from 'lucide-react'
 import logo from '@/assets/logo-spartan.webp'
+import { PointerGlow } from '@/components/PointerGlow'
 import { cn } from '@/lib/utils'
 
 /**
@@ -62,7 +63,9 @@ export function AuthShell({
         className="auth-breathe pointer-events-none absolute -bottom-40 -right-24 h-[30rem] w-[30rem] rounded-full bg-blue-600/20 blur-[120px] [animation-delay:-3.5s]"
       />
 
-      <div className="relative mx-auto grid min-h-dvh max-w-6xl content-center items-center gap-8 px-6 py-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:px-12">
+      <PointerGlow />
+
+      <div className="relative z-10 mx-auto grid min-h-dvh max-w-6xl content-center items-center gap-8 px-6 py-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:px-12">
         {/* Marca */}
         <aside className="auth-rise text-center lg:text-left">
           <img
