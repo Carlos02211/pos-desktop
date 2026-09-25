@@ -39,6 +39,9 @@ arrastre por SPICE si es una VM). **Nada más del repo.**
 
 ## Parte B — En la PC del cliente / VM (Windows 10/11 x64)
 
+Llevar una copia de la [**ficha del cliente**](ficha-cliente.md) e ir llenándola: IP, licencia,
+vencimiento del certificado, respaldos y la lista de verificación de entrega.
+
 ### B1. PostgreSQL 16
 
 Instalador de <https://www.postgresql.org/download/windows/>. Anotar la contraseña del
