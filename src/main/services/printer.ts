@@ -317,7 +317,7 @@ export async function printTicket(
 
     for (const item of sale.items) {
       printer.tableCustom([
-        { text: `${item.quantity}x ${item.name}`, align: 'LEFT', width: 0.65 },
+        { text: `${fmtQty(item.quantity, item.unit)} x ${item.name}`, align: 'LEFT', width: 0.65 },
         { text: fmtMoney(item.subtotal, symbol), align: 'RIGHT', width: 0.35 }
       ])
     }
