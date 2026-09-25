@@ -1,5 +1,6 @@
 import './load-env' // DEBE ir primero: carga .env antes de que ningún módulo lea process.env
 import { mkdirSync } from 'fs'
+import { join } from 'path'
 import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
 import { initStore } from '../main/lib/store'
@@ -25,6 +26,15 @@ async function main(): Promise<void> {
   assertProductionConfig()
 
   mkdirSync(cfg.dataDir, { recursive: true })
+  // pm2 guarda el entorno del usuario que lo arrancó, así que TEMP apunta a
+  // C:\Users\<admin>\AppData\Local\Temp, donde el servicio ("Servicio local") no puede
+  // escribir: la impresión por la cola de Windows (archivo temporal + Add-Type de
+  // PowerShell) fallaba con EPERM. Carpeta temporal propia, dentro de los datos.
+  if (process.platform === 'win32') {
+    const tmp = join(cfg.dataDir, 'tmp')
+    mkdirSync(tmp, { recursive: true })
+    process.env.TEMP = process.env.TMP = tmp
+  }
   await initStore(cfg.dataDir, 'file')
 
   const db = await initDb(cfg.dbPath, cfg.migrationsDir)

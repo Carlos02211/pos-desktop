@@ -87,7 +87,14 @@ New-NetIPAddress -InterfaceAlias $alias -IPAddress $Ip -PrefixLength $PrefixLeng
 Set-DnsClientServerAddress -InterfaceAlias $alias -ServerAddresses $Dns
 
 Start-Sleep -Seconds 3
-if (Test-Connection -ComputerName $Gateway -Count 1 -Quiet) {
+# Test-Connection de PowerShell 5.1 a veces lanza "Error genérico" justo después de cambiar
+# la IP: tratarlo como "no respondió" en vez de cortar el script.
+$reachable = $false
+foreach ($i in 1..3) {
+  try { if (Test-Connection -ComputerName $Gateway -Count 1 -Quiet -ErrorAction Stop) { $reachable = $true; break } } catch { }
+  Start-Sleep -Seconds 2
+}
+if ($reachable) {
   Write-Host "IP fija aplicada: $Ip — la puerta de enlace responde." -ForegroundColor Green
 } else {
   Write-Host "IP aplicada, pero la puerta de enlace $Gateway no responde al ping (algunos routers no contestan)." -ForegroundColor Yellow
