@@ -132,16 +132,21 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
   // y cualquier ruta no-API devuelve `index.html` (HashRouter en el cliente).
   if (opts.staticDir) {
     // Esta registración SÍ decora `reply` (con `sendFile`), la de `/uploads/` no.
+    // wildcard (por defecto): cada archivo se busca en disco al pedirlo. Con
+    // `wildcard: false` las rutas se fijaban al arrancar y, al actualizar `public/` sin
+    // reiniciar, los bundles nuevos (otro hash) caían en index.html → pantalla en blanco.
     await app.register(fastifyStatic, {
       root: opts.staticDir,
-      prefix: '/',
-      wildcard: false
+      prefix: '/'
     })
     app.setNotFoundHandler((request, reply) => {
       const isSpaRoute =
         request.method === 'GET' &&
         !request.url.startsWith('/api/') &&
-        !request.url.startsWith('/uploads/')
+        !request.url.startsWith('/uploads/') &&
+        // Un bundle que no existe es un 404, no la SPA (si no, el navegador intenta
+        // ejecutar index.html como JS y el error es incomprensible).
+        !request.url.startsWith('/assets/')
       if (isSpaRoute) return reply.type('text/html').sendFile('index.html')
       return reply.code(404).send({ error: 'No encontrado' })
     })
