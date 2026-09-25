@@ -1,5 +1,7 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { ProductUnit, ProductWithCategory } from '@shared/types'
+import { useAuthStore } from '@/stores/auth.store'
 
 export interface CartItem {
   productId: number
@@ -21,52 +23,73 @@ interface CartState {
   clear: () => void
 }
 
-export const useCartStore = create<CartState>((set) => ({
-  items: [],
+/**
+ * El carrito se guarda en sessionStorage (igual que la sesión): una recarga accidental a
+ * mitad de una venta no pierde los productos; cerrar la pestaña sí lo vacía.
+ */
+export const useCartStore = create<CartState>()(
+  persist(
+    (set) => ({
+      items: [],
 
-  addItem: (product) =>
-    set((state) => {
-      const existing = state.items.find((i) => i.productId === product.id)
-      if (existing) {
-        return {
-          items: state.items.map((i) =>
-            i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i
-          )
-        }
-      }
-      return {
-        items: [
-          ...state.items,
-          {
-            productId: product.id,
-            name: product.name,
-            price: product.price,
-            originalPrice: product.price,
-            unit: product.unit,
-            quantity: 1
+      addItem: (product) =>
+        set((state) => {
+          const existing = state.items.find((i) => i.productId === product.id)
+          if (existing) {
+            return {
+              items: state.items.map((i) =>
+                i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i
+              )
+            }
           }
-        ]
-      }
+          return {
+            items: [
+              ...state.items,
+              {
+                productId: product.id,
+                name: product.name,
+                price: product.price,
+                originalPrice: product.price,
+                unit: product.unit,
+                quantity: 1
+              }
+            ]
+          }
+        }),
+
+      setQty: (productId, quantity) =>
+        set((state) => ({
+          items:
+            quantity <= 0
+              ? state.items.filter((i) => i.productId !== productId)
+              : state.items.map((i) => (i.productId === productId ? { ...i, quantity } : i))
+        })),
+
+      setPrice: (productId, price) =>
+        set((state) => ({
+          items: state.items.map((i) =>
+            i.productId === productId && price > 0 ? { ...i, price } : i
+          )
+        })),
+
+      removeItem: (productId) =>
+        set((state) => ({ items: state.items.filter((i) => i.productId !== productId) })),
+
+      clear: () => set({ items: [] })
     }),
+    {
+      name: 'pos-cart',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({ items: state.items })
+    }
+  )
+)
 
-  setQty: (productId, quantity) =>
-    set((state) => ({
-      items:
-        quantity <= 0
-          ? state.items.filter((i) => i.productId !== productId)
-          : state.items.map((i) => (i.productId === productId ? { ...i, quantity } : i))
-    })),
-
-  setPrice: (productId, price) =>
-    set((state) => ({
-      items: state.items.map((i) => (i.productId === productId && price > 0 ? { ...i, price } : i))
-    })),
-
-  removeItem: (productId) =>
-    set((state) => ({ items: state.items.filter((i) => i.productId !== productId) })),
-
-  clear: () => set({ items: [] })
-}))
+// El carrito es de quien lo armó: al salir o al entrar otro usuario en la misma pestaña,
+// se vacía (en un F5 el usuario no cambia, así que se conserva).
+useAuthStore.subscribe((state, prev) => {
+  if (state.user?.id !== prev.user?.id) useCartStore.getState().clear()
+})
 
 /** Total del carrito, redondeado a 2 decimales. */
 export function cartTotal(items: CartItem[]): number {
