@@ -103,6 +103,7 @@ writeFileSync(
     '',
     'Contenido:',
     '  server.cjs            el servidor (bundle)',
+    '  export-worker.cjs     genera PDF/Excel de reportes en un hilo aparte (va junto a server.cjs)',
     '  public/               la app web (React) que se sirve a las tabletas',
     '  migrations-pg/        migraciones de PostgreSQL (se aplican solas al arrancar)',
     '  package.json          dependencias de runtime (sin better-sqlite3 → sin compilador)',

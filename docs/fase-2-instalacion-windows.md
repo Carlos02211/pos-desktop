@@ -21,6 +21,7 @@ pnpm build:server        # → genera dist-server/
 | Archivo / carpeta      | Qué es                                                                      |
 | ---------------------- | --------------------------------------------------------------------------- |
 | `server.cjs`           | el servidor (bundle único)                                                  |
+| `export-worker.cjs`    | reportes PDF/Excel en un hilo aparte (no congela las cajas)                 |
 | `public/`              | la app web (React) que se sirve a las tabletas                              |
 | `migrations-pg/`       | migraciones de PostgreSQL (se aplican solas al arrancar)                    |
 | `package.json`         | dependencias de runtime (sin `better-sqlite3` → sin compilador)             |
