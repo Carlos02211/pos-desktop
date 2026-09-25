@@ -2,6 +2,7 @@ import type {
   BackupRunResponse,
   BackupStatus,
   CashHistoryQuery,
+  CashMovementWithUser,
   CashSessionListItem,
   Category,
   CategoryInput,
@@ -164,4 +165,8 @@ export function listImpresoras(): Promise<SystemPrintersResponse> {
 
 export function imprimirPrueba(printerInterface: string): Promise<PrintResult> {
   return api.post<PrintResult>('/api/admin/impresora/prueba', { interface: printerInterface })
+}
+
+export function getMovimientosCorte(sessionId: number): Promise<CashMovementWithUser[]> {
+  return api.get<CashMovementWithUser[]>(`/api/caja/${sessionId}/movimientos`)
 }

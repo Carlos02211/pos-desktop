@@ -346,6 +346,10 @@ export interface SalesPage {
 /** Fila del historial de cortes de caja. */
 export interface CashSessionListItem extends CashSession {
   userName: string
+  /** Totales de ingresos / retiros de efectivo del turno. */
+  cashIn: number
+  cashOut: number
+  movementCount: number
 }
 
 export interface CashHistoryQuery {
@@ -466,6 +470,11 @@ export interface CashMovement {
   amount: number
   reason: string
   createdAt: number
+}
+
+/** Movimiento con el nombre de quien lo registró (detalle de cortes en el admin). */
+export interface CashMovementWithUser extends CashMovement {
+  userName: string
 }
 
 /** Cuerpo de `POST /api/caja/movimiento`. */

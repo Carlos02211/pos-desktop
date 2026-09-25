@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type {
   CashHistoryQuery,
   CashMovement,
+  CashMovementWithUser,
   CashMovementInput,
   CashSessionListItem,
   CashSessionSummary
@@ -287,7 +288,11 @@ export async function listSessions(
       closingAmount: cashSessions.closingAmount,
       expectedAmount: cashSessions.expectedAmount,
       difference: cashSessions.difference,
-      status: cashSessions.status
+      status: cashSessions.status,
+      // Retiros / ingresos del turno (subconsultas: valen igual en SQLite y PostgreSQL).
+      cashIn: sql<number>`coalesce((select sum(m.amount) from cash_movements m where m.cash_session_id = ${cashSessions.id} and m.type = 'IN'), 0)`,
+      cashOut: sql<number>`coalesce((select sum(m.amount) from cash_movements m where m.cash_session_id = ${cashSessions.id} and m.type = 'OUT'), 0)`,
+      movementCount: sql<number>`(select count(*) from cash_movements m where m.cash_session_id = ${cashSessions.id})`
     })
     .from(cashSessions)
     .innerJoin(users, eq(users.id, cashSessions.userId))
@@ -299,6 +304,23 @@ export async function listSessions(
     openingAmount: fromCents(r.openingAmount),
     closingAmount: r.closingAmount == null ? null : fromCents(r.closingAmount),
     expectedAmount: r.expectedAmount == null ? null : fromCents(r.expectedAmount),
-    difference: r.difference == null ? null : fromCents(r.difference)
+    difference: r.difference == null ? null : fromCents(r.difference),
+    cashIn: fromCents(Number(r.cashIn)),
+    cashOut: fromCents(Number(r.cashOut)),
+    movementCount: Number(r.movementCount)
   }))
+}
+
+/** Retiros e ingresos de un turno cualquiera, con quién los hizo (panel admin). */
+export async function listMovementsForSession(
+  db: DB,
+  sessionId: number
+): Promise<CashMovementWithUser[]> {
+  const rows = await db
+    .select({ movement: cashMovements, userName: users.username })
+    .from(cashMovements)
+    .innerJoin(users, eq(users.id, cashMovements.userId))
+    .where(eq(cashMovements.cashSessionId, sessionId))
+    .orderBy(asc(cashMovements.createdAt), asc(cashMovements.id))
+  return rows.map((r) => ({ ...movementToApi(r.movement), userName: r.userName }))
 }

@@ -11,6 +11,7 @@ import {
   getActiveSession,
   getSessionSummary,
   listSessionMovements,
+  listMovementsForSession,
   listSessions,
   openSession,
   sessionToApi
@@ -59,6 +60,12 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(201).send(movement)
     }
   )
+
+  // Retiros / ingresos de un turno (detalle del corte en el panel de administración).
+  app.get('/api/caja/:id/movimientos', { preHandler: requireRole('ADMIN') }, async (request) => {
+    const { id } = parse(z.object({ id: z.coerce.number().int().positive() }), request.params)
+    return listMovementsForSession(getDb(), id)
+  })
 
   // Historial de cortes de caja (panel de administración).
   app.get('/api/caja/historial', { preHandler: requireRole('ADMIN') }, async (request) => {

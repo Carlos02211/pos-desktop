@@ -35,6 +35,7 @@ import type {
   FolderListing,
   SystemPrintersResponse,
   CashMovement,
+  CashMovementWithUser,
   CashSession,
   CashSessionListItem,
   CashSessionSummary,
@@ -631,6 +632,23 @@ async function main(): Promise<void> {
     assert(
       (await asCajero('/api/caja/historial')).status === 403,
       'cortes: cobrador no puede ver el historial (403)'
+    )
+    assert(
+      cortes[0].cashOut === 30 && cortes[0].cashIn === 5 && cortes[0].movementCount === 2,
+      `cortes: retiros 30 / ingresos 5 / 2 movimientos (got ${cortes[0].cashOut}/${cortes[0].cashIn}/${cortes[0].movementCount})`
+    )
+    const cortesMovs = (await (
+      await asAdmin(`/api/caja/${cortes[0].id}/movimientos`)
+    ).json()) as CashMovementWithUser[]
+    assert(
+      cortesMovs.length === 2 &&
+        cortesMovs.every((m) => m.userName === 'cajero' && m.reason.length >= 2) &&
+        cortesMovs.some((m) => m.type === 'OUT' && m.amount === 30),
+      'cortes: detalle de movimientos con monto, motivo y quién'
+    )
+    assert(
+      (await asCajero(`/api/caja/${cortes[0].id}/movimientos`)).status === 403,
+      'cortes: el cobrador no puede ver el detalle de otro turno (403)'
     )
 
     // ---- Sprint 6: reportes + exportación Excel/PDF (ADMIN) ----
