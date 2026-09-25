@@ -14,15 +14,36 @@ _Solo puedes tener una caja abierta a la vez._
 
 1. Toca los **productos** para agregarlos al carrito (a la derecha).
 2. Ajusta cantidades con **−** y **+**, o quita con la **✕**.
-3. Toca **Cobrar**.
-4. Elige el **método de pago**:
+   - Si el producto se vende **por peso** (kg), en vez de − y + hay un campo para escribir los
+     **gramos**, más botones rápidos: **100 g, 250 g, 500 g, 1 kg**.
+3. ¿Necesitas dar un **precio distinto** al de la etiqueta (ej. descuento)? Toca el precio de
+   esa línea en el carrito y escribe el nuevo — queda registrado para el administrador (se ve
+   en el detalle de la venta cuál era el precio original).
+4. Toca **Cobrar**.
+5. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
    - **Efectivo**: escribe (o toca un botón de monto) lo que te dio el cliente. La app calcula el **cambio**.
-   - **Tarjeta** o **Transferencia**: no pide monto.
-5. Toca **Confirmar venta**. El ticket se imprime solo.
+   - **Tarjeta** o **Transferencia**: no piden monto.
+   - **Fiado**: el cliente paga después. Tenés que elegir o escribir un cliente (obligatorio).
+   - En cualquier método podés escribir el **nombre del cliente** (campo "Cliente") aunque no
+     sea fiado — es opcional, sirve para llevar registro de quién compró. Empezá a escribir y
+     te va a sugerir nombres ya guardados; si escribís uno nuevo, se agrega solo al confirmar.
+6. Toca **Confirmar venta**. El ticket se imprime solo.
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._
 
-## 3. Cerrar caja (al terminar el turno)
+## 3. Sacar o meter efectivo de la caja
+
+Si durante el turno **sacas** dinero de la caja (comprar bolsas, un gasto, llevar
+al banco) o **metes** dinero (el dueño deja cambio):
+
+1. Toca **Efectivo** (arriba del carrito).
+2. Elige **Retiro** o **Ingreso**, escribe el **monto** y el **motivo**.
+3. Toca **Registrar**.
+
+Así el **efectivo esperado** del cierre queda correcto y no marca faltante por error.
+Un retiro no puede ser mayor al efectivo que hay en la caja.
+
+## 4. Cerrar caja (al terminar el turno)
 
 1. Toca **Cerrar caja** (arriba del carrito).
 2. Revisa el resumen del turno: verás el **efectivo esperado en caja**.
@@ -31,6 +52,8 @@ _Si la impresora no responde, la venta **igual queda registrada**; aparece un av
    - **Verde** = sobra dinero.
    - **Rojo** = falta dinero.
 5. Toca **Cerrar caja**. Se guarda un **respaldo automático** de los datos.
+
+_El resumen muestra los retiros e ingresos de efectivo que registraste en el turno._
 
 ## Problemas comunes
 

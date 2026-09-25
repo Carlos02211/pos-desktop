@@ -9,7 +9,9 @@ import type {
 import type { DB } from '../db'
 import { saleItems, sales } from '../db/schema'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents } from '../lib/money'
+import { businessOffsetMinutes, dayStartUnix, partsFor } from '../lib/timezone'
+import { getConfigMap } from './config'
 
 export interface ReportParams {
   fecha?: string // YYYY-MM-DD  (diario / inicio de semana)
@@ -18,30 +20,34 @@ export interface ReportParams {
   anio?: number
 }
 
-function dayStart(dateStr: string): number {
-  const d = new Date(`${dateStr}T00:00:00`)
-  if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Fecha inválida (usa YYYY-MM-DD).')
-  return Math.floor(d.getTime() / 1000)
+function dayStart(dateStr: string, offset: number): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr)
+  if (!m) throw new HttpError(400, 'Fecha inválida (usa YYYY-MM-DD).')
+  return dayStartUnix(Number(m[1]), Number(m[2]) - 1, Number(m[3]), offset)
 }
 
-/** Rango [from, to] en segundos Unix para el tipo de reporte. */
-export function periodBounds(type: ReportType, params: ReportParams): { from: number; to: number } {
+/** Rango [from, to] en segundos Unix para el tipo de reporte, en la zona del negocio. */
+export function periodBounds(
+  type: ReportType,
+  params: ReportParams,
+  offset: number
+): { from: number; to: number } {
   if (type === 'diario') {
     if (!params.fecha) throw new HttpError(400, 'Falta el parámetro "fecha".')
-    const from = dayStart(params.fecha)
+    const from = dayStart(params.fecha, offset)
     return { from, to: from + 86_400 - 1 }
   }
   if (type === 'semanal') {
     const start = params.inicio ?? params.fecha
     if (!start) throw new HttpError(400, 'Falta el parámetro "inicio".')
-    const from = dayStart(start)
+    const from = dayStart(start, offset)
     return { from, to: from + 7 * 86_400 - 1 }
   }
   // mensual
   if (!params.mes || !params.anio) throw new HttpError(400, 'Faltan los parámetros "mes" y "anio".')
   if (params.mes < 1 || params.mes > 12) throw new HttpError(400, 'El mes debe estar entre 1 y 12.')
-  const from = Math.floor(new Date(params.anio, params.mes - 1, 1, 0, 0, 0).getTime() / 1000)
-  const to = Math.floor(new Date(params.anio, params.mes, 1, 0, 0, 0).getTime() / 1000) - 1
+  const from = dayStartUnix(params.anio, params.mes - 1, 1, offset)
+  const to = dayStartUnix(params.anio, params.mes, 1, offset) - 1
   return { from, to }
 }
 
@@ -53,41 +59,43 @@ function emptyBreakdown(): PaymentBreakdown {
   return { CASH: 0, CARD: 0, TRANSFER: 0 }
 }
 
+/** `rows[].total` en CENTAVOS; los buckets devueltos ya vienen en pesos. */
 function bucketsFor(
   type: ReportType,
   from: number,
   to: number,
-  rows: { total: number; createdAt: number }[]
+  rows: { total: number; createdAt: number }[],
+  offset: number
 ): ReportBucket[] {
   const map = new Map<string, ReportBucket>()
+  const dayKey = (unix: number): string => {
+    const p = partsFor(unix, offset)
+    return `${p.year}-${pad2(p.month + 1)}-${pad2(p.day)}`
+  }
 
   if (type === 'diario') {
     for (let h = 0; h < 24; h++) map.set(pad2(h), { label: `${pad2(h)}:00`, total: 0, count: 0 })
     for (const r of rows) {
-      const key = pad2(new Date(r.createdAt * 1000).getHours())
+      const key = pad2(partsFor(r.createdAt, offset).hour)
       const b = map.get(key)!
-      b.total = round2(b.total + r.total)
+      b.total += r.total
       b.count += 1
     }
-    return [...map.values()]
-  }
-
-  // semanal / mensual: un tramo por día del rango
-  for (let t = from; t <= to; t += 86_400) {
-    const d = new Date(t * 1000)
-    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-    map.set(key, { label: key, total: 0, count: 0 })
-  }
-  for (const r of rows) {
-    const d = new Date(r.createdAt * 1000)
-    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-    const b = map.get(key)
-    if (b) {
-      b.total = round2(b.total + r.total)
-      b.count += 1
+  } else {
+    // semanal / mensual: un tramo por día del rango
+    for (let t = from; t <= to; t += 86_400) {
+      const key = dayKey(t)
+      map.set(key, { label: key, total: 0, count: 0 })
+    }
+    for (const r of rows) {
+      const b = map.get(dayKey(r.createdAt))
+      if (b) {
+        b.total += r.total
+        b.count += 1
+      }
     }
   }
-  return [...map.values()]
+  return [...map.values()].map((b) => ({ ...b, total: fromCents(b.total) }))
 }
 
 export async function buildReport(
@@ -95,7 +103,8 @@ export async function buildReport(
   type: ReportType,
   params: ReportParams
 ): Promise<SalesReport> {
-  const { from, to } = periodBounds(type, params)
+  const offset = businessOffsetMinutes(await getConfigMap(db))
+  const { from, to } = periodBounds(type, params, offset)
   const inPeriod = and(gte(sales.createdAt, from), lte(sales.createdAt, to))
 
   const rows = await db
@@ -103,16 +112,21 @@ export async function buildReport(
     .from(sales)
     .where(inPeriod)
 
-  const byPaymentMethod = emptyBreakdown()
-  let totalSales = 0
-  let creditExtended = 0
+  const centsByMethod = emptyBreakdown()
+  let totalCents = 0
+  let creditCents = 0
   for (const r of rows) {
-    totalSales = round2(totalSales + r.total)
+    totalCents += r.total
     if (r.paymentMethod === 'CREDIT') {
-      creditExtended = round2(creditExtended + r.total)
+      creditCents += r.total
     } else {
-      byPaymentMethod[r.paymentMethod] = round2(byPaymentMethod[r.paymentMethod] + r.total)
+      centsByMethod[r.paymentMethod] += r.total
     }
+  }
+  const byPaymentMethod: PaymentBreakdown = {
+    CASH: fromCents(centsByMethod.CASH),
+    CARD: fromCents(centsByMethod.CARD),
+    TRANSFER: fromCents(centsByMethod.TRANSFER)
   }
 
   const topProducts: TopProduct[] = (
@@ -127,20 +141,20 @@ export async function buildReport(
       .innerJoin(sales, eq(sales.id, saleItems.saleId))
       .where(inPeriod)
       .groupBy(saleItems.productId, saleItems.name)
-      .orderBy(desc(sql`sum(${saleItems.quantity})`))
+      .orderBy(desc(sql`sum(${saleItems.subtotal})`))
       .limit(5)
-  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: round2(Number(p.revenue)) }))
+  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: fromCents(Number(p.revenue)) }))
 
   return {
     type,
     from,
     to,
-    totalSales,
+    totalSales: fromCents(totalCents),
     totalTransactions: rows.length,
     byPaymentMethod,
-    creditExtended,
+    creditExtended: fromCents(creditCents),
     topProducts,
-    buckets: bucketsFor(type, from, to, rows)
+    buckets: bucketsFor(type, from, to, rows, offset)
   }
 }
 
@@ -164,11 +178,11 @@ export async function salesInPeriod(db: DB, from: number, to: number): Promise<R
         createdAt: sales.createdAt,
         userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
         paymentMethod: sales.paymentMethod,
-        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
+        itemCount: sql<number>`(select coalesce(count(*),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
         total: sales.total
       })
       .from(sales)
       .where(and(gte(sales.createdAt, from), lte(sales.createdAt, to)))
       .orderBy(sales.createdAt)
-  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
+  ).map((r) => ({ ...r, itemCount: Number(r.itemCount), total: fromCents(Number(r.total)) }))
 }

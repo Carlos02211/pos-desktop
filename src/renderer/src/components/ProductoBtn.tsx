@@ -1,9 +1,10 @@
+import { memo } from 'react'
 import type { ProductWithCategory } from '@shared/types'
 import { API_BASE_URL } from '@/api/client'
 import { money } from '@/lib/format'
 
 /** Botón grande de producto (mínimo 120×120) para el grid del cobrador. */
-export function ProductoBtn({
+export const ProductoBtn = memo(function ProductoBtn({
   product,
   onSelect
 }: {
@@ -34,8 +35,11 @@ export function ProductoBtn({
       </div>
       <div className="p-2">
         <p className="line-clamp-2 text-sm font-medium">{product.name}</p>
-        <p className="mt-0.5 text-sm font-bold text-pos-success">{money(product.price)}</p>
+        <p className="mt-0.5 text-sm font-bold text-pos-success">
+          {money(product.price)}
+          {product.unit === 'KG' && <span className="font-normal text-muted-foreground">/kg</span>}
+        </p>
       </div>
     </button>
   )
-}
+})

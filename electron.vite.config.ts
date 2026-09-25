@@ -5,6 +5,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
+    // La clave pública de licencias queda fija en el código: el .exe ignora cualquier
+    // POS_LICENSE_PUBLIC_KEY del entorno (ver src/main/services/license.ts).
+    define: { 'process.env.POS_LICENSE_PUBLIC_KEY': '""' },
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {

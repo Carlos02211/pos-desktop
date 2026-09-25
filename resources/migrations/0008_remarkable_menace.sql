@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `license_one_active` ON `license` ((1)) WHERE "license"."status" = 'ACTIVE';

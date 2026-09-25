@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
@@ -18,6 +18,7 @@ export function ProductoFormModal({
 }): React.JSX.Element {
   const [name, setName] = useState(product?.name ?? '')
   const [priceText, setPriceText] = useState(product ? String(product.price) : '')
+  const [unit, setUnit] = useState<'PIEZA' | 'KG'>(product?.unit ?? 'PIEZA')
   const [categoryId, setCategoryId] = useState<number | null>(product?.categoryId ?? null)
   const [active, setActive] = useState(product ? product.active === 1 : true)
   const [file, setFile] = useState<File | null>(null)
@@ -28,17 +29,22 @@ export function ProductoFormModal({
   const price = Number.parseFloat(priceText.replace(',', '.'))
   const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
 
-  const preview = file
-    ? URL.createObjectURL(file)
-    : product?.imagePath
-      ? `${API_BASE_URL}/uploads/${product.imagePath}`
-      : null
+  // Un solo object URL por archivo seleccionado; se libera al cambiarlo o cerrar.
+  const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
+  useEffect(() => {
+    return () => {
+      if (fileUrl) URL.revokeObjectURL(fileUrl)
+    }
+  }, [fileUrl])
+
+  const preview =
+    fileUrl ?? (product?.imagePath ? `${API_BASE_URL}/uploads/${product.imagePath}` : null)
 
   async function save(): Promise<void> {
     setError('')
     setSaving(true)
     try {
-      const payload = { name: name.trim(), price, categoryId, active }
+      const payload = { name: name.trim(), price, unit, categoryId, active }
       const saved = product
         ? await actualizarProducto(product.id, payload)
         : await crearProducto(payload)
@@ -77,21 +83,33 @@ export function ProductoFormModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-sm font-medium">Categoría</span>
+            <span className="mb-1 block text-sm font-medium">Se vende por</span>
             <select
-              value={categoryId ?? ''}
-              onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
+              value={unit}
+              onChange={(e) => setUnit(e.target.value as 'PIEZA' | 'KG')}
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
             >
-              <option value="">Sin categoría</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              <option value="PIEZA">Pieza (cantidad entera)</option>
+              <option value="KG">Peso — precio por kg (admite gramos)</option>
             </select>
           </label>
         </div>
+
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium">Categoría</span>
+          <select
+            value={categoryId ?? ''}
+            onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
+          >
+            <option value="">Sin categoría</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div>
           <span className="mb-1 block text-sm font-medium">Imagen</span>

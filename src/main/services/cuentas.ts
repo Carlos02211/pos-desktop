@@ -5,12 +5,11 @@ import type {
   CreditAccountListItem,
   CreditQuery
 } from '../../shared/types'
-import type { CreditAccountRow } from '../db/schema'
 import { creditAccounts, creditPayments, customers, sales, users } from '../db/schema'
 import type { DB } from '../db'
-import { withTx } from '../db/tx'
+import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
 import { getSaleWithItems } from './ventas'
 
@@ -27,35 +26,14 @@ const listColumns = {
   closedAt: creditAccounts.closedAt
 }
 
+/** `total`/`paid` vienen en centavos; salen en pesos junto con el `balance`. */
 function withBalance<T extends { total: number; paid: number }>(row: T): T & { balance: number } {
-  return { ...row, balance: round2(row.total - row.paid) }
-}
-
-/** Crea la cuenta por cobrar de una venta a crédito. Se llama dentro de la transacción de venta. */
-export async function openCreditAccount(
-  db: DB,
-  params: { saleId: number; customerId: number; userId: number; amount: number }
-): Promise<CreditAccountRow> {
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, params.customerId))
-    .limit(1)
-  if (!customer || customer.active !== 1) {
-    throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
+  return {
+    ...row,
+    total: fromCents(row.total),
+    paid: fromCents(row.paid),
+    balance: fromCents(row.total - row.paid)
   }
-  const [row] = await db
-    .insert(creditAccounts)
-    .values({
-      saleId: params.saleId,
-      customerId: params.customerId,
-      userId: params.userId,
-      total: round2(params.amount),
-      paid: 0,
-      status: 'OPEN'
-    })
-    .returning()
-  return row
 }
 
 export async function listCreditAccounts(
@@ -98,21 +76,23 @@ export async function getCreditAccountDetail(db: DB, id: number): Promise<Credit
     .limit(1)
   if (!head) throw new HttpError(404, 'Cuenta no encontrada.')
 
-  const payments = await db
-    .select({
-      id: creditPayments.id,
-      creditAccountId: creditPayments.creditAccountId,
-      cashSessionId: creditPayments.cashSessionId,
-      userId: creditPayments.userId,
-      userName: users.username,
-      amount: creditPayments.amount,
-      paymentMethod: creditPayments.paymentMethod,
-      createdAt: creditPayments.createdAt
-    })
-    .from(creditPayments)
-    .innerJoin(users, eq(users.id, creditPayments.userId))
-    .where(eq(creditPayments.creditAccountId, id))
-    .orderBy(creditPayments.createdAt)
+  const payments = (
+    await db
+      .select({
+        id: creditPayments.id,
+        creditAccountId: creditPayments.creditAccountId,
+        cashSessionId: creditPayments.cashSessionId,
+        userId: creditPayments.userId,
+        userName: users.username,
+        amount: creditPayments.amount,
+        paymentMethod: creditPayments.paymentMethod,
+        createdAt: creditPayments.createdAt
+      })
+      .from(creditPayments)
+      .innerJoin(users, eq(users.id, creditPayments.userId))
+      .where(eq(creditPayments.creditAccountId, id))
+      .orderBy(creditPayments.createdAt)
+  ).map((p) => ({ ...p, amount: fromCents(p.amount) }))
 
   return {
     ...withBalance(head),
@@ -131,10 +111,14 @@ export async function addAbono(
   userId: number,
   input: AbonoInput
 ): Promise<CreditAccountDetail> {
-  const session = await getActiveSession(db, userId)
-  if (!session) throw new HttpError(409, 'Abre caja para recibir un abono.')
-
   await withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) throw new HttpError(409, 'Abre caja para recibir un abono.')
+
+    // Lock de la cuenta: dos abonos simultáneos a la misma cuenta se serializan
+    // (si no, el segundo UPDATE pisaría el `paid` del primero — lost update).
+    await lockRow(tx, 'credit_accounts', accountId)
+
     const [account] = await tx
       .select()
       .from(creditAccounts)
@@ -143,27 +127,30 @@ export async function addAbono(
     if (!account) throw new HttpError(404, 'Cuenta no encontrada.')
     if (account.status === 'PAID') throw new HttpError(409, 'La cuenta ya está liquidada.')
 
-    const balance = round2(account.total - account.paid)
-    const amount = round2(input.amount)
-    if (amount <= 0) throw new HttpError(400, 'El abono debe ser mayor a cero.')
-    if (amount > balance) {
-      throw new HttpError(400, `El abono supera el saldo pendiente (${balance.toFixed(2)}).`)
+    const balanceCents = account.total - account.paid
+    const amountCents = toCents(input.amount)
+    if (amountCents <= 0) throw new HttpError(400, 'El abono debe ser mayor a cero.')
+    if (amountCents > balanceCents) {
+      throw new HttpError(
+        400,
+        `El abono supera el saldo pendiente (${fromCents(balanceCents).toFixed(2)}).`
+      )
     }
 
     await tx.insert(creditPayments).values({
       creditAccountId: accountId,
       cashSessionId: session.id,
       userId,
-      amount,
+      amount: amountCents,
       paymentMethod: input.paymentMethod
     })
 
-    const paid = round2(account.paid + amount)
-    const settled = paid >= account.total
+    const paidCents = account.paid + amountCents
+    const settled = paidCents >= account.total
     await tx
       .update(creditAccounts)
       .set({
-        paid,
+        paid: paidCents,
         status: settled ? 'PAID' : 'OPEN',
         closedAt: settled ? Math.floor(Date.now() / 1000) : null
       })
@@ -181,5 +168,5 @@ export async function totalReceivable(db: DB): Promise<number> {
     })
     .from(creditAccounts)
     .where(eq(creditAccounts.status, 'OPEN'))
-  return round2(Number(row.balance))
+  return fromCents(Number(row.balance))
 }

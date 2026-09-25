@@ -12,6 +12,7 @@ import CobradorCuentas from '@/pages/cobrador/Cuentas'
 import CobradorLayout from '@/pages/cobrador/CobradorLayout'
 import PanelVenta from '@/pages/cobrador/PanelVenta'
 import { useAuthStore } from '@/stores/auth.store'
+import { useBrandingStore } from '@/stores/branding.store'
 import { useLicenseStore } from '@/stores/license.store'
 
 // Las páginas de administración se cargan bajo demanda (recharts/ExcelJS pesan).
@@ -60,14 +61,16 @@ function RootRedirect(): React.JSX.Element {
 function App(): React.JSX.Element {
   const phase = useLicenseStore((s) => s.phase)
   const refresh = useLicenseStore((s) => s.refresh)
+  const loadBranding = useBrandingStore((s) => s.load)
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+    void loadBranding()
+  }, [refresh, loadBranding])
 
   if (phase === 'loading') return <Splash message="Iniciando…" />
   if (phase === 'unreachable') {
-    return <Splash message="No se pudo conectar con el servidor local (:3001)." onRetry={refresh} />
+    return <Splash message="No se pudo conectar con el servidor." onRetry={refresh} />
   }
 
   return (

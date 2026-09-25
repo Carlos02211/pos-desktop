@@ -4,7 +4,7 @@ import type { CustomerRow } from '../db/schema'
 import { creditAccounts, customers } from '../db/schema'
 import type { DB } from '../db'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents } from '../lib/money'
 
 /** Clientes con su saldo pendiente (suma de cuentas por cobrar abiertas). */
 export async function listCustomers(
@@ -27,7 +27,11 @@ export async function listCustomers(
       .leftJoin(creditAccounts, eq(creditAccounts.customerId, customers.id))
       .groupBy(customers.id)
       .orderBy(asc(customers.name))
-  ).map((r) => ({ ...r, openAccounts: Number(r.openAccounts), balance: round2(Number(r.balance)) }))
+  ).map((r) => ({
+    ...r,
+    openAccounts: Number(r.openAccounts),
+    balance: fromCents(Number(r.balance))
+  }))
 
   return includeInactive ? rows : rows.filter((r) => r.active === 1)
 }

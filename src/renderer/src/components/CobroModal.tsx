@@ -6,6 +6,7 @@ import { crearCliente, listClientes } from '@/api/cuentas'
 import { crearVenta } from '@/api/ventas'
 import { Modal } from '@/components/Modal'
 import { money } from '@/lib/format'
+import { randomId } from '@/lib/utils'
 import { useCartStore } from '@/stores/cart.store'
 
 const METHODS: { value: PaymentMethod; label: string }[] = [
@@ -35,14 +36,19 @@ export function CobroModal({
   onDone: (sale: CreateSaleResponse) => void
 }): React.JSX.Element {
   const items = useCartStore((s) => s.items)
+  // Un id por apertura del modal: si el POST se reintenta (timeout / doble clic),
+  // el servidor devuelve la misma venta en vez de duplicarla.
+  const [clientRequestId] = useState(() => randomId())
   const [method, setMethod] = useState<PaymentMethod>('CASH')
   const [paidText, setPaidText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const [customers, setCustomers] = useState<CustomerWithBalance[]>([])
-  const [customerId, setCustomerId] = useState<number | ''>('')
-  const [newName, setNewName] = useState('')
+  const [clienteQuery, setClienteQuery] = useState('')
+  const [clienteId, setClienteId] = useState<number | null>(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestion, setActiveSuggestion] = useState(0)
   const [creatingCustomer, setCreatingCustomer] = useState(false)
 
   useEffect(() => {
@@ -50,6 +56,34 @@ export function CobroModal({
       .then(setCustomers)
       .catch(() => {})
   }, [])
+
+  const clienteSuggestions = useMemo(() => {
+    const q = clienteQuery.trim().toLowerCase()
+    if (!q) return []
+    return customers.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 6)
+  }, [customers, clienteQuery])
+
+  function pickCliente(c: CustomerWithBalance): void {
+    setClienteId(c.id)
+    setClienteQuery(c.name)
+    setShowSuggestions(false)
+  }
+
+  function onClienteKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (!showSuggestions || clienteSuggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveSuggestion((i) => (i + 1) % clienteSuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveSuggestion((i) => (i - 1 + clienteSuggestions.length) % clienteSuggestions.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      pickCliente(clienteSuggestions[activeSuggestion] ?? clienteSuggestions[0])
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+    }
+  }
 
   const paid = Number.parseFloat(paidText.replace(',', '.'))
   const paidNum = Number.isFinite(paid) ? paid : 0
@@ -62,14 +96,20 @@ export function CobroModal({
   const cashShort = method === 'CASH' && (!Number.isFinite(paid) || paid < total)
   const creditDebt =
     method === 'CREDIT' ? Math.round((total - Math.min(paidNum, total)) * 100) / 100 : 0
-  const hasCustomer = customerId !== '' || newName.trim().length >= 2
+  const hasCustomer = clienteId != null || clienteQuery.trim().length >= 2
   const creditInvalid = method === 'CREDIT' && (!hasCustomer || paidNum >= total || paidNum < 0)
 
-  async function ensureCustomer(): Promise<number> {
-    if (customerId !== '') return customerId
+  /** undefined si el campo Cliente quedó vacío (válido en CASH/CARD/TRANSFER). */
+  async function ensureCustomer(): Promise<number | undefined> {
+    if (clienteId != null) return clienteId
+    const trimmed = clienteQuery.trim()
+    if (trimmed.length < 2) return undefined
+    // Evita duplicar si el nombre ya existe pero el cajero no lo eligió de las sugerencias.
+    const existing = customers.find((c) => c.name.toLowerCase() === trimmed.toLowerCase())
+    if (existing) return existing.id
     setCreatingCustomer(true)
     try {
-      const c = await crearCliente({ name: newName.trim() })
+      const c = await crearCliente({ name: trimmed })
       return c.id
     } finally {
       setCreatingCustomer(false)
@@ -80,14 +120,20 @@ export function CobroModal({
     setError('')
     setSubmitting(true)
     try {
-      let cId: number | undefined
-      if (method === 'CREDIT') cId = await ensureCustomer()
+      const cId = await ensureCustomer()
 
       const sale = await crearVenta({
-        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        // Sólo se manda `price` si el cajero lo editó — si no, el servidor usa el de catálogo
+        // (evita cobrar un precio viejo si el admin lo cambió con el ítem ya en el carrito).
+        items: items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          price: i.price !== i.originalPrice ? i.price : undefined
+        })),
         paymentMethod: method,
         amountPaid: method === 'CASH' || method === 'CREDIT' ? paidNum : undefined,
-        customerId: cId
+        customerId: cId,
+        clientRequestId
       })
       onDone(sale)
     } catch (err) {
@@ -102,7 +148,7 @@ export function CobroModal({
   const disabled = submitting || creatingCustomer || cashShort || creditInvalid
 
   return (
-    <Modal title="Cobrar" onClose={onClose}>
+    <Modal title="Cobrar" onClose={onClose} busy={submitting || creatingCustomer}>
       <div className="space-y-4">
         <div className="flex items-baseline justify-between rounded-lg bg-secondary/50 px-3 py-2">
           <span className="text-sm text-muted-foreground">Total</span>
@@ -123,6 +169,79 @@ export function CobroModal({
               {m.label}
             </button>
           ))}
+        </div>
+
+        <div className="relative">
+          <label className="mb-1 block text-sm font-medium">
+            Cliente
+            {method !== 'CREDIT' && (
+              <span className="font-normal text-muted-foreground"> (opcional)</span>
+            )}
+          </label>
+          <input
+            autoFocus={method !== 'CASH'}
+            value={clienteQuery}
+            role="combobox"
+            aria-expanded={showSuggestions && clienteSuggestions.length > 0}
+            aria-controls="cliente-listbox"
+            aria-autocomplete="list"
+            aria-activedescendant={
+              showSuggestions && clienteSuggestions.length > 0
+                ? `cliente-opt-${activeSuggestion}`
+                : undefined
+            }
+            onChange={(e) => {
+              setClienteQuery(e.target.value)
+              setClienteId(null)
+              setShowSuggestions(true)
+              setActiveSuggestion(0)
+            }}
+            onKeyDown={onClienteKeyDown}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+            placeholder="Busca un cliente o escribe uno nuevo…"
+            className={inputClass}
+          />
+          {clienteId != null && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cliente existente
+              {(() => {
+                const balance = customers.find((c) => c.id === clienteId)?.balance ?? 0
+                return balance > 0 ? ` · debe ${money(balance)}` : ''
+              })()}
+            </p>
+          )}
+          {showSuggestions && clienteSuggestions.length > 0 && (
+            <div
+              id="cliente-listbox"
+              role="listbox"
+              className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+            >
+              {clienteSuggestions.map((c, i) => (
+                <button
+                  key={c.id}
+                  id={`cliente-opt-${i}`}
+                  role="option"
+                  aria-selected={i === activeSuggestion}
+                  type="button"
+                  onMouseEnter={() => setActiveSuggestion(i)}
+                  onMouseDown={() => pickCliente(c)}
+                  className={`block w-full px-3 py-2 text-left text-sm ${
+                    i === activeSuggestion ? 'bg-secondary' : ''
+                  }`}
+                >
+                  {c.name}
+                  {c.balance > 0 ? ` (debe ${money(c.balance)})` : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          {showSuggestions &&
+            clienteId == null &&
+            clienteQuery.trim().length >= 2 &&
+            clienteSuggestions.length === 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">Se creará como cliente nuevo.</p>
+            )}
         </div>
 
         {method === 'CASH' && (
@@ -158,58 +277,18 @@ export function CobroModal({
         )}
 
         {method === 'CREDIT' && (
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Cliente</label>
-              {customerId === '' && customers.length > 0 && (
-                <select
-                  value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : '')}
-                  className={inputClass}
-                >
-                  <option value="">— elige un cliente —</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.balance > 0 ? ` (debe ${money(c.balance)})` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {customerId !== '' && (
-                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
-                  <span>{customers.find((c) => c.id === customerId)?.name}</span>
-                  <button
-                    onClick={() => setCustomerId('')}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    cambiar
-                  </button>
-                </div>
-              )}
-              {customerId === '' && (
-                <input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="…o escribe el nombre de un cliente nuevo"
-                  className={`${inputClass} mt-1.5`}
-                />
-              )}
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Abono inicial (efectivo)</label>
-              <input
-                inputMode="decimal"
-                value={paidText}
-                onChange={(e) => setPaidText(e.target.value)}
-                placeholder="0.00"
-                className={inputClass}
-              />
-              <div className="mt-1 flex justify-between text-sm">
-                <span className="text-muted-foreground">Queda a deber</span>
-                <span className="font-semibold text-pos-warning">{money(creditDebt)}</span>
-              </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Abono inicial (efectivo)</label>
+            <input
+              inputMode="decimal"
+              value={paidText}
+              onChange={(e) => setPaidText(e.target.value)}
+              placeholder="0.00"
+              className={inputClass}
+            />
+            <div className="mt-1 flex justify-between text-sm">
+              <span className="text-muted-foreground">Queda a deber</span>
+              <span className="font-semibold text-pos-warning">{money(creditDebt)}</span>
             </div>
           </div>
         )}

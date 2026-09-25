@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Paridad de esquemas SQLite ↔ PostgreSQL
+        run: pnpm check:schema
+
+      - name: verify:backend (SQLite)
+        run: pnpm verify:backend
+
+      # El respaldo (cierre de caja y "Respaldar ahora") usa pg_dump: el runner suele
+      # traerlo; si no, se instala el cliente (>= 16, la versión del servidor).
+      - name: Cliente de PostgreSQL (pg_dump)
+        run: pg_dump --version || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: verify:backend (PostgreSQL real)
+        run: pnpm verify:backend
+        env:
+          DATABASE_URL: postgres://pos:pos@localhost:5432/pos
+
+      - name: verify:backend (PGlite)
+        run: pnpm verify:backend:pg

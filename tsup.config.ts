@@ -15,12 +15,17 @@ export default defineConfig({
   target: 'node20',
   bundle: true,
   splitting: false,
-  sourcemap: true,
+  // Sin sourcemap: el bundle se despliega a la PC del cliente y el .map expone
+  // todo el código del backend. Para depurar, generar un build local aparte.
+  sourcemap: false,
   clean: false,
   dts: false,
   outExtension: () => ({ js: '.cjs' }),
   skipNodeModulesBundle: true,
   // Todo lo que no sea ruta relativa = dependencia externa: se resuelve de
   // node_modules en el servidor (ver el package.json que genera build-server.ts).
-  external: [/^[^./]/]
+  external: [/^[^./]/],
+  // La clave pública de licencias queda fija en el código: en la PC del cliente no se
+  // puede sustituir por otra vía entorno (ver src/main/services/license.ts).
+  define: { 'process.env.POS_LICENSE_PUBLIC_KEY': '""' }
 })

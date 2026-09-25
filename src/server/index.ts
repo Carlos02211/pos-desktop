@@ -1,9 +1,12 @@
+import './load-env' // DEBE ir primero: carga .env antes de que ningún módulo lea process.env
 import { mkdirSync } from 'fs'
+import { join } from 'path'
 import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
 import { initStore } from '../main/lib/store'
+import { startAutoBackup } from '../main/services/backup'
 import { startServer, type RunningServer } from '../main/server'
-import { serverConfig as cfg } from './config'
+import { assertProductionConfig, serverConfig as cfg } from './config'
 
 /**
  * Servidor standalone de Fase 2 (multicajero en red local).
@@ -20,11 +23,22 @@ import { serverConfig as cfg } from './config'
 let server: RunningServer | null = null
 
 async function main(): Promise<void> {
+  assertProductionConfig()
+
   mkdirSync(cfg.dataDir, { recursive: true })
-  initStore(cfg.dataDir)
+  // pm2 guarda el entorno del usuario que lo arrancó, así que TEMP apunta a
+  // C:\Users\<admin>\AppData\Local\Temp, donde el servicio ("Servicio local") no puede
+  // escribir: la impresión por la cola de Windows (archivo temporal + Add-Type de
+  // PowerShell) fallaba con EPERM. Carpeta temporal propia, dentro de los datos.
+  if (process.platform === 'win32') {
+    const tmp = join(cfg.dataDir, 'tmp')
+    mkdirSync(tmp, { recursive: true })
+    process.env.TEMP = process.env.TMP = tmp
+  }
+  await initStore(cfg.dataDir, 'file')
 
   const db = await initDb(cfg.dbPath, cfg.migrationsDir)
-  await runSeed(db)
+  await runSeed(db, { production: process.env.POS_ALLOW_INSECURE !== '1' })
 
   server = await startServer({
     host: cfg.host,
@@ -35,12 +49,17 @@ async function main(): Promise<void> {
     backupDir: cfg.backupDir,
     uploadsDir: cfg.uploadsDir,
     staticDir: cfg.staticDir,
-    allowedOrigins: cfg.allowedOrigins
+    allowedOrigins: cfg.allowedOrigins,
+    tls: cfg.tls
   })
 
+  // Respaldo diario automático (además del que se hace en cada cierre de caja).
+  startAutoBackup({ dbPath: cfg.dbPath, backupDir: cfg.backupDir })
+
   console.log(
-    `POS SpArTaN Tech — servidor Fase 2 en http://${cfg.host}:${cfg.port}` +
-      ` · motor: ${DIALECT === 'pg' ? 'PostgreSQL' : 'SQLite'}`
+    `POS SpArTaN Tech — servidor Fase 2 en ${server.url}` +
+      ` · motor: ${DIALECT === 'pg' ? 'PostgreSQL' : 'SQLite'}` +
+      (cfg.tls ? ' · TLS on' : '')
   )
 }
 

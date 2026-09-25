@@ -130,3 +130,47 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* ---- Login / activación (AuthShell) ---- */
+@keyframes auth-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes auth-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+.auth-rise {
+  animation: auth-rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.auth-rise-2 {
+  animation-delay: 0.12s;
+}
+.auth-breathe {
+  animation: auth-breathe 7s ease-in-out infinite;
+}
+/* Cuadrícula tenue que se desvanece hacia los bordes. */
+.auth-grid {
+  background-image:
+    linear-gradient(rgb(148 163 184 / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 163 184 / 0.07) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at center, black 25%, transparent 72%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-rise,
+  .auth-breathe {
+    animation: none;
+  }
+}

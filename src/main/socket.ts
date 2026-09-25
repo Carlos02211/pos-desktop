@@ -1,5 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
+import type { AuthUser } from '../shared/types'
+import { verifyToken } from './lib/jwt'
 import type { EventPayloads } from './socket-events'
 
 let _io: SocketIOServer | null = null
@@ -13,8 +15,25 @@ export function initSocket(
     cors: { origin: allowedOrigins, credentials: true }
   })
 
+  // Handshake autenticado: sin un JWT válido no se recibe ningún evento de negocio.
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token
+    if (typeof token !== 'string' || token.length === 0) {
+      next(new Error('unauthorized'))
+      return
+    }
+    try {
+      const user = verifyToken(token)
+      ;(socket.data as { user?: AuthUser }).user = user
+      // Salas por rol — permite dirigir eventos sensibles sólo a ADMIN más adelante.
+      socket.join(`role:${user.role}`)
+      next()
+    } catch {
+      next(new Error('unauthorized'))
+    }
+  })
+
   io.on('connection', (socket) => {
-    // En Fase 2 aquí se autenticará el socket con el JWT y se unirá a salas por rol.
     socket.on('disconnect', () => {})
   })
 

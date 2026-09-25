@@ -24,19 +24,19 @@ Sistema de Punto de Venta para Windows 10/11 (React + Fastify + Drizzle).
 
 ### Sprint 1 — Licencia + Autenticación ✅
 
-| Entregable                                                         | Estado |
-| ------------------------------------------------------------------ | ------ |
-| Fingerprint SHA-256 del hardware (`systeminformation`)             | ✅     |
-| Licencia offline por HMAC, store cifrado (`electron-store`)        | ✅     |
-| Pantalla de activación `/activation` (muestra el ID del equipo)    | ✅     |
-| `GET /api/licencia/estado` · `POST /api/licencia/activar`          | ✅     |
-| Login bcrypt + JWT (8 h), secreto por instalación                  | ✅     |
-| `POST /api/auth/login` · `/logout` · `GET /api/auth/me`            | ✅     |
-| `requireAuth` / `requireRole` (ADMIN pasa siempre)                 | ✅     |
-| Pantalla `/login`, `auth.store` (token en memoria)                 | ✅     |
-| `ProtectedRoute` + guards de rol (`/cobrador`, `/admin`)           | ✅     |
-| Seed: `admin / admin123` (ADMIN) · `cajero / cajero123` (COBRADOR) | ✅     |
-| Generador de claves `pnpm license:gen`                             | ✅     |
+| Entregable                                                           | Estado |
+| -------------------------------------------------------------------- | ------ |
+| Fingerprint SHA-256 del hardware (`systeminformation`)               | ✅     |
+| Licencia offline firmada (Ed25519), store cifrado (`electron-store`) | ✅     |
+| Pantalla de activación `/activation` (muestra el ID del equipo)      | ✅     |
+| `GET /api/licencia/estado` · `POST /api/licencia/activar`            | ✅     |
+| Login bcrypt + JWT (8 h), secreto por instalación                    | ✅     |
+| `POST /api/auth/login` · `/logout` · `GET /api/auth/me`              | ✅     |
+| `requireAuth` / `requireRole` (ADMIN pasa siempre)                   | ✅     |
+| Pantalla `/login`, `auth.store` (token en memoria)                   | ✅     |
+| `ProtectedRoute` + guards de rol (`/cobrador`, `/admin`)             | ✅     |
+| Seed: `admin / admin123` (ADMIN) · `cajero / cajero123` (COBRADOR)   | ✅     |
+| Generador de claves `pnpm license:gen`                               | ✅     |
 
 ### Sprint 2 — Panel del Cobrador ✅
 
@@ -133,6 +133,29 @@ abonos parciales o liquidación total.
 | Corte de caja: el efectivo esperado suma enganches y abonos en efectivo                     | ✅     |
 | Dashboard "Por cobrar (fiado)" · reportes "crédito otorgado" · evento `cuenta:abono`        | ✅     |
 
+### Módulo extra — Precio editable, venta por peso y clientes ✅
+
+| Entregable                                                                                       | Estado |
+| ------------------------------------------------------------------------------------------------ | ------ |
+| Precio editable en el carrito (`CartLineInput.price?`), con auditoría en `original_price`        | ✅     |
+| `VentaDetalleModal` muestra "precio editado ($orig → $final)" cuando aplica                      | ✅     |
+| Productos por peso: `products.unit` (`PIEZA`/`KG`), precio por kg, cantidad en gramos            | ✅     |
+| Carrito: input de gramos + botones rápidos 100 g / 250 g / 500 g / 1 kg para productos por kg    | ✅     |
+| Ticket y detalle de venta formatean gramos/kg (`formatQty`)                                      | ✅     |
+| `sales.customerId`: toda venta puede llevar cliente (opcional salvo Fiado, ahí obligatorio)      | ✅     |
+| Admin → Ventas muestra columna Cliente; ticket imprime "Cliente: X" si hay                       | ✅     |
+| Admin → Clientes simplificado a tabla estática de nombres (el saldo se ve en Cuentas por cobrar) | ✅     |
+| `CobroModal`: buscador de cliente con sugerencias; un nombre nuevo se crea solo al confirmar     | ✅     |
+
+### Módulo extra — Seguridad del licenciamiento ✅
+
+| Entregable                                                                      | Estado |
+| ------------------------------------------------------------------------------- | ------ |
+| Licencias firmadas con Ed25519: la app/servidor sólo tienen la clave pública    | ✅     |
+| Clave privada fuera del repo (`pnpm license:keygen` → `~/.config/spartan-pos/`) | ✅     |
+| Los builds congelan la clave pública (no se puede sustituir vía entorno)        | ✅     |
+| Freno de 5 intentos fallidos/minuto por IP en `POST /api/licencia/activar`      | ✅     |
+
 ### Sprint 8 — QA, Pulido y Empaquetado 🚧
 
 | Entregable                                                                         | Estado     |
@@ -156,7 +179,7 @@ PostgreSQL, sirviendo la SPA a tabletas por navegador. Runbook completo en
 | --------------------------------------------------------------------------------------- | ---------- |
 | Capa de datos asíncrona y agnóstica del motor (`DATABASE_URL` elige SQLite/PostgreSQL)  | ✅         |
 | Esquema + migraciones PostgreSQL (`schema.pg.ts`, `pnpm db:generate:pg`)                | ✅         |
-| `verify:backend:pg` — ~140 checks contra PostgreSQL (PGlite, sin servidor)              | ✅         |
+| `verify:backend:pg` — ~145 checks contra PostgreSQL (PGlite, sin servidor)              | ✅         |
 | Servidor sin Electron (`src/server/`) — `0.0.0.0:3000`, sirve la SPA, fallback de rutas | ✅         |
 | Cliente resuelve el `baseURL` solo (mismo origen cuando lo sirve el servidor)           | ✅         |
 | `pnpm build:server` → `dist-server/` (bundle + `public/` + migraciones + pm2 + `.env`)  | ✅         |
@@ -184,8 +207,9 @@ las migraciones y se ejecuta el seed.
 
 - **Login**: `admin / admin123` (administrador) · `cajero / cajero123` (cobrador)
 - **Activación**: la app arranca en `/activation`. Copia el _ID de este equipo_ que muestra
-  la pantalla y genera su clave con `pnpm license:gen <ID>` (en el equipo del proveedor, con
-  el mismo `POS_VENDOR_SECRET`). Pega la clave para activar.
+  la pantalla y genera su clave con `pnpm license:gen <ID>` en el equipo del proveedor (firma
+  con la clave privada, ver [Empaquetado](#empaquetado)). Pega la clave para activar. En
+  `pnpm dev` también: `pnpm license:gen --here`.
 
 > **Nota pnpm**: los scripts de instalación están autorizados en `pnpm-workspace.yaml`
 > (`allowBuilds`). Si `pnpm install` avisa de _ignored build scripts_, ejecuta
@@ -198,12 +222,13 @@ pnpm verify:backend
 ```
 
 Levanta store + SQLite + migraciones + seed + Fastify en un entorno temporal y valida el
-flujo completo de los Sprints 0–8 más el módulo de cuentas por cobrar (~140 comprobaciones):
+flujo completo de los Sprints 0–8 más los módulos extra (~145 comprobaciones):
 ping + Zod, licencia por hardware (incl. copia a otro equipo → inactiva), auth y roles,
 catálogo, apertura/venta/cierre de caja con folio y cambio, respaldo, CRUD de
 productos/categorías/usuarios con imagen, historial de ventas y cortes, reportes con
-exportación a Excel/PDF, configuración, dashboard, y ventas a crédito con abonos y
-liquidación (corte que suma enganches y abonos en efectivo).
+exportación a Excel/PDF, configuración, dashboard, ventas a crédito con abonos y
+liquidación (corte que suma enganches y abonos en efectivo), precio editado con auditoría,
+venta por peso (kg/gramos), y cliente asociado a cualquier venta.
 Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI nativo que la app.
 
 ```bash
@@ -212,6 +237,10 @@ pnpm verify:backend:pg   # las mismas comprobaciones contra PostgreSQL (PGlite e
 
 ## Empaquetado
 
+- **Licencias:** el par Ed25519 se generó UNA vez con `pnpm license:keygen`. La clave privada
+  vive en `~/.config/spartan-pos/license-private.pem` (fuera del repo, **respaldarla**); la
+  pública está en `PRODUCTION_PUBLIC_KEY` (`src/main/services/license.ts`). Compilar no
+  necesita secretos. Si la privada se filtra: nuevo par, build nuevo y re-licenciar a todos.
 - `pnpm build:win` (**en Windows** o CI de Windows) → `dist-electron/pos-spartan-tech-<ver>-setup.exe` (NSIS).
 - `pnpm exec electron-builder --dir` → build sin comprimir de la plataforma actual, para validar
   el empaquetado (migraciones en `resources/migrations`, `better-sqlite3` en `app.asar.unpacked`).
@@ -227,6 +256,7 @@ pnpm build                # typecheck + bundles de producción en out/
 pnpm build:win            # build + instalador NSIS en dist-electron/  (Windows)
 pnpm db:studio            # Drizzle Studio contra .data/pos.dev.db
 pnpm license:gen <fp>     # genera la clave de licencia para un fingerprint (uso interno)
+pnpm license:keygen       # crea el par Ed25519 de licencias (una sola vez)
 
 # Fase 2 (servidor en red)
 pnpm db:generate:pg       # regenera resources/migrations-pg si cambia schema.pg.ts
@@ -257,7 +287,7 @@ PC servidor ── pm2 ── node server.cjs :3000
                ├── Fastify + Socket.io + build de React
                └── Drizzle + node-postgres ── PostgreSQL 16 :5432
 
-Tabletas / laptop ── Chrome ── http://192.168.1.10:3000/  (mismo origen para API y WS)
+Tabletas / laptop ── Chrome ── https://<IP-del-servidor>:3000/  (mismo origen para API y WS)
 ```
 
 El swap lo decide `DATABASE_URL`: sin ella, SQLite; con ella, PostgreSQL. Ver
@@ -312,17 +342,25 @@ src/
   lugar del binding nativo `bcrypt` para no arrastrar un segundo módulo nativo. Cambio de
   implementación, no de comportamiento.
 - **Licencia**: `fingerprint = SHA-256(uuid | MAC | serie de disco | hostname)`; la clave es
-  `base32(HMAC-SHA256(fingerprint, POS_VENDOR_SECRET))[:25]`. Validación 100 % offline. El
-  `POS_VENDOR_SECRET` debe ser el mismo en la app empaquetada y en `pnpm license:gen`
-  (variable de entorno; hay un valor por defecto sólo para desarrollo).
+  la firma Ed25519 de `spartan-pos-license-v1:<fingerprint>` en base32 (~103 caracteres).
+  Validación 100 % offline con la clave **pública** embebida: la app y el servidor no tienen
+  nada que permita fabricar claves (antes era un HMAC con un secreto que viajaba en el `.env`
+  / el `.exe`). La privada sólo está en la máquina del proveedor. `POS_LICENSE_PUBLIC_KEY`
+  sustituye la pública sólo al correr desde el código (tests); electron-vite y tsup la
+  congelan a vacío en los builds. Freno de intentos por IP en el endpoint de activación.
+  Límite honesto: nada offline impide parchear el binario para saltarse la verificación.
 - **Secreto JWT**: se genera aleatorio en el primer arranque y se guarda cifrado en
-  `electron-store` — no es una constante en el binario. Token de 8 h, sólo en memoria en el
-  cliente (nunca `localStorage`).
+  `electron-store` — no es una constante en el binario. Token de 8 h en `sessionStorage` del
+  cliente (sobrevive a un F5, se borra al cerrar la pestaña; nunca `localStorage`) y se
+  revalida con `/api/auth/me` al restaurarlo.
 - **electron-store** es ESM-only; `src/main/lib/store.ts` normaliza el import para que
   funcione tanto en el bundle CJS de electron-vite como en el script de verificación (ESM).
-- **Ventas**: `POST /api/ventas` corre en una transacción. El precio y el nombre se toman de
-  la BD (snapshot en `sale_items`), nunca del cliente. `ticketNumber` es un folio secuencial
-  por sesión de caja. Vender sin caja abierta → 409.
+- **Ventas**: `POST /api/ventas` corre en una transacción. El nombre siempre se toma de la BD
+  (snapshot en `sale_items`); el precio también, salvo que el cajero lo edite en el momento
+  (queda `original_price` como rastro de auditoría). `ticketNumber` es un folio secuencial por
+  sesión de caja. Vender sin caja abierta → 409. Cantidad entera si el producto es `PIEZA`,
+  decimal (kg) si es `KG` — la unidad viaja como snapshot en `sale_items.unit`. `customerId` es
+  opcional salvo en pago `CREDIT`, donde es obligatorio.
 - **Impresora**: `config.printer_interface` (vacío = deshabilitada). Ejemplos:
   `printer:XP-80T` (driver de Windows, requiere añadir un módulo nativo de impresión),
   `tcp://IP:9100` (impresora de red, sin dependencias). La impresión nunca hace fallar la

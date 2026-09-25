@@ -1,15 +1,47 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
-import type { CreateSaleInput, SaleWithItems, SalesPage, SalesQuery } from '../../shared/types'
+import type {
+  CreateSaleInput,
+  SaleItem,
+  SaleWithItems,
+  SalesPage,
+  SalesQuery
+} from '../../shared/types'
 import type { DB } from '../db'
-import type { SaleItemRow } from '../db/schema'
+import type { SaleItemRow, SaleRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
-import { withTx } from '../db/tx'
+import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
-import { round2 } from '../lib/money'
+import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
+import { getConfigMap } from './config'
 
 export interface SaleResult extends SaleWithItems {
   creditAccountId?: number
+}
+
+/** % de descuento válido (0–100); un valor ausente/ inválido = 100 (sin límite). */
+function clampPct(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 100
+  return Math.min(100, n)
+}
+
+/** Pasa los importes de la fila de venta (centavos) a pesos para la API. */
+function saleMoneyToApi(sale: SaleRow): SaleRow {
+  return {
+    ...sale,
+    total: fromCents(sale.total),
+    amountPaid: sale.amountPaid == null ? null : fromCents(sale.amountPaid),
+    change: sale.change == null ? null : fromCents(sale.change)
+  }
+}
+
+function itemMoneyToApi(item: SaleItemRow): SaleItem {
+  return {
+    ...item,
+    price: fromCents(item.price),
+    originalPrice: item.originalPrice == null ? null : fromCents(item.originalPrice),
+    subtotal: fromCents(item.subtotal)
+  }
 }
 
 /**
@@ -17,80 +49,129 @@ export interface SaleResult extends SaleWithItems {
  *
  * Reglas de desarrollo aplicadas:
  *  - No se puede vender sin caja abierta.
- *  - El precio y el nombre se toman de la BD (snapshot en `sale_items`), nunca del cliente.
+ *  - El nombre siempre se toma de la BD. El precio también, salvo que el cajero lo edite en el
+ *    momento (ej. descuento a un cliente frecuente) — en ese caso se guarda el precio de catálogo
+ *    en `originalPrice` para dejar rastro de qué se cobró y qué costaba el producto.
  *  - `ticketNumber` es un folio secuencial por sesión de caja.
+ *  - Todo el cálculo de importes es en centavos enteros; se convierte a pesos al responder.
  */
 export async function createSale(
   db: DB,
   userId: number,
   input: CreateSaleInput
 ): Promise<SaleResult> {
-  const session = await getActiveSession(db, userId)
-  if (!session) {
-    throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
-  }
   if (input.items.length === 0) {
     throw new HttpError(400, 'La venta no tiene productos.')
   }
-  if (input.paymentMethod === 'CREDIT') {
-    if (input.customerId == null) {
-      throw new HttpError(400, 'Elige a qué cliente se le fía.')
-    }
-    const [customer] = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.id, input.customerId))
-      .limit(1)
-    if (!customer || customer.active !== 1) {
-      throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
-    }
+  if (input.paymentMethod === 'CREDIT' && input.customerId == null) {
+    throw new HttpError(400, 'Elige a qué cliente se le fía.')
   }
 
   return withTx(db, async (tx) => {
+    const session = await getActiveSession(tx, userId)
+    if (!session) {
+      throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
+    }
+    // Serializa las ventas de esta sesión de caja (folio + cierre) bajo PostgreSQL.
+    await lockRow(tx, 'cash_sessions', session.id)
+
+    let customerName: string | null = null
+    if (input.customerId != null) {
+      const [customer] = await tx
+        .select()
+        .from(customers)
+        .where(eq(customers.id, input.customerId))
+        .limit(1)
+      if (!customer || customer.active !== 1) {
+        throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
+      }
+      customerName = customer.name
+    }
+
+    // Descuento máximo por línea que el cobrador puede aplicar (config del negocio).
+    const maxDiscountPct = clampPct(Number((await getConfigMap(tx))['max_line_discount_pct']))
+
     const ids = [...new Set(input.items.map((i) => i.productId))]
     const rows = await tx.select().from(products).where(inArray(products.id, ids))
     const byId = new Map(rows.map((r) => [r.id, r]))
 
-    let total = 0
+    let totalCents = 0
     const lines = input.items.map((line) => {
       const product = byId.get(line.productId)
       if (!product || product.active !== 1) {
         throw new HttpError(400, `Producto no disponible (id ${line.productId}).`)
       }
-      if (!Number.isInteger(line.quantity) || line.quantity < 1) {
-        throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+      let quantity: number
+      if (product.unit === 'KG') {
+        if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+        }
+        quantity = round3(line.quantity) // precisión de 1 gramo
+      } else {
+        if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+        }
+        quantity = line.quantity
       }
-      const subtotal = round2(product.price * line.quantity)
-      total = round2(total + subtotal)
+      let priceCents = product.price
+      if (line.price != null) {
+        if (!Number.isFinite(line.price) || line.price <= 0) {
+          throw new HttpError(400, `Precio inválido para "${product.name}".`)
+        }
+        const editedCents = toCents(line.price)
+        // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
+        // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
+        if (editedCents > product.price) {
+          throw new HttpError(
+            400,
+            `El precio de "${product.name}" no puede superar el de catálogo.`
+          )
+        }
+        const minAllowedCents = Math.ceil((product.price * (100 - maxDiscountPct)) / 100)
+        if (editedCents < minAllowedCents) {
+          throw new HttpError(
+            400,
+            maxDiscountPct === 0
+              ? `No está permitido editar el precio de "${product.name}".`
+              : `El descuento en "${product.name}" supera el máximo permitido (${maxDiscountPct}%).`
+          )
+        }
+        priceCents = editedCents
+      }
+      const subtotalCents = lineCents(priceCents, quantity)
+      totalCents += subtotalCents
       return {
         productId: product.id,
         name: product.name,
-        price: product.price,
-        quantity: line.quantity,
-        subtotal
+        price: priceCents,
+        originalPrice: priceCents < product.price ? product.price : null,
+        unit: product.unit,
+        quantity,
+        subtotal: subtotalCents
       }
     })
 
-    let amountPaid: number | null = null
-    let change: number | null = null
-    let creditAmount = 0
+    let amountPaidCents: number | null = null
+    let changeCents: number | null = null
+    let creditAmountCents = 0
     if (input.paymentMethod === 'CASH') {
-      if (input.amountPaid == null || input.amountPaid < total) {
+      const paidCents = input.amountPaid == null ? -1 : toCents(input.amountPaid)
+      if (paidCents < totalCents) {
         throw new HttpError(400, 'El monto recibido es menor al total.')
       }
-      amountPaid = round2(input.amountPaid)
-      change = round2(amountPaid - total)
+      amountPaidCents = paidCents
+      changeCents = paidCents - totalCents
     } else if (input.paymentMethod === 'CREDIT') {
       // Abono inicial (en efectivo) opcional: 0..total. El resto queda a deber.
-      const down = round2(Math.max(0, input.amountPaid ?? 0))
-      if (down >= total) {
+      const downCents = Math.max(0, toCents(input.amountPaid ?? 0))
+      if (downCents >= totalCents) {
         throw new HttpError(
           400,
           'El abono inicial cubre el total: cobra en efectivo, no a crédito.'
         )
       }
-      amountPaid = down || null
-      creditAmount = round2(total - down)
+      amountPaidCents = downCents || null
+      creditAmountCents = totalCents - downCents
     }
 
     const [last] = await tx
@@ -104,22 +185,19 @@ export async function createSale(
       .values({
         cashSessionId: session.id,
         userId,
-        total,
+        total: totalCents,
         paymentMethod: input.paymentMethod,
-        amountPaid,
-        change,
-        ticketNumber
+        amountPaid: amountPaidCents,
+        change: changeCents,
+        ticketNumber,
+        customerId: input.customerId ?? null
       })
       .returning()
 
-    const items: SaleItemRow[] = []
-    for (const line of lines) {
-      const [item] = await tx
-        .insert(saleItems)
-        .values({ saleId: sale.id, ...line })
-        .returning()
-      items.push(item)
-    }
+    const itemRows: SaleItemRow[] = await tx
+      .insert(saleItems)
+      .values(lines.map((line) => ({ saleId: sale.id, ...line })))
+      .returning()
 
     let creditAccountId: number | undefined
     if (input.paymentMethod === 'CREDIT') {
@@ -129,7 +207,7 @@ export async function createSale(
           saleId: sale.id,
           customerId: input.customerId!,
           userId,
-          total: creditAmount,
+          total: creditAmountCents,
           paid: 0,
           status: 'OPEN'
         })
@@ -143,7 +221,13 @@ export async function createSale(
       .where(eq(users.id, userId))
       .limit(1)
 
-    return { ...sale, items, userName: user?.username ?? '', creditAccountId }
+    return {
+      ...saleMoneyToApi(sale),
+      items: itemRows.map(itemMoneyToApi),
+      userName: user?.username ?? '',
+      customerName,
+      creditAccountId
+    }
   })
 }
 
@@ -176,16 +260,24 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
         paymentMethod: sales.paymentMethod,
         amountPaid: sales.amountPaid,
         change: sales.change,
+        customerName: customers.name,
         createdAt: sales.createdAt,
-        itemCount: sql<number>`(select coalesce(sum(${saleItems.quantity}), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+        itemCount: sql<number>`(select coalesce(count(*), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
+      .leftJoin(customers, eq(customers.id, sales.customerId))
       .where(where)
       .orderBy(desc(sales.createdAt), desc(sales.id))
       .limit(pageSize)
       .offset((page - 1) * pageSize)
-  ).map((r) => ({ ...r, itemCount: Number(r.itemCount) }))
+  ).map((r) => ({
+    ...r,
+    total: fromCents(Number(r.total)),
+    amountPaid: r.amountPaid == null ? null : fromCents(Number(r.amountPaid)),
+    change: r.change == null ? null : fromCents(Number(r.change)),
+    itemCount: Number(r.itemCount)
+  }))
 
   return { rows, total: Number(total), page, pageSize }
 }
@@ -202,5 +294,20 @@ export async function getSaleWithItems(db: DB, saleId: number): Promise<SaleWith
     .where(eq(users.id, sale.userId))
     .limit(1)
 
-  return { ...sale, items, userName: user?.username ?? '' }
+  let customerName: string | null = null
+  if (sale.customerId != null) {
+    const [customer] = await db
+      .select({ name: customers.name })
+      .from(customers)
+      .where(eq(customers.id, sale.customerId))
+      .limit(1)
+    customerName = customer?.name ?? null
+  }
+
+  return {
+    ...saleMoneyToApi(sale),
+    items: items.map(itemMoneyToApi),
+    userName: user?.username ?? '',
+    customerName
+  }
 }

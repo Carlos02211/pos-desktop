@@ -8,6 +8,55 @@
       "when": 1788664462569,
       "tag": "0000_peaceful_omega_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788720935228,
+      "tag": "0001_nice_william_stryker",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788723839703,
+      "tag": "0002_mature_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788727854183,
+      "tag": "0003_pale_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788994476874,
+      "tag": "0004_burly_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788996631124,
+      "tag": "0005_wild_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788998653178,
+      "tag": "0006_light_doctor_faustus",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788999375112,
+      "tag": "0007_loose_blink",
+      "breakpoints": true
     }
   ]
 }

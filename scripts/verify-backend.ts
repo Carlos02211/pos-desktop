@@ -16,17 +16,27 @@
  *
  * Uso:  pnpm verify:backend
  */
+import { execFileSync } from 'child_process'
+import crypto from 'crypto'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { createServer, type AddressInfo } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { count, eq } from 'drizzle-orm'
 import { closeDb, initDb } from '../src/main/db'
-import { users } from '../src/main/db/schema'
+import { config, users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
 import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
-import { expectedKeyForFingerprint, getHardwareFingerprint } from '../src/main/services/license'
+import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
+  BackupRunResponse,
+  BackupStatus,
+  BrandingResponse,
+  FolderListing,
+  SystemPrintersResponse,
+  CashMovement,
+  CashMovementWithUser,
   CashSession,
   CashSessionListItem,
   CashSessionSummary,
@@ -50,8 +60,15 @@ import type {
 // `verify:backend`     → SQLite en un directorio temporal.
 // `verify:backend:pg`  → PostgreSQL embebido (PGlite) vía DATABASE_URL=pglite://<dir>.
 const PG = !!process.env.DATABASE_URL
+const PGLITE = !!process.env.DATABASE_URL?.startsWith('pglite://')
+
+// Par Ed25519 efímero: el servidor (corriendo desde el código fuente) verifica con esta
+// pública en lugar de la de producción, y el test firma con la privada.
+const { privateKey: testLicenseKey } = crypto.generateKeyPairSync('ed25519')
+process.env.POS_LICENSE_PUBLIC_KEY = publicKeyOf(testLicenseKey)
 const MIGRATIONS = join(process.cwd(), 'resources', PG ? 'migrations-pg' : 'migrations')
-const PORT = 3001
+// VERIFY_PORT permite correrlo con `pnpm dev` abierto (que ocupa el 3001).
+const PORT = Number(process.env.VERIFY_PORT) || 3001
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`✗ ${msg}`)
@@ -65,11 +82,21 @@ async function main(): Promise<void> {
   let server: Awaited<ReturnType<typeof startServer>> | null = null
 
   try {
-    initStore(dir)
+    // Paridad de esquemas SQLite ↔ PostgreSQL (falla el proceso si divergen).
+    execFileSync('npx', ['tsx', join(process.cwd(), 'scripts', 'check-schema-parity.ts')], {
+      stdio: 'inherit'
+    })
+
+    await initStore(dir, 'file')
     const db = await initDb(dbPath, MIGRATIONS)
     await runSeed(db)
 
-    assert(true, `motor de base de datos: ${PG ? 'PostgreSQL (PGlite)' : 'SQLite'}`)
+    const engineLabel = !PG
+      ? 'SQLite'
+      : process.env.DATABASE_URL!.startsWith('pglite://')
+        ? 'PostgreSQL (PGlite embebido)'
+        : 'PostgreSQL (real)'
+    assert(true, `motor de base de datos: ${engineLabel}`)
 
     // ---- Sprint 0: seed ----
     const [{ n: userCount }] = await db.select({ n: count() }).from(users)
@@ -118,7 +145,43 @@ async function main(): Promise<void> {
 
     const fingerprint = await getHardwareFingerprint()
     assert(fingerprint === status1.fingerprint, 'licencia: fingerprint estable entre llamadas')
-    const validKey = expectedKeyForFingerprint(fingerprint)
+    const validKey = signLicense(fingerprint, testLicenseKey)
+
+    // Una letra cambiada invalida la firma.
+    const flipped = validKey.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))
+    const badSig = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: flipped })
+    })
+    assert(badSig.status === 403, `licencia: firma alterada -> 403 (status: ${badSig.status})`)
+
+    // Cambiar el ÚLTIMO carácter sólo toca bits de relleno: debe rechazarse igual (una sola
+    // escritura válida por firma).
+    const lastChar = validKey.slice(-1)
+    const paddedVariant = validKey.slice(0, -1) + (lastChar === 'A' ? 'C' : 'A')
+    const badPad = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: paddedVariant })
+    })
+    assert(
+      badPad.status === 403,
+      `licencia: último carácter alterado -> 403 (status: ${badPad.status})`
+    )
+
+    // Firmada con OTRA clave privada (p. ej. alguien que generó su propio par) -> rechazada.
+    const { privateKey: rogueKey } = crypto.generateKeyPairSync('ed25519')
+    const rogue = await fetch(`${base}/api/licencia/activar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: signLicense(fingerprint, rogueKey) })
+    })
+    assert(
+      rogue.status === 403,
+      `licencia: firmada con otra clave -> 403 (status: ${rogue.status})`
+    )
+
     const activated = await fetch(`${base}/api/licencia/activar`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -281,8 +344,8 @@ async function main(): Promise<void> {
       'venta tarjeta: sin cambio ni monto pagado'
     )
     assert(
-      sale2.print.printed === false && sale2.print.error === 'Impresora no configurada',
-      'venta: sin impresora configurada, print.printed=false y la venta igual se registra'
+      sale2.print.printed === false && sale2.print.skipped === true && !sale2.print.error,
+      'venta: negocio sin impresora -> print.skipped (sin error ni aviso) y la venta se registra'
     )
 
     // ---- Sprint 3: resumen, cierre de caja + respaldo, reimpresión ----
@@ -297,8 +360,41 @@ async function main(): Promise<void> {
       `resumen: efectivo esperado 550 (got ${resumen.expectedCash})`
     )
 
+    // ---- Movimientos de efectivo (retiro / ingreso) ----
+    const retiro = await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'OUT',
+      amount: 30,
+      reason: 'Compra de bolsas'
+    })
+    assert(retiro.status === 201, `retiro de efectivo -> 201 (status: ${retiro.status})`)
+    await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'IN',
+      amount: 5,
+      reason: 'Devolución de vuelto'
+    })
+    const retiroExcesivo = await asCajero('/api/caja/movimiento', 'POST', {
+      type: 'OUT',
+      amount: 100000,
+      reason: 'Prueba'
+    })
+    assert(
+      retiroExcesivo.status === 400,
+      `retiro mayor al efectivo en caja -> 400 (status: ${retiroExcesivo.status})`
+    )
+    const movs = (await (await asCajero('/api/caja/movimientos')).json()) as CashMovement[]
+    assert(movs.length === 2, `movimientos: se listan los 2 del turno (got ${movs.length})`)
+    const resumen2 = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    // 550 esperado − 30 retiro + 5 ingreso = 525
+    assert(
+      resumen2.cashOut === 30 && resumen2.cashIn === 5 && resumen2.expectedCash === 525,
+      `resumen: retiros 30, ingresos 5, esperado 525 (got ${resumen2.cashOut}/${resumen2.cashIn}/${resumen2.expectedCash})`
+    )
+
     const reimpr = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
-    assert(reimpr.status === 502, `reimprimir sin impresora -> 502 (status: ${reimpr.status})`)
+    assert(
+      reimpr.status === 409,
+      `reimprimir sin impresora activada -> 409 (status: ${reimpr.status})`
+    )
 
     const cierre = await asCajero('/api/caja/cierre', 'POST', { closingAmount: 540 })
     assert(cierre.status === 200, `cierre de caja -> 200 (status: ${cierre.status})`)
@@ -307,17 +403,18 @@ async function main(): Promise<void> {
       backup: { ok: boolean; path?: string; skipped?: string }
     }
     assert(cierreBody.session.status === 'CLOSED', 'cierre: sesión queda CLOSED')
-    assert(cierreBody.session.expectedAmount === 550, 'cierre: efectivo esperado 550')
-    assert(cierreBody.session.difference === -10, 'cierre: diferencia -10 (faltante)')
-    if (PG) {
+    // esperado = 500 apertura + 50 efectivo − 30 retiro + 5 ingreso = 525
+    assert(cierreBody.session.expectedAmount === 525, 'cierre: efectivo esperado 525')
+    assert(cierreBody.session.difference === 15, 'cierre: diferencia +15 (sobrante)')
+    if (PGLITE) {
       assert(
-        cierreBody.backup.ok && cierreBody.backup.skipped === 'postgres',
-        'cierre: respaldo de archivo omitido en PostgreSQL (lo hace pg_dump)'
+        cierreBody.backup.ok && !!cierreBody.backup.skipped,
+        'cierre: respaldo omitido con PGlite (no hay pg_dump para una base embebida)'
       )
     } else {
       assert(
         cierreBody.backup.ok && !!cierreBody.backup.path && existsSync(cierreBody.backup.path),
-        'cierre: respaldo de la BD creado en disco'
+        `cierre: respaldo de la BD creado en disco (${PG ? 'pg_dump' : 'copia SQLite'})`
       )
     }
 
@@ -407,6 +504,23 @@ async function main(): Promise<void> {
     assert(imgPath.startsWith('productos/') && imgPath.endsWith('.png'), 'imagen: ruta relativa')
     const served = await fetch(`${base}/uploads/${imgPath}`)
     assert(served.status === 200, `imagen servida en /uploads/ -> 200 (status: ${served.status})`)
+
+    // Un archivo que NO es imagen aunque diga image/png -> rechazado (magic bytes).
+    const fakeForm = new FormData()
+    fakeForm.append(
+      'file',
+      new Blob([Buffer.from('<html>not an image</html>')], { type: 'image/png' }),
+      'x.png'
+    )
+    const fakeRes = await fetch(`${base}/api/productos/${refresco.id}/imagen`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}` },
+      body: fakeForm
+    })
+    assert(
+      fakeRes.status === 400,
+      `imagen: archivo no-imagen con Content-Type falso -> 400 (status: ${fakeRes.status})`
+    )
 
     // Soft delete de producto.
     const del = await asAdmin(`/api/productos/${refresco.id}`, 'DELETE')
@@ -513,12 +627,29 @@ async function main(): Promise<void> {
     assert(
       cortes[0].userName === 'cajero' &&
         cortes[0].status === 'CLOSED' &&
-        cortes[0].difference === -10,
+        cortes[0].difference === 15,
       'cortes: nombre del cobrador, estado y diferencia'
     )
     assert(
       (await asCajero('/api/caja/historial')).status === 403,
       'cortes: cobrador no puede ver el historial (403)'
+    )
+    assert(
+      cortes[0].cashOut === 30 && cortes[0].cashIn === 5 && cortes[0].movementCount === 2,
+      `cortes: retiros 30 / ingresos 5 / 2 movimientos (got ${cortes[0].cashOut}/${cortes[0].cashIn}/${cortes[0].movementCount})`
+    )
+    const cortesMovs = (await (
+      await asAdmin(`/api/caja/${cortes[0].id}/movimientos`)
+    ).json()) as CashMovementWithUser[]
+    assert(
+      cortesMovs.length === 2 &&
+        cortesMovs.every((m) => m.userName === 'cajero' && m.reason.length >= 2) &&
+        cortesMovs.some((m) => m.type === 'OUT' && m.amount === 30),
+      'cortes: detalle de movimientos con monto, motivo y quién'
+    )
+    assert(
+      (await asCajero(`/api/caja/${cortes[0].id}/movimientos`)).status === 403,
+      'cortes: el cobrador no puede ver el detalle de otro turno (403)'
     )
 
     // ---- Sprint 6: reportes + exportación Excel/PDF (ADMIN) ----
@@ -611,6 +742,140 @@ async function main(): Promise<void> {
       (await fetch(`${base}/uploads/${cfg2.logo_path}`)).status === 200,
       'config: el logo se sirve en /uploads/'
     )
+    // Marca pública (barra superior / login): sin token, refleja nombre y logo.
+    const marca = (await (await fetch(`${base}/api/marca`)).json()) as BrandingResponse
+    assert(
+      marca.businessName === cfg2.business_name && marca.logoPath === cfg2.logo_path,
+      'marca: /api/marca es pública y trae el nombre y el logo del negocio'
+    )
+
+    // ---- Sistema: respaldos, carpetas del servidor e impresora (ADMIN) ----
+    assert((await asCajero('/api/admin/respaldos')).status === 403, 'respaldos: cobrador -> 403')
+    const bstatus = (await (await asAdmin('/api/admin/respaldos')).json()) as BackupStatus
+    assert(
+      bstatus.engine === (PG ? 'pg' : 'sqlite') && bstatus.isDefaultDir,
+      `respaldos: estado (motor ${bstatus.engine}, carpeta por defecto)`
+    )
+    const bdir = join(dir, 'respaldos-elegidos')
+    const probe = (await (
+      await asAdmin('/api/admin/carpetas/probar', 'POST', { path: bdir })
+    ).json()) as { ok: boolean }
+    assert(probe.ok && existsSync(bdir), 'carpetas: probar crea la carpeta y confirma escritura')
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      const denied = (await (
+        await asAdmin('/api/admin/carpetas/probar', 'POST', { path: '/root/pos-no' })
+      ).json()) as { ok: boolean; error?: string }
+      assert(!denied.ok && !!denied.error, 'carpetas: carpeta sin permiso -> ok:false con motivo')
+    }
+    const listing = (await (
+      await asAdmin(`/api/admin/carpetas?path=${encodeURIComponent(dir)}`)
+    ).json()) as FolderListing
+    assert(
+      listing.dirs.some((d) => d.name === 'respaldos-elegidos') && listing.parent !== null,
+      'carpetas: lista subcarpetas (sin archivos) y permite subir'
+    )
+    assert(
+      (await asAdmin('/api/admin/carpetas?path=relativa')).status === 400,
+      'carpetas: ruta relativa -> 400'
+    )
+    const mk = await asAdmin('/api/admin/carpetas', 'POST', { parent: bdir, name: 'Nueva' })
+    assert(
+      mk.status === 201 && existsSync(join(bdir, 'Nueva')),
+      'carpetas: crear subcarpeta -> 201'
+    )
+    const badName = await asAdmin('/api/admin/carpetas', 'POST', { parent: bdir, name: '../x' })
+    assert(badName.status === 400, 'carpetas: nombre con "/" o ".." -> 400')
+
+    await asAdmin('/api/config', 'PUT', { backup_dir: bdir })
+    const run = (await (await asAdmin('/api/admin/respaldos', 'POST')).json()) as BackupRunResponse
+    if (PGLITE) {
+      assert(run.ok && !!run.skipped, 'respaldo manual: omitido con PGlite')
+    } else {
+      assert(
+        run.ok && !!run.file && existsSync(join(bdir, run.file.name)) && run.file.sizeBytes > 0,
+        `respaldo manual: archivo en la carpeta elegida (${run.file?.name ?? run.error})`
+      )
+      const after = (await (await asAdmin('/api/admin/respaldos')).json()) as BackupStatus
+      assert(
+        after.dir === bdir && !after.isDefaultDir && after.backups[0]?.name === run.file?.name,
+        'respaldos: el estado muestra la carpeta elegida y el último respaldo'
+      )
+    }
+    await asAdmin('/api/config', 'PUT', { backup_dir: '' })
+
+    const printers = (await (
+      await asAdmin('/api/admin/impresoras')
+    ).json()) as SystemPrintersResponse
+    assert(
+      printers.supported === (process.platform === 'win32'),
+      'impresoras: lista de Windows sólo si el servidor corre en Windows'
+    )
+    // Impresora de red falsa: un socket TCP que junta lo que llega.
+    const received: Buffer[] = []
+    const fakePrinter = createServer((sock) => sock.on('data', (d) => received.push(d)))
+    await new Promise<void>((r) => fakePrinter.listen(0, '127.0.0.1', r))
+    const fakePort = (fakePrinter.address() as AddressInfo).port
+    const printed = (await (
+      await asAdmin('/api/admin/impresora/prueba', 'POST', {
+        interface: `tcp://127.0.0.1:${fakePort}`
+      })
+    ).json()) as { printed: boolean; error?: string }
+    await new Promise((r) => setTimeout(r, 200))
+    const bytes = Buffer.concat(received).toString('latin1')
+    assert(
+      printed.printed && bytes.includes('PRUEBA DE IMPRESION'),
+      `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
+    )
+
+    // Activada y con conexión: reimprimir llega a la impresora.
+    await asAdmin('/api/config', 'PUT', {
+      printer_enabled: '1',
+      printer_interface: `tcp://127.0.0.1:${fakePort}`
+    })
+    received.length = 0
+    const reprintOk = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
+    await new Promise((r) => setTimeout(r, 200))
+    assert(
+      reprintOk.status === 200 &&
+        Buffer.concat(received).toString('latin1').includes(`Ticket #${sale1.ticketNumber}`),
+      `impresora activada: reimprimir llega a la impresora (status ${reprintOk.status})`
+    )
+    // Apagarla conserva la conexión (para volver a activarla tal cual).
+    const off = (await (
+      await asAdmin('/api/config', 'PUT', { printer_enabled: '0' })
+    ).json()) as ConfigResponse
+    assert(
+      off.printer_enabled === '0' && off.printer_interface === `tcp://127.0.0.1:${fakePort}`,
+      'impresora: desactivarla conserva la conexión configurada'
+    )
+    assert(
+      (await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')).status === 409,
+      'impresora desactivada: reimprimir -> 409'
+    )
+    // Activada pero sin elegir impresora: eso sí es un error que hay que avisar.
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '1', printer_interface: '' })
+    const missing = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
+    assert(
+      missing.status === 502,
+      `impresora activada sin elegir -> 502 (status ${missing.status})`
+    )
+    fakePrinter.close()
+
+    // Actualización desde una versión sin printer_enabled: si ya había impresora cargada,
+    // el seed la deja activada (no en el '0' por defecto).
+    await asAdmin('/api/config', 'PUT', { printer_interface: 'tcp://10.0.0.9:9100' })
+    await db.delete(config).where(eq(config.key, 'printer_enabled'))
+    await runSeed(db)
+    const migrated = (await (await asAdmin('/api/config')).json()) as ConfigResponse
+    assert(
+      migrated.printer_enabled === '1',
+      'seed: instalación previa con impresora -> printer_enabled=1'
+    )
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
+    const noPrinter = (await (
+      await asAdmin('/api/admin/impresora/prueba', 'POST', { interface: '' })
+    ).json()) as { printed: boolean }
+    assert(!noPrinter.printed, 'impresora: prueba sin impresora elegida -> printed:false')
 
     const dash = (await (await asAdmin('/api/dashboard')).json()) as {
       totalTransactions: number
@@ -743,6 +1008,198 @@ async function main(): Promise<void> {
     assert(
       (await asCajero('/api/clientes/' + juan.id, 'DELETE')).status === 403,
       'clientes: el cobrador no puede desactivar (403)'
+    )
+
+    // ---- Edición de precio en el momento de la venta (descuento a cliente) ----
+    const ventaDescuento = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 20 }],
+      paymentMethod: 'CASH',
+      amountPaid: 20
+    })
+    assert(
+      ventaDescuento.status === 201,
+      `venta con precio editado -> 201 (status: ${ventaDescuento.status})`
+    )
+    const saleDescuento = (await ventaDescuento.json()) as CreateSaleResponse
+    assert(
+      saleDescuento.total === 20 &&
+        saleDescuento.items[0].price === 20 &&
+        saleDescuento.items[0].originalPrice === 25 &&
+        saleDescuento.items[0].subtotal === 20,
+      `venta con precio editado: cobra $20, guarda precio original $25 (got ${JSON.stringify(saleDescuento.items[0])})`
+    )
+
+    const ventaSinEditar = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleSinEditar = (await ventaSinEditar.json()) as CreateSaleResponse
+    assert(
+      saleSinEditar.items[0].originalPrice === null,
+      'venta sin editar: originalPrice queda en null'
+    )
+
+    const ventaPrecioInvalido = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 0 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    assert(
+      ventaPrecioInvalido.status === 400,
+      `venta con precio editado inválido (0) -> 400 (status: ${ventaPrecioInvalido.status})`
+    )
+
+    const ventaPrecioArriba = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 999 }],
+      paymentMethod: 'CASH',
+      amountPaid: 999
+    })
+    assert(
+      ventaPrecioArriba.status === 400,
+      `venta con precio editado por encima del catálogo -> 400 (status: ${ventaPrecioArriba.status})`
+    )
+
+    // ---- Tope de descuento por línea (config del negocio) ----
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '10' })
+    const ventaDescuentoGrande = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 20 }], // catálogo 25 → 20% descuento
+      paymentMethod: 'CASH',
+      amountPaid: 20
+    })
+    assert(
+      ventaDescuentoGrande.status === 400,
+      `venta con descuento > máximo permitido -> 400 (status: ${ventaDescuentoGrande.status})`
+    )
+    const ventaDescuentoOk = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, price: 23 }], // 8% descuento, dentro del 10%
+      paymentMethod: 'CASH',
+      amountPaid: 23
+    })
+    assert(
+      ventaDescuentoOk.status === 201,
+      `venta con descuento dentro del máximo -> 201 (status: ${ventaDescuentoOk.status})`
+    )
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '100' })
+
+    // ---- Importes grandes / centavos: sin deriva de coma flotante ----
+    const costalRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Costal de papa',
+      price: 249.99,
+      categoryId: null
+    })
+    const costal = (await costalRes.json()) as ProductWithCategory
+    assert(
+      costal.price === 249.99,
+      `producto $249.99 se guarda y devuelve exacto (got ${costal.price})`
+    )
+    const ventaCostal = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: costal.id, quantity: 37 }],
+      paymentMethod: 'CASH',
+      amountPaid: 9250
+    })
+    const saleCostal = (await ventaCostal.json()) as CreateSaleResponse
+    assert(
+      saleCostal.total === 9249.63 && saleCostal.change === 0.37,
+      `venta 37 × $249.99 = $9249.63 exacto, cambio $0.37 (got ${saleCostal.total}/${saleCostal.change})`
+    )
+
+    // ---- Idempotencia: el mismo clientRequestId no crea dos ventas ----
+    const idemBody = {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH' as const,
+      amountPaid: 25,
+      clientRequestId: 'test-req-' + Date.now()
+    }
+    const idem1 = await asCajero('/api/ventas', 'POST', idemBody)
+    const idem2 = await asCajero('/api/ventas', 'POST', idemBody)
+    const s1 = (await idem1.json()) as CreateSaleResponse
+    const s2 = (await idem2.json()) as CreateSaleResponse & { duplicate?: boolean }
+    assert(
+      idem1.status === 201 && idem2.status === 200 && s1.id === s2.id && s2.duplicate === true,
+      `idempotencia: el reintento devuelve la misma venta (${s1.id}/${s2.id}, dup=${s2.duplicate})`
+    )
+
+    // ---- Productos por peso (KG) — cantidades fraccionarias en gramos ----
+    const papaRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Papa',
+      price: 12,
+      unit: 'KG',
+      categoryId: null
+    })
+    assert(papaRes.status === 201, `crear producto por kg -> 201 (status: ${papaRes.status})`)
+    const papa = (await papaRes.json()) as ProductWithCategory
+    assert(papa.unit === 'KG', 'producto: unit KG se guarda')
+
+    const ventaPapa = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: papa.id, quantity: 0.35 }],
+      paymentMethod: 'CASH',
+      amountPaid: 5
+    })
+    assert(ventaPapa.status === 201, `venta por peso (350g) -> 201 (status: ${ventaPapa.status})`)
+    const salePapa = (await ventaPapa.json()) as CreateSaleResponse
+    assert(
+      salePapa.items[0].unit === 'KG' &&
+        salePapa.items[0].quantity === 0.35 &&
+        salePapa.items[0].subtotal === 4.2,
+      `venta por peso: 0.35 kg × $12 = $4.20 (got ${JSON.stringify(salePapa.items[0])})`
+    )
+
+    const ventaPapaEntera = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1.5 }],
+      paymentMethod: 'CASH',
+      amountPaid: 40
+    })
+    assert(
+      ventaPapaEntera.status === 400,
+      `venta con cantidad fraccionaria para producto por pieza -> 400 (status: ${ventaPapaEntera.status})`
+    )
+
+    // ---- Cliente asociado a cualquier venta (no sólo fiado) ----
+    const ventaConCliente = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25,
+      customerId: juan.id
+    })
+    assert(
+      ventaConCliente.status === 201,
+      `venta en efectivo con cliente -> 201 (status: ${ventaConCliente.status})`
+    )
+    const saleConCliente = (await ventaConCliente.json()) as CreateSaleResponse
+    assert(
+      saleConCliente.customerId === juan.id && saleConCliente.customerName === 'Juan Pérez',
+      `venta: guarda cliente y resuelve su nombre (got ${saleConCliente.customerId}/${saleConCliente.customerName})`
+    )
+
+    const ventaSinCliente = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleSinCliente = (await ventaSinCliente.json()) as CreateSaleResponse
+    assert(
+      saleSinCliente.customerId === null && saleSinCliente.customerName === null,
+      'venta: sin cliente, customerId/customerName quedan en null'
+    )
+
+    const ventaClienteInvalido = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 25,
+      customerId: 999999
+    })
+    assert(
+      ventaClienteInvalido.status === 400,
+      `venta con cliente inexistente -> 400 (status: ${ventaClienteInvalido.status})`
+    )
+
+    const ventasConClienteHist = (await (
+      await asAdmin(`/api/ventas?userId=${cajeroToken.user.id}`)
+    ).json()) as SalesPage
+    assert(
+      ventasConClienteHist.rows.some((r) => r.customerName === 'Juan Pérez'),
+      'historial de ventas: expone customerName cuando la venta tiene cliente'
     )
 
     console.log(

@@ -11,6 +11,8 @@ export type PaymentMethod = SettledMethod | 'CREDIT'
 export type CashSessionStatus = 'OPEN' | 'CLOSED'
 export type CreditAccountStatus = 'OPEN' | 'PAID'
 export type LicenseStatus = 'ACTIVE' | 'REVOKED'
+/** PIEZA = cantidad entera. KG = se vende por peso; la cantidad admite decimales (kg). */
+export type ProductUnit = 'PIEZA' | 'KG'
 
 export interface AuthUser {
   id: number
@@ -33,6 +35,7 @@ export interface Product {
   id: number
   name: string
   price: number
+  unit: ProductUnit
   categoryId: number | null
   imagePath: string | null
   active: number
@@ -61,6 +64,8 @@ export interface Sale {
   amountPaid: number | null
   change: number | null
   ticketNumber: number
+  /** Cliente que compró (opcional salvo en CREDIT, donde es obligatorio). */
+  customerId: number | null
   createdAt: number
 }
 
@@ -70,6 +75,10 @@ export interface SaleItem {
   productId: number
   name: string
   price: number
+  /** Precio de catálogo al momento de la venta, sólo si el cajero lo editó (null = no se tocó). */
+  originalPrice: number | null
+  /** Snapshot de `products.unit` — define si `quantity` son piezas enteras o kg (decimal). */
+  unit: ProductUnit
   quantity: number
   subtotal: number
 }
@@ -94,14 +103,20 @@ export interface CategoryInput {
 export interface ProductInput {
   name: string
   price: number
+  /** Default 'PIEZA' si se omite. */
+  unit?: ProductUnit
   categoryId: number | null
   active?: boolean
 }
 
-/** Línea del carrito que el cliente envía. El precio SIEMPRE lo pone el servidor. */
+/** Línea del carrito que el cliente envía. */
 export interface CartLineInput {
   productId: number
+  /** Piezas enteras si el producto es PIEZA; kg (con decimales) si es KG. */
   quantity: number
+  /** Precio editado por el cajero para esta línea (ej. descuento a un cliente frecuente). Si se
+   *  omite, o coincide con el precio de catálogo, se usa el precio de catálogo tal cual. */
+  price?: number
 }
 
 /** Cuerpo de `POST /api/ventas`. */
@@ -110,8 +125,10 @@ export interface CreateSaleInput {
   paymentMethod: PaymentMethod
   /** CASH: efectivo recibido (>= total). CREDIT: abono inicial en efectivo (0..total). */
   amountPaid?: number
-  /** Requerido cuando `paymentMethod === 'CREDIT'` — a quién se le fía. */
+  /** A quién se le vendió. Opcional en CASH/CARD/TRANSFER; requerido en CREDIT (a quién se le fía). */
   customerId?: number
+  /** Token único del intento de cobro — el servidor deduplica reintentos (doble submit / timeout). */
+  clientRequestId?: string
 }
 
 /** Cuerpo de `POST /api/caja/apertura`. */
@@ -128,12 +145,66 @@ export interface CloseCashSessionInput {
 export interface SaleWithItems extends Sale {
   items: SaleItem[]
   userName: string
+  customerName: string | null
 }
 
 /** Resultado de intentar imprimir un ticket. Nunca hace fallar la venta. */
 export interface PrintResult {
   printed: boolean
   error?: string
+  /** El negocio no usa impresora (desactivada en Configuración): no es un error. */
+  skipped?: boolean
+}
+
+/** Impresora instalada en Windows en la PC del servidor (`GET /api/admin/impresoras`). */
+export interface SystemPrinter {
+  name: string
+  driver: string
+  port: string
+}
+
+export interface SystemPrintersResponse {
+  /** false si el servidor no corre en Windows (no hay lista que mostrar). */
+  supported: boolean
+  printers: SystemPrinter[]
+  error?: string
+}
+
+/** Un respaldo en la carpeta de respaldos. */
+export interface BackupFileInfo {
+  name: string
+  sizeBytes: number
+  /** epoch en segundos */
+  createdAt: number
+}
+
+/** `GET /api/admin/respaldos` */
+export interface BackupStatus {
+  /** Carpeta efectiva (la configurada o la de datos por defecto). */
+  dir: string
+  isDefaultDir: boolean
+  engine: 'sqlite' | 'pg'
+  /** Si el motor no admite respaldo desde la app (PGlite de pruebas). */
+  unsupported?: string
+  backups: BackupFileInfo[]
+  /** Último intento (incluye fallidos) desde que arrancó el servidor. */
+  lastAttempt: { at: number; ok: boolean; error?: string } | null
+}
+
+/** `POST /api/admin/respaldos` */
+export interface BackupRunResponse {
+  ok: boolean
+  error?: string
+  file?: BackupFileInfo
+  skipped?: string
+}
+
+/** `GET /api/admin/carpetas?path=` — navegador de carpetas del servidor. */
+export interface FolderListing {
+  /** null = lista de unidades/raíces. */
+  path: string | null
+  parent: string | null
+  dirs: { name: string; path: string }[]
 }
 
 /** Respuesta de `POST /api/ventas` — la venta más el estado de impresión. */
@@ -141,6 +212,8 @@ export interface CreateSaleResponse extends SaleWithItems {
   print: PrintResult
   /** Si la venta fue a crédito, la cuenta por cobrar que se abrió. */
   creditAccountId?: number
+  /** true si el servidor devolvió una venta ya existente (reintento deduplicado). */
+  duplicate?: boolean
 }
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */
@@ -249,6 +322,7 @@ export interface SaleListItem {
   paymentMethod: PaymentMethod
   amountPaid: number | null
   change: number | null
+  customerName: string | null
   itemCount: number
   createdAt: number
 }
@@ -272,6 +346,10 @@ export interface SalesPage {
 /** Fila del historial de cortes de caja. */
 export interface CashSessionListItem extends CashSession {
   userName: string
+  /** Totales de ingresos / retiros de efectivo del turno. */
+  cashIn: number
+  cashOut: number
+  movementCount: number
 }
 
 export interface CashHistoryQuery {
@@ -326,11 +404,24 @@ export interface ConfigResponse {
   logo_path: string
   ticket_footer: string
   currency_symbol: string
+  /** Minutos respecto de UTC para "hoy" y los tramos de reportes. Vacío = huso del servidor. */
+  business_utc_offset: string
+  /** Descuento máximo (%) que el cobrador puede aplicar al editar un precio. '100' = sin límite. */
+  max_line_discount_pct: string
+  /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
+  printer_enabled: string
   printer_interface: string
   backup_dir: string
 }
 
 export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path'>>
+
+/** `GET /api/marca` (pública): lo que se muestra del negocio en la barra y el login. */
+export interface BrandingResponse {
+  businessName: string
+  /** Relativo a /uploads/ ('' = sin logo). */
+  logoPath: string
+}
 
 export interface OpenSessionInfo {
   cashSessionId: number
@@ -363,11 +454,41 @@ export interface CashSessionSummary {
   totalCredit: number
   /** Abonos a cuentas anteriores recibidos en el turno (en efectivo). */
   abonosCash: number
+  /** Ingresos manuales de efectivo a la caja durante el turno. */
+  cashIn: number
+  /** Retiros manuales de efectivo de la caja durante el turno (gastos, depósitos). */
+  cashOut: number
   /**
    * Efectivo esperado en caja:
-   * apertura + ventas en efectivo + abonos iniciales de ventas fiadas + abonos en efectivo.
+   * apertura + ventas en efectivo + abonos iniciales de ventas fiadas + abonos en
+   * efectivo + ingresos manuales − retiros manuales.
    */
   expectedCash: number
+}
+
+export type CashMovementType = 'IN' | 'OUT'
+
+export interface CashMovement {
+  id: number
+  cashSessionId: number
+  userId: number
+  type: CashMovementType
+  /** Monto (siempre positivo). */
+  amount: number
+  reason: string
+  createdAt: number
+}
+
+/** Movimiento con el nombre de quien lo registró (detalle de cortes en el admin). */
+export interface CashMovementWithUser extends CashMovement {
+  userName: string
+}
+
+/** Cuerpo de `POST /api/caja/movimiento`. */
+export interface CashMovementInput {
+  type: CashMovementType
+  amount: number
+  reason: string
 }
 
 export interface BusinessConfig {

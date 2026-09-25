@@ -1,4 +1,9 @@
-import type { CashSession, CashSessionSummary } from '@shared/types'
+import type {
+  CashMovement,
+  CashMovementInput,
+  CashSession,
+  CashSessionSummary
+} from '@shared/types'
 import { api } from './client'
 
 export function getSesionActiva(): Promise<CashSession | null> {
@@ -21,4 +26,12 @@ export interface CloseResponse {
 
 export function cerrarCaja(closingAmount: number): Promise<CloseResponse> {
   return api.post<CloseResponse>('/api/caja/cierre', { closingAmount })
+}
+
+export function getMovimientos(): Promise<CashMovement[]> {
+  return api.get<CashMovement[]>('/api/caja/movimientos')
+}
+
+export function registrarMovimiento(input: CashMovementInput): Promise<CashMovement> {
+  return api.post<CashMovement>('/api/caja/movimiento', input)
 }

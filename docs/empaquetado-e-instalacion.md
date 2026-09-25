@@ -5,14 +5,23 @@
 El instalador NSIS **debe generarse en Windows** (o en CI de Windows). electron-builder
 no puede crear el `.exe` desde Linux/macOS sin Wine.
 
-En un equipo Windows 10/11 x64 con Node 20+ y pnpm:
+En un equipo Windows 10/11 x64 con Node **22** y pnpm:
 
 ```powershell
 pnpm install
-pnpm build:win        # = pnpm build && electron-builder --win
+pnpm build:win        # = pnpm build + electron-builder --win
 ```
 
+No hace falta ningún secreto para compilar: el `.exe` sólo lleva la clave **pública** de
+licencias (`PRODUCTION_PUBLIC_KEY` en `src/main/services/license.ts`), que no permite
+fabricar claves. La privada nunca sale de la máquina del proveedor.
+
 Salida: `dist-electron/pos-spartan-tech-<versión>-setup.exe`
+
+> El `.exe` **no está firmado con certificado** (decisión de coste para negocios chicos):
+> SmartScreen mostrará una advertencia la primera vez. "Más información" → "Ejecutar de
+> todas formas". Publicar el hash SHA-256 del `.exe` junto al instalador para que el cliente
+> pueda verificarlo.
 
 Validación multiplataforma (sin generar el `.exe`, sirve para revisar el empaquetado):
 
@@ -31,8 +40,8 @@ el binario nativo de `better-sqlite3` (`asarUnpack` de `**/*.node`) y ejecuta el
 3. Al primer arranque la app crea la base de datos en
    `%APPDATA%\pos-spartan-tech\pos.db` y muestra la **pantalla de activación**.
 4. Copiar el **ID del equipo** que muestra la pantalla y generar la clave con
-   `pnpm license:gen <ID>` (en el equipo del proveedor, con el mismo `POS_VENDOR_SECRET`
-   que la app empaquetada — se fija con la variable de entorno al hacer `build:win`).
+   `pnpm license:gen <ID>` en el equipo del proveedor (firma con la clave privada de
+   `~/.config/spartan-pos/license-private.pem`).
 5. Pegar la clave y activar. Entrar con `admin / admin123` y cambiar la contraseña
    desde **Admin → Usuarios**.
 6. En **Admin → Configuración**: nombre del negocio, logo, pie de ticket, símbolo de

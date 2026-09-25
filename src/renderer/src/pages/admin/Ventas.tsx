@@ -134,6 +134,7 @@ export default function Ventas(): React.JSX.Element {
               <th className="px-3 py-2">Fecha</th>
               <th className="px-3 py-2">Folio</th>
               <th className="px-3 py-2">Cobrador</th>
+              <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Método</th>
               <th className="px-3 py-2 text-right">Art.</th>
               <th className="px-3 py-2 text-right">Total</th>
@@ -142,13 +143,13 @@ export default function Ventas(): React.JSX.Element {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
                   Cargando…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
                   Sin ventas para estos filtros.
                 </td>
               </tr>
@@ -162,6 +163,7 @@ export default function Ventas(): React.JSX.Element {
                   <td className="px-3 py-2 text-muted-foreground">{dateTime(row.createdAt)}</td>
                   <td className="px-3 py-2">#{row.ticketNumber}</td>
                   <td className="px-3 py-2">{row.userName}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{row.customerName ?? '—'}</td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {paymentLabel(row.paymentMethod)}
                   </td>

@@ -10,6 +10,7 @@ import { licenseRoutes } from './license'
 import { pingRoutes } from './ping'
 import { productosRoutes } from './productos'
 import { reportesRoutes } from './reportes'
+import { sistemaRoutes } from './sistema'
 import { usuariosRoutes } from './usuarios'
 import { ventasRoutes } from './ventas'
 
@@ -28,4 +29,5 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(reportesRoutes)
   await app.register(configRoutes)
   await app.register(dashboardRoutes)
+  await app.register(sistemaRoutes)
 }

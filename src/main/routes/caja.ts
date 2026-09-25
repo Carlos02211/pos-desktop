@@ -1,18 +1,21 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { DIALECT, getDb } from '../db'
+import { getDb } from '../db'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
-import { backupDatabase } from '../services/backup'
+import { resolveBackupJob, runBackup } from '../services/backup'
 import {
+  addCashMovement,
   closeSession,
   getActiveSession,
   getSessionSummary,
+  listSessionMovements,
+  listMovementsForSession,
   listSessions,
-  openSession
+  openSession,
+  sessionToApi
 } from '../services/caja'
-import { getConfigMap } from '../services/config'
 
 const openSchema = z.object({
   openingAmount: z.number().nonnegative().max(1_000_000)
@@ -20,6 +23,12 @@ const openSchema = z.object({
 
 const closeSchema = z.object({
   closingAmount: z.number().nonnegative().max(1_000_000)
+})
+
+const movementSchema = z.object({
+  type: z.enum(['IN', 'OUT']),
+  amount: z.number().positive().max(1_000_000),
+  reason: z.string().min(2).max(120)
 })
 
 const historyQuerySchema = z.object({
@@ -30,11 +39,32 @@ const historyQuerySchema = z.object({
 
 export async function cajaRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/caja/sesion-activa', { preHandler: requireRole('COBRADOR') }, async (request) => {
-    return (await getActiveSession(getDb(), request.authUser!.id)) ?? null
+    const s = await getActiveSession(getDb(), request.authUser!.id)
+    return s ? sessionToApi(s) : null
   })
 
   app.get('/api/caja/resumen', { preHandler: requireRole('COBRADOR') }, async (request) => {
     return getSessionSummary(getDb(), request.authUser!.id)
+  })
+
+  app.get('/api/caja/movimientos', { preHandler: requireRole('COBRADOR') }, async (request) => {
+    return listSessionMovements(getDb(), request.authUser!.id)
+  })
+
+  app.post(
+    '/api/caja/movimiento',
+    { preHandler: requireRole('COBRADOR') },
+    async (request, reply) => {
+      const body = parse(movementSchema, request.body)
+      const movement = await addCashMovement(getDb(), request.authUser!.id, body)
+      return reply.code(201).send(movement)
+    }
+  )
+
+  // Retiros / ingresos de un turno (detalle del corte en el panel de administración).
+  app.get('/api/caja/:id/movimientos', { preHandler: requireRole('ADMIN') }, async (request) => {
+    const { id } = parse(z.object({ id: z.coerce.number().int().positive() }), request.params)
+    return listMovementsForSession(getDb(), id)
   })
 
   // Historial de cortes de caja (panel de administración).
@@ -53,7 +83,7 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
         userId: request.authUser!.id,
         openingAmount
       })
-      return reply.code(201).send(session)
+      return reply.code(201).send(sessionToApi(session))
     }
   )
 
@@ -62,16 +92,10 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb()
     const result = await closeSession(db, request.authUser!.id, closingAmount)
 
-    // El respaldo se ejecuta SIEMPRE al cerrar caja (no es opcional).
-    // En PostgreSQL (Fase 2) el respaldo del servidor es responsabilidad de
-    // `pg_dump` en cron; aquí sólo respaldamos el archivo SQLite.
-    const backup =
-      DIALECT === 'sqlite'
-        ? backupDatabase(
-            app.posContext.dbPath,
-            (await getConfigMap(db)).backup_dir?.trim() || app.posContext.backupDir
-          )
-        : { ok: true as const, skipped: 'postgres' }
+    // El respaldo se ejecuta SIEMPRE al cerrar caja (no es opcional): copia del archivo
+    // en SQLite, pg_dump en PostgreSQL. Nunca lanza — un fallo no impide cerrar la caja.
+    const job = await resolveBackupJob(app.posContext)
+    const backup = await runBackup(job.target, job.dir)
     if (!backup.ok) request.log.error({ err: backup.error }, 'respaldo al cerrar caja falló')
 
     emit('caja:cierre', {

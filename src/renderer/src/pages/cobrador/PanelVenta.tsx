@@ -6,6 +6,7 @@ import { getCategorias, getProductos } from '@/api/catalogo'
 import { getSesionActiva } from '@/api/caja'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
+import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
 import { money } from '@/lib/format'
 import { socket } from '@/lib/socket'
@@ -21,8 +22,15 @@ export default function PanelVenta(): React.JSX.Element {
   const [activeCat, setActiveCat] = useState<number | null>(null)
   const [search, setSearch] = useState('')
   const [cobroOpen, setCobroOpen] = useState(false)
+  const [movimientoOpen, setMovimientoOpen] = useState(false)
 
-  const { items, addItem, setQty, removeItem, clear } = useCartStore()
+  // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
+  const items = useCartStore((s) => s.items)
+  const addItem = useCartStore((s) => s.addItem)
+  const setQty = useCartStore((s) => s.setQty)
+  const setPrice = useCartStore((s) => s.setPrice)
+  const removeItem = useCartStore((s) => s.removeItem)
+  const clear = useCartStore((s) => s.clear)
   const total = useMemo(() => cartTotal(items), [items])
 
   const loadCatalog = useCallback(async () => {
@@ -81,7 +89,8 @@ export default function PanelVenta(): React.JSX.Element {
     } else {
       toast.success(`Venta #${sale.ticketNumber} registrada · ${money(sale.total)}`)
     }
-    if (!sale.print.printed) {
+    // Sin impresora activada (decisión del negocio) no se avisa nada: sólo si falló.
+    if (!sale.print.printed && !sale.print.skipped) {
       toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
     }
   }
@@ -156,6 +165,12 @@ export default function PanelVenta(): React.JSX.Element {
               Cuentas
             </button>
             <button
+              onClick={() => setMovimientoOpen(true)}
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+            >
+              Efectivo
+            </button>
+            <button
               onClick={() => navigate('/cobrador/cierre')}
               className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
             >
@@ -171,7 +186,13 @@ export default function PanelVenta(): React.JSX.Element {
             </p>
           ) : (
             items.map((it) => (
-              <CarritoItem key={it.productId} item={it} onQty={setQty} onRemove={removeItem} />
+              <CarritoItem
+                key={it.productId}
+                item={it}
+                onQty={setQty}
+                onPrice={setPrice}
+                onRemove={removeItem}
+              />
             ))
           )}
         </div>
@@ -203,6 +224,7 @@ export default function PanelVenta(): React.JSX.Element {
       {cobroOpen && (
         <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
       )}
+      {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
     </div>
   )
 }
