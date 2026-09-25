@@ -3,6 +3,7 @@ import { mkdirSync } from 'fs'
 import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
 import { initStore } from '../main/lib/store'
+import { startAutoBackup } from '../main/services/backup'
 import { startServer, type RunningServer } from '../main/server'
 import { assertProductionConfig, serverConfig as cfg } from './config'
 
@@ -41,6 +42,9 @@ async function main(): Promise<void> {
     allowedOrigins: cfg.allowedOrigins,
     tls: cfg.tls
   })
+
+  // Respaldo diario automático (además del que se hace en cada cierre de caja).
+  startAutoBackup({ dbPath: cfg.dbPath, backupDir: cfg.backupDir })
 
   console.log(
     `POS SpArTaN Tech — servidor Fase 2 en ${server.url}` +

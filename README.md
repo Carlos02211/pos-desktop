@@ -287,7 +287,7 @@ PC servidor ── pm2 ── node server.cjs :3000
                ├── Fastify + Socket.io + build de React
                └── Drizzle + node-postgres ── PostgreSQL 16 :5432
 
-Tabletas / laptop ── Chrome ── http://192.168.1.10:3000/  (mismo origen para API y WS)
+Tabletas / laptop ── Chrome ── https://<IP-del-servidor>:3000/  (mismo origen para API y WS)
 ```
 
 El swap lo decide `DATABASE_URL`: sin ella, SQLite; con ella, PostgreSQL. Ver

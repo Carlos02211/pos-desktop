@@ -9,7 +9,7 @@
 #
 # PowerShell COMO ADMINISTRADOR, en C:\pos-server:
 #   .\setup-https.ps1                 # usa la IP actual de la PC
-#   .\setup-https.ps1 -Ip 192.168.1.10
+#   .\setup-https.ps1 -Ip <IP>
 #
 # La clave privada de la CA queda en la carpeta de mkcert del usuario que corre esto
 # (mkcert -CAROOT), NO en C:\pos-server: quien la tenga podría emitir certificados en los

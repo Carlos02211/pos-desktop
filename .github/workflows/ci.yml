@@ -53,6 +53,11 @@ jobs:
       - name: verify:backend (SQLite)
         run: pnpm verify:backend
 
+      # El respaldo (cierre de caja y "Respaldar ahora") usa pg_dump: el runner suele
+      # traerlo; si no, se instala el cliente (>= 16, la versión del servidor).
+      - name: Cliente de PostgreSQL (pg_dump)
+        run: pg_dump --version || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
       - name: verify:backend (PostgreSQL real)
         run: pnpm verify:backend
         env:

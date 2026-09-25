@@ -8,16 +8,16 @@ Socket.io **no cambian de contrato**: sólo cambia dónde corre el servidor y co
 qué base de datos. Trabajo estimado: 3–5 días.
 
 ```
-Router (IP fija 192.168.1.10)
+Router (PC servidor con IP fija — ver instalación B7)
 │
 ├── PC servidor (Windows) ── pm2 ── node server.cjs  :3000  (HTTP o HTTPS)
 │                            └── PostgreSQL 16       :5432 (sólo local)
 │                            └── SPA de React servida por el mismo Fastify
 │                            └── impresora térmica XP-80T (USB)
 │
-├── Tableta cobrador 1  → Chrome → http(s)://192.168.1.10:3000/  → /#/cobrador
-├── Tableta cobrador 2  → Chrome → http(s)://192.168.1.10:3000/  → /#/cobrador
-└── Laptop admin        → Chrome → http(s)://192.168.1.10:3000/  → /#/admin
+├── Tableta cobrador 1  → Chrome → https://<IP-del-servidor>:3000/  → /#/cobrador
+├── Tableta cobrador 2  → Chrome → https://<IP-del-servidor>:3000/  → /#/cobrador
+└── Laptop admin        → Chrome → https://<IP-del-servidor>:3000/  → /#/admin
 ```
 
 > **Checklist real probado en VM Windows:** [`docs/fase-2-instalacion-windows.md`](fase-2-instalacion-windows.md)
@@ -206,7 +206,7 @@ Probar: `http://localhost:3000/api/ping` → `{"phase":2,"engine":"postgres","db
 
 ## Día 4 — Red local y TLS
 
-1. **IP fija** para la PC servidor en el router (reserva DHCP), p. ej. `192.168.1.10`.
+1. **IP fija** para la PC servidor (`ip-fija.ps1`; cómo elegirla según el router del proveedor: instalación B7).
 
 2. **Firewall de Windows**: permitir el puerto TCP `3000` entrante (perfil _Privado_).
 
@@ -246,10 +246,9 @@ Probar: `http://localhost:3000/api/ping` → `{"phase":2,"engine":"postgres","db
   sin sesión iniciada no recibe ningún evento. Es transparente: el cliente conecta
   el socket al hacer login.
 - Editar un producto en el admin → el grid del cobrador se refresca solo.
-- **Impresora**: mantenerla USB en el servidor y poner `printer_interface` en
-  Configuración (p. ej. `printer:XP-80T` en Windows), o moverla a red y usar
-  `tcp://192.168.1.50:9100`. Si la impresora no responde, la venta se registra
-  igual y el ticket falla con aviso (timeout de 4 s, no bloquea).
+- **Impresora**: Admin → Configuración → Impresora de tickets (USB en la PC servidor o
+  impresora de red) + "Imprimir hoja de prueba". Ver instalación → B9. Si la impresora no
+  responde, la venta se registra igual y el ticket falla con aviso (no bloquea).
 - **Importes**: verificar un par de cierres de caja con ventas grandes (costales)
   — el efectivo esperado debe cuadrar al centavo.
 
@@ -257,23 +256,10 @@ Probar: `http://localhost:3000/api/ping` → `{"phase":2,"engine":"postgres","db
 
 ## Respaldo de PostgreSQL
 
-En PostgreSQL el cierre de caja ya no copia un archivo. El repo trae
-**`deploy/backup-pg.ps1`** (timestamp ISO, verificación con `pg_restore --list`,
-retención y copia fuera del equipo). Ajustar las 4 variables del principio y
-programarlo. **No usar `%DATE%`** (depende del locale y genera nombres inválidos).
-
-Tarea programada (diaria, 23:30):
-
-```powershell
-$action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\pos-server\backup-pg.ps1"
-$trigger = New-ScheduledTaskTrigger -Daily -At 11:30PM
-Register-ScheduledTask -TaskName "POS backup PostgreSQL" -Action $action -Trigger $trigger `
-  -RunLevel Highest -Description "Respaldo diario de la base del POS"
-```
-
-Probar una **restauración real** una vez por trimestre:
-`pg_restore -U postgres -d pos_test -C pos_YYYYMMDD-HHMMSS.dump`.
+Lo hace **el propio servidor** (`pg_dump`, formato custom, verificado con `pg_restore
+--list`, se conservan los últimos 30): al **cerrar cada caja** y **una vez al día**
+automáticamente. La carpeta se elige en Admin → Configuración → Respaldos. Ya no hace
+falta tarea programada. Detalle y restauración: instalación → B8.
 
 ---
 

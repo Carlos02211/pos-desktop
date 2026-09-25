@@ -6,13 +6,14 @@
 # Por defecto propone la configuración ACTUAL (la que dio el DHCP) como fija. Antes de
 # confirmar, asegurate de que esa IP no la vaya a repartir el router a otro equipo:
 #   - o reservala en el router para esta PC (reserva DHCP por MAC),
-#   - o elegí una IP FUERA del rango DHCP del router (-Ip 192.168.1.10).
+#   - o elegí una IP FUERA del rango DHCP del router (-Ip <IP>).
+#   El rango depende del proveedor/router: ver la guía de instalación, B7.
 #
 # PowerShell COMO ADMINISTRADOR, en la consola de la PC (no por escritorio remoto: si algo
 # sale mal se pierde la conexión):
 #   .\ip-fija.ps1                          # usa la IP/puerta de enlace/DNS actuales
-#   .\ip-fija.ps1 -Ip 192.168.1.10         # otra IP (misma red)
-#   .\ip-fija.ps1 -Dns 1.1.1.1,8.8.8.8     # otros DNS
+#   .\ip-fija.ps1 -Ip <IP>                 # otra IP (misma red, fuera del rango DHCP)
+#   .\ip-fija.ps1 -Dns <DNS1>,<DNS2>       # otros DNS
 #   .\ip-fija.ps1 -VolverADhcp             # deshace: vuelve a IP automática
 #
 # Después de cambiarla: si ya había HTTPS, correr de nuevo .\setup-https.ps1 (el

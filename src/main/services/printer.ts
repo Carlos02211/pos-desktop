@@ -1,6 +1,14 @@
+import { execFile } from 'child_process'
+import { randomUUID } from 'crypto'
+import { unlink, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { promisify } from 'util'
 import { CharacterSet, PrinterTypes, ThermalPrinter } from 'node-thermal-printer'
-import type { PrintResult, SaleWithItems } from '../../shared/types'
+import type { PrintResult, SaleWithItems, SystemPrinter } from '../../shared/types'
 import type { ConfigMap } from './config'
+
+const execFileAsync = promisify(execFile)
 
 /**
  * Impresión de tickets ESC/POS (Xprinter XP-80T, emulación Epson).
@@ -13,6 +21,183 @@ import type { ConfigMap } from './config'
 /** Tope de tiempo para hablar con la impresora — una impresora muerta no puede
  *  colgar la respuesta de la venta más de esto. */
 const PRINTER_TIMEOUT_MS = 4000
+/** Por la cola de Windows hay que levantar PowerShell y compilar el helper: más lento. */
+const SPOOLER_TIMEOUT_MS = 20_000
+
+/**
+ * Formatos de `config.printer_interface`:
+ *  - `tcp://<ip>:<puerto>`  impresora de red (Ethernet/WiFi), puerto RAW (normalmente 9100)
+ *  - `windows:<nombre>`     impresora instalada en Windows (USB) en la PC del servidor: se
+ *                           manda el ESC/POS en crudo a la cola de impresión (winspool)
+ *  - cualquier otra cosa    ruta de archivo/dispositivo (p. ej. `/dev/usb/lp0`, `COM3`)
+ */
+const WINDOWS_PREFIX = 'windows:'
+
+/**
+ * Envío RAW a la cola de impresión de Windows sin módulos nativos: PowerShell compila un
+ * helper mínimo sobre winspool.drv. Sirve también cuando el servidor corre como servicio
+ * ("Servicio local"), que no puede usar impresoras compartidas por red (\\localhost\…).
+ * Nombre y archivo van por variables de entorno: nada del usuario se interpola en el script.
+ */
+const RAW_PRINT_PS = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class PosRawPrinter {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public class DOCINFO {
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDataType;
+  }
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool OpenPrinter(string name, out IntPtr handle, IntPtr defaults);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool ClosePrinter(IntPtr h);
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern int StartDocPrinter(IntPtr h, int level, [In] DOCINFO di);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool EndDocPrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool StartPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool EndPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)]
+  static extern bool WritePrinter(IntPtr h, byte[] data, int count, out int written);
+  static Exception Fail() { return new Win32Exception(Marshal.GetLastWin32Error()); }
+  public static void Send(string printer, byte[] data) {
+    IntPtr h;
+    if (!OpenPrinter(printer, out h, IntPtr.Zero)) throw Fail();
+    try {
+      DOCINFO di = new DOCINFO();
+      di.pDocName = "Ticket POS";
+      di.pDataType = "RAW";
+      if (StartDocPrinter(h, 1, di) == 0) throw Fail();
+      try {
+        if (!StartPagePrinter(h)) throw Fail();
+        int written;
+        if (!WritePrinter(h, data, data.Length, out written) || written != data.Length) throw Fail();
+        EndPagePrinter(h);
+      } finally { EndDocPrinter(h); }
+    } finally { ClosePrinter(h); }
+  }
+}
+'@
+[PosRawPrinter]::Send($env:POS_PRINTER_NAME, [IO.File]::ReadAllBytes($env:POS_PRINTER_FILE))
+`
+
+function encodePs(script: string): string {
+  return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+async function sendToWindowsSpooler(printerName: string, data: Buffer): Promise<void> {
+  if (process.platform !== 'win32') {
+    throw new Error('Las impresoras de Windows sólo funcionan con el servidor en Windows.')
+  }
+  const file = join(tmpdir(), `pos-ticket-${randomUUID()}.bin`)
+  await writeFile(file, data)
+  try {
+    await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePs(RAW_PRINT_PS)],
+      {
+        timeout: SPOOLER_TIMEOUT_MS,
+        windowsHide: true,
+        env: { ...process.env, POS_PRINTER_NAME: printerName, POS_PRINTER_FILE: file }
+      }
+    )
+  } catch (err) {
+    const stderr = String((err as { stderr?: string }).stderr ?? '')
+    // PowerShell envuelve la excepción: quedarse con el mensaje de Windows.
+    const msg = /Exception[^:]*:\s*"?([^"\r\n]+)/.exec(stderr)?.[1] ?? stderr.split('\n')[0]
+    throw new Error(`Windows no pudo imprimir en "${printerName}": ${msg.trim() || 'error'}`)
+  } finally {
+    await unlink(file).catch(() => {})
+  }
+}
+
+/** Interfaz propia para node-thermal-printer (acepta un objeto con estos dos métodos). */
+function windowsSpoolerInterface(printerName: string): object {
+  return {
+    isPrinterConnected: async () => true, // el error real lo da la cola al imprimir
+    execute: async (buffer: Buffer) => sendToWindowsSpooler(printerName, buffer)
+  }
+}
+
+function createPrinter(iface: string): { printer: ThermalPrinter; timeoutMs: number } {
+  const windows = iface.startsWith(WINDOWS_PREFIX)
+  const printer = new ThermalPrinter({
+    type: PrinterTypes.EPSON,
+    // La librería acepta un objeto-interfaz; sus tipos sólo declaran string.
+    interface: (windows
+      ? windowsSpoolerInterface(iface.slice(WINDOWS_PREFIX.length))
+      : iface) as unknown as string,
+    characterSet: CharacterSet.PC858_EURO,
+    removeSpecialCharacters: false,
+    lineCharacter: '-',
+    options: { timeout: PRINTER_TIMEOUT_MS }
+  })
+  return { printer, timeoutMs: windows ? SPOOLER_TIMEOUT_MS : PRINTER_TIMEOUT_MS }
+}
+
+async function connectOrFail(printer: ThermalPrinter, iface: string): Promise<void> {
+  const connected = await withTimeout(printer.isPrinterConnected(), PRINTER_TIMEOUT_MS, 'impresora')
+  if (connected) return
+  const net = /^tcp:\/\/([^/:]+)(?::(\d+))?/i.exec(iface)
+  throw new Error(
+    net
+      ? `La impresora no responde en ${net[1]}:${net[2] ?? '9100'}. Revisá que esté encendida, ` +
+          'conectada a la misma red y que la IP sea la de su hoja de autoprueba.'
+      : 'Impresora no conectada'
+  )
+}
+
+/** Impresoras instaladas en Windows (en la PC del servidor). Fuera de Windows: []. */
+export async function listSystemPrinters(): Promise<SystemPrinter[]> {
+  if (process.platform !== 'win32') return []
+  const { stdout } = await execFileAsync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Get-Printer | Select-Object Name,DriverName,PortName | ConvertTo-Json -Compress'
+    ],
+    { timeout: 15_000, windowsHide: true }
+  )
+  if (!stdout.trim()) return []
+  const parsed = JSON.parse(stdout) as
+    | { Name: string; DriverName?: string; PortName?: string }
+    | { Name: string; DriverName?: string; PortName?: string }[]
+  return (Array.isArray(parsed) ? parsed : [parsed]).map((p) => ({
+    name: p.Name,
+    driver: p.DriverName ?? '',
+    port: p.PortName ?? ''
+  }))
+}
+
+/** Hoja de prueba: confirma interfaz, conexión y corte de papel. */
+export async function printTestPage(iface: string, config: ConfigMap): Promise<PrintResult> {
+  if (!iface.trim()) return { printed: false, error: 'Elegí una impresora primero.' }
+  try {
+    const { printer, timeoutMs } = createPrinter(iface.trim())
+    await connectOrFail(printer, iface.trim())
+    printer.alignCenter()
+    printer.bold(true)
+    printer.println('PRUEBA DE IMPRESION')
+    printer.bold(false)
+    printer.println((config.business_name || 'Mi Negocio').toUpperCase())
+    printer.drawLine()
+    printer.alignLeft()
+    printer.println(`Fecha: ${new Date().toLocaleString('es-MX')}`)
+    printer.println('Si puede leer esto, la impresora')
+    printer.println('esta bien configurada.')
+    printer.drawLine()
+    printer.cut()
+    await withTimeout(printer.execute(), timeoutMs, 'impresora')
+    return { printed: true }
+  } catch (err) {
+    return { printed: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -73,21 +258,8 @@ export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promi
   }
 
   try {
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: iface,
-      characterSet: CharacterSet.PC858_EURO,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
-      options: { timeout: PRINTER_TIMEOUT_MS }
-    })
-
-    const connected = await withTimeout(
-      printer.isPrinterConnected(),
-      PRINTER_TIMEOUT_MS,
-      'impresora'
-    )
-    if (!connected) return { printed: false, error: 'Impresora no conectada' }
+    const { printer, timeoutMs } = createPrinter(iface)
+    await connectOrFail(printer, iface)
 
     const symbol = config.currency_symbol || '$'
 
@@ -129,9 +301,9 @@ export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promi
     printer.println(config.ticket_footer || '¡Gracias por su compra!')
     printer.cut()
 
-    await withTimeout(printer.execute(), PRINTER_TIMEOUT_MS, 'impresora')
+    await withTimeout(printer.execute(), timeoutMs, 'impresora')
     return { printed: true }
   } catch (err) {
-    return { printed: false, error: err instanceof Error ? err.message : 'Error de impresión' }
+    return { printed: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

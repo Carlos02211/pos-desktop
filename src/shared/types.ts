@@ -154,6 +154,57 @@ export interface PrintResult {
   error?: string
 }
 
+/** Impresora instalada en Windows en la PC del servidor (`GET /api/admin/impresoras`). */
+export interface SystemPrinter {
+  name: string
+  driver: string
+  port: string
+}
+
+export interface SystemPrintersResponse {
+  /** false si el servidor no corre en Windows (no hay lista que mostrar). */
+  supported: boolean
+  printers: SystemPrinter[]
+  error?: string
+}
+
+/** Un respaldo en la carpeta de respaldos. */
+export interface BackupFileInfo {
+  name: string
+  sizeBytes: number
+  /** epoch en segundos */
+  createdAt: number
+}
+
+/** `GET /api/admin/respaldos` */
+export interface BackupStatus {
+  /** Carpeta efectiva (la configurada o la de datos por defecto). */
+  dir: string
+  isDefaultDir: boolean
+  engine: 'sqlite' | 'pg'
+  /** Si el motor no admite respaldo desde la app (PGlite de pruebas). */
+  unsupported?: string
+  backups: BackupFileInfo[]
+  /** Último intento (incluye fallidos) desde que arrancó el servidor. */
+  lastAttempt: { at: number; ok: boolean; error?: string } | null
+}
+
+/** `POST /api/admin/respaldos` */
+export interface BackupRunResponse {
+  ok: boolean
+  error?: string
+  file?: BackupFileInfo
+  skipped?: string
+}
+
+/** `GET /api/admin/carpetas?path=` — navegador de carpetas del servidor. */
+export interface FolderListing {
+  /** null = lista de unidades/raíces. */
+  path: string | null
+  parent: string | null
+  dirs: { name: string; path: string }[]
+}
+
 /** Respuesta de `POST /api/ventas` — la venta más el estado de impresión. */
 export interface CreateSaleResponse extends SaleWithItems {
   print: PrintResult

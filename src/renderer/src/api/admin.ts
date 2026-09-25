@@ -1,4 +1,6 @@
 import type {
+  BackupRunResponse,
+  BackupStatus,
   CashHistoryQuery,
   CashSessionListItem,
   Category,
@@ -8,6 +10,8 @@ import type {
   ConfigResponse,
   CreateUserInput,
   DashboardData,
+  FolderListing,
+  PrintResult,
   Product,
   ProductInput,
   ProductWithCategory,
@@ -16,6 +20,7 @@ import type {
   SaleWithItems,
   SalesPage,
   SalesQuery,
+  SystemPrintersResponse,
   UpdateUserInput,
   UserListItem
 } from '@shared/types'
@@ -129,4 +134,34 @@ export function subirLogo(file: File): Promise<{ path: string; config: ConfigRes
   const form = new FormData()
   form.append('file', file)
   return api.post<{ path: string; config: ConfigResponse }>('/api/config/logo', form)
+}
+
+/* ---- Sistema: respaldos, carpetas e impresora (actúan sobre la PC del servidor) ---- */
+
+export function getRespaldos(): Promise<BackupStatus> {
+  return api.get<BackupStatus>('/api/admin/respaldos')
+}
+
+export function respaldarAhora(): Promise<BackupRunResponse> {
+  return api.post<BackupRunResponse>('/api/admin/respaldos')
+}
+
+export function listCarpetas(path?: string): Promise<FolderListing> {
+  return api.get<FolderListing>('/api/admin/carpetas', { query: { path: path || undefined } })
+}
+
+export function crearCarpeta(parent: string, name: string): Promise<{ path: string }> {
+  return api.post<{ path: string }>('/api/admin/carpetas', { parent, name })
+}
+
+export function probarCarpeta(path: string): Promise<{ ok: boolean; error?: string }> {
+  return api.post<{ ok: boolean; error?: string }>('/api/admin/carpetas/probar', { path })
+}
+
+export function listImpresoras(): Promise<SystemPrintersResponse> {
+  return api.get<SystemPrintersResponse>('/api/admin/impresoras')
+}
+
+export function imprimirPrueba(printerInterface: string): Promise<PrintResult> {
+  return api.post<PrintResult>('/api/admin/impresora/prueba', { interface: printerInterface })
 }

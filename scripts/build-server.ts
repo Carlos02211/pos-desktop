@@ -105,7 +105,7 @@ writeFileSync(
     '  setup-server.ps1      instalación idempotente (Node, npm install, pm2, firewall)',
     '  ip-fija.ps1           fija la IP de esta PC (las cajas la buscan siempre en la misma)',
     '  setup-https.ps1       HTTPS en la red local con mkcert (después de ip-fija.ps1)',
-    '  backup-pg.ps1         respaldo programado de PostgreSQL',
+    '  backup-pg.ps1         respaldo MANUAL (los automáticos los hace el servidor)',
     '',
     'Pasos: ver docs/fase-2-instalacion-windows.md (o correr setup-server.ps1 como admin).'
   ].join('\n') + '\n'

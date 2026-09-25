@@ -27,7 +27,9 @@ pnpm build:server        # → genera dist-server/
 | `env-ejemplo.txt`      | plantilla del `.env` (nombre visible: los `.archivos` se pierden al copiar) |
 | `ecosystem.config.cjs` | configuración de pm2                                                        |
 | `setup-server.ps1`     | instalación idempotente (Node, `npm install`, pm2, firewall)                |
-| `backup-pg.ps1`        | respaldo programado de PostgreSQL                                           |
+| `ip-fija.ps1`          | fija la IP de la PC servidor (B7)                                           |
+| `setup-https.ps1`      | HTTPS en la red local con mkcert (B7)                                       |
+| `backup-pg.ps1`        | respaldo manual (los automáticos los hace el servidor, B8)                  |
 | `LEEME.txt`            | resumen de lo anterior                                                      |
 
 Renombrar `dist-server/` → `pos-server/` y pasarla a la PC del cliente (USB, o
@@ -177,14 +179,35 @@ El certificado HTTPS se emite para una IP concreta, así que el orden es **IP fi
 Todo en PowerShell **como Administrador**, en `C:\pos-server`, frente a la PC (no por
 escritorio remoto: al cambiar la IP se corta la conexión).
 
-**1. IP fija.** Primero, en el router, **reservar la IP para esta PC** (reserva DHCP por MAC)
-o elegir una IP **fuera del rango DHCP** del router. Después:
+**1. IP fija.** Cada proveedor (izzi, Telmex/Infinitum, Totalplay, Megacable…) usa su
+propia red y su propio rango de IPs automáticas (DHCP), así que **no hay una IP que sirva
+siempre**: se elige en cada negocio.
+
+1. **Ver la red actual** en la PC servidor: `ipconfig`. Anotar la **Dirección IPv4** (la IP
+   que tiene ahora) y la **Puerta de enlace predeterminada** (la IP del router).
+2. **Entrar al router**: abrir `http://<puerta de enlace>` en el navegador de esa PC. Usuario
+   y contraseña suelen estar en la **etiqueta del módem**; si no, los da el proveedor. Algunos
+   módems de proveedor vienen con opciones limitadas: si no se puede entrar o no hay opción
+   de DHCP, pedirlo al soporte del proveedor o usar la opción 1 de abajo igual (con la IP
+   actual) sabiendo que el riesgo de choque es bajo pero existe.
+3. **Buscar la sección LAN / DHCP** (el nombre varía: "Red local", "LAN Setup", "DHCP
+   Server", "Configuración de LAN"…). Ahí se ve el **rango DHCP** (IP inicial y final que el
+   router reparte solo). Elegir **una** de dos:
+   - **Reserva DHCP (recomendada si el router la tiene):** "Reserva de direcciones", "Static
+     Lease", "IP estática por MAC"… asignar a esta PC su IP actual (la MAC aparece en la lista
+     de equipos conectados, o con `ipconfig /all` → "Dirección física").
+   - **IP fuera del rango DHCP:** elegir una IP de la misma red que **no** esté dentro del rango
+     que reparte el router ni la use otro equipo (mismos tres primeros números que la puerta de
+     enlace; el último, fuera del rango).
+4. **Fijarla en Windows** (PowerShell como Administrador, en `C:\pos-server`):
 
 ```powershell
-.\ip-fija.ps1                    # propone la IP / puerta de enlace / DNS actuales y pide confirmar
-.\ip-fija.ps1 -Ip 192.168.1.10   # u otra IP de la misma red
-.\ip-fija.ps1 -VolverADhcp       # deshacer
+.\ip-fija.ps1                  # opción reserva DHCP: fija la IP que ya tiene
+.\ip-fija.ps1 -Ip <IP elegida> # opción fuera de rango
+.\ip-fija.ps1 -VolverADhcp     # deshacer
 ```
+
+El script propone la puerta de enlace y los DNS actuales, muestra todo y pide confirmar.
 
 **2. Perfil de red Privado.** La regla del firewall es para el perfil Privado; si Windows
 marcó la red como **Pública**, bloquea a las cajas. `setup-server.ps1` lo avisa al final. Para
@@ -219,10 +242,84 @@ Después, `https://<IP>:3000/` abre sin avisos. Las URLs `http://` dejan de func
 **Checklist de red del cliente:** IP fija ✔ · red Privada ✔ · las tabletas en la red
 principal, no en la de **invitados** (muchos routers aíslan a los dispositivos entre sí) ✔.
 
-### B8. Respaldo
+**Vencimiento del certificado.** Son dos certificados distintos:
 
-Editar las 4 variables de `C:\pos-server\backup-pg.ps1` y programarlo (diario). Ver
-[`fase-2-migracion.md`](fase-2-migracion.md) → "Respaldo de PostgreSQL".
+| Certificado                            | Dónde está                     | Dura                         |
+| -------------------------------------- | ------------------------------ | ---------------------------- |
+| CA local (autoridad de mkcert)         | instalada en cada caja/tableta | 10 años                      |
+| Certificado del servidor (el de la IP) | sólo en la PC servidor         | ~2 años y 3 meses (825 días) |
+
+Sólo el del servidor vence en la práctica. **Renovarlo = volver a correr
+`.\setup-https.ps1` en la PC servidor** (mismo usuario de Windows): usa la misma CA, así que
+**las tabletas no se tocan**. No se puede emitir por más tiempo: iPhone/iPad rechazan
+certificados de servidor de más de 825 días. Si vence sin renovarse, las cajas ven "La
+conexión no es privada" hasta renovarlo. `setup-https.ps1` muestra la fecha al terminar y el
+log del servidor avisa 60 días antes: **anotar la fecha** en la ficha del cliente.
+
+**¿Qué pasa si se va el internet?** Nada: el POS funciona **sin internet**. Todo ocurre dentro
+de la red local (servidor, base de datos, licencia y HTTPS son locales; la app no carga
+nada de fuera). Lo que sí hace falta es que **el router/módem y el switch sigan encendidos**,
+porque es por donde se comunican las cajas con el servidor aunque no haya servicio del
+proveedor. Si se corta la **luz**, se cae todo: recomendado un **no-break (UPS)** para la PC
+servidor **y** el módem/router. Internet sólo se usa durante la instalación (winget, npm,
+mkcert, pm2-installer).
+
+### B8. Respaldos
+
+**Automáticos, sin configurar nada:** el servidor respalda la base con `pg_dump` al
+**cerrar cada caja** y **una vez al día** (aunque ese día no se cierre caja). Guarda los
+últimos 30 y verifica cada uno. No hace falta ninguna tarea programada.
+
+**Elegir dónde se guardan** (recomendado: **otro disco o una USB**, para que un respaldo
+sobreviva si falla el disco principal): Admin → Configuración → Respaldos → **Cambiar…**.
+Se navegan las carpetas **de la PC servidor** (también se puede crear una nueva); al elegir,
+el sistema comprueba que puede escribir ahí y la guarda. **Respaldar ahora** hace uno en el
+momento y la sección muestra el último respaldo y si alguno falló.
+
+Si al elegir una carpeta dice que **no tiene permiso** (el servidor corre como "Servicio
+local"), darle permiso en la PC servidor — PowerShell como Administrador:
+
+```powershell
+icacls "<carpeta elegida>" /grant "*S-1-5-19:(OI)(CI)M"
+```
+
+`pg_dump` se busca solo en `C:\Program Files\PostgreSQL\<versión>\bin`. Si PostgreSQL está
+en otra ruta, agregar `POS_PG_DUMP=<ruta a pg_dump.exe>` al `.env`.
+
+**Respaldo manual** (p. ej. antes de actualizar, aunque el servidor esté detenido):
+`.\backup-pg.ps1` (o `.\backup-pg.ps1 -Destino "<carpeta>"`). Lee todo del `.env`.
+
+**Restaurar** un respaldo (`pos_<fecha>.dump`) — PowerShell como Administrador:
+
+```powershell
+pm2 stop pos-server
+$pg = (Get-ChildItem "$env:ProgramFiles\PostgreSQL\*\bin").FullName | Select-Object -Last 1
+& "$pg\dropdb.exe"   -U postgres pos
+& "$pg\createdb.exe" -U postgres -O pos pos
+& "$pg\pg_restore.exe" -U postgres -d pos --no-owner --role=pos "<ruta>\pos_<fecha>.dump"
+pm2 start pos-server
+```
+
+(pide la contraseña del usuario `postgres`). Probar una restauración **una vez** en cada
+instalación nueva: un respaldo que nunca se restauró no está probado.
+
+### B9. Impresora de tickets
+
+Admin → Configuración → **Impresora de tickets**. Los tickets salen por esa impresora sin
+importar desde qué caja o tableta se cobre.
+
+- **Conectada a la PC servidor (USB):** instalar primero el **driver del fabricante** (p. ej.
+  Xprinter) en la PC servidor; luego elegirla de la lista (botón ⟳ para actualizarla). El
+  ticket se manda directo a la cola de impresión de Windows, así que funciona aunque el
+  servidor corra como servicio.
+- **Impresora de red (cable o WiFi):** poner su IP y el puerto (casi siempre 9100). La IP se
+  ve imprimiendo la **hoja de autoprueba** (con la impresora apagada, mantener FEED y
+  encenderla). Conviene reservarle esa IP en el router, igual que al servidor.
+- **Imprimir hoja de prueba** confirma conexión y corte de papel **antes de guardar**; si
+  falla, dice qué revisar. Después, **Guardar cambios**.
+
+Si la impresora falla durante el día, las ventas se registran igual y la caja ve el aviso de
+que el ticket no salió (se puede reimprimir desde Ventas).
 
 ---
 

@@ -19,6 +19,7 @@
 import { execFileSync } from 'child_process'
 import crypto from 'crypto'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { createServer, type AddressInfo } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { count, eq } from 'drizzle-orm'
@@ -29,6 +30,10 @@ import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
+  BackupRunResponse,
+  BackupStatus,
+  FolderListing,
+  SystemPrintersResponse,
   CashMovement,
   CashSession,
   CashSessionListItem,
@@ -53,6 +58,7 @@ import type {
 // `verify:backend`     → SQLite en un directorio temporal.
 // `verify:backend:pg`  → PostgreSQL embebido (PGlite) vía DATABASE_URL=pglite://<dir>.
 const PG = !!process.env.DATABASE_URL
+const PGLITE = !!process.env.DATABASE_URL?.startsWith('pglite://')
 
 // Par Ed25519 efímero: el servidor (corriendo desde el código fuente) verifica con esta
 // pública en lugar de la de producción, y el test firma con la privada.
@@ -395,15 +401,15 @@ async function main(): Promise<void> {
     // esperado = 500 apertura + 50 efectivo − 30 retiro + 5 ingreso = 525
     assert(cierreBody.session.expectedAmount === 525, 'cierre: efectivo esperado 525')
     assert(cierreBody.session.difference === 15, 'cierre: diferencia +15 (sobrante)')
-    if (PG) {
+    if (PGLITE) {
       assert(
-        cierreBody.backup.ok && cierreBody.backup.skipped === 'postgres',
-        'cierre: respaldo de archivo omitido en PostgreSQL (lo hace pg_dump)'
+        cierreBody.backup.ok && !!cierreBody.backup.skipped,
+        'cierre: respaldo omitido con PGlite (no hay pg_dump para una base embebida)'
       )
     } else {
       assert(
         cierreBody.backup.ok && !!cierreBody.backup.path && existsSync(cierreBody.backup.path),
-        'cierre: respaldo de la BD creado en disco'
+        `cierre: respaldo de la BD creado en disco (${PG ? 'pg_dump' : 'copia SQLite'})`
       )
     }
 
@@ -714,6 +720,89 @@ async function main(): Promise<void> {
       (await fetch(`${base}/uploads/${cfg2.logo_path}`)).status === 200,
       'config: el logo se sirve en /uploads/'
     )
+
+    // ---- Sistema: respaldos, carpetas del servidor e impresora (ADMIN) ----
+    assert((await asCajero('/api/admin/respaldos')).status === 403, 'respaldos: cobrador -> 403')
+    const bstatus = (await (await asAdmin('/api/admin/respaldos')).json()) as BackupStatus
+    assert(
+      bstatus.engine === (PG ? 'pg' : 'sqlite') && bstatus.isDefaultDir,
+      `respaldos: estado (motor ${bstatus.engine}, carpeta por defecto)`
+    )
+    const bdir = join(dir, 'respaldos-elegidos')
+    const probe = (await (
+      await asAdmin('/api/admin/carpetas/probar', 'POST', { path: bdir })
+    ).json()) as { ok: boolean }
+    assert(probe.ok && existsSync(bdir), 'carpetas: probar crea la carpeta y confirma escritura')
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      const denied = (await (
+        await asAdmin('/api/admin/carpetas/probar', 'POST', { path: '/root/pos-no' })
+      ).json()) as { ok: boolean; error?: string }
+      assert(!denied.ok && !!denied.error, 'carpetas: carpeta sin permiso -> ok:false con motivo')
+    }
+    const listing = (await (
+      await asAdmin(`/api/admin/carpetas?path=${encodeURIComponent(dir)}`)
+    ).json()) as FolderListing
+    assert(
+      listing.dirs.some((d) => d.name === 'respaldos-elegidos') && listing.parent !== null,
+      'carpetas: lista subcarpetas (sin archivos) y permite subir'
+    )
+    assert(
+      (await asAdmin('/api/admin/carpetas?path=relativa')).status === 400,
+      'carpetas: ruta relativa -> 400'
+    )
+    const mk = await asAdmin('/api/admin/carpetas', 'POST', { parent: bdir, name: 'Nueva' })
+    assert(
+      mk.status === 201 && existsSync(join(bdir, 'Nueva')),
+      'carpetas: crear subcarpeta -> 201'
+    )
+    const badName = await asAdmin('/api/admin/carpetas', 'POST', { parent: bdir, name: '../x' })
+    assert(badName.status === 400, 'carpetas: nombre con "/" o ".." -> 400')
+
+    await asAdmin('/api/config', 'PUT', { backup_dir: bdir })
+    const run = (await (await asAdmin('/api/admin/respaldos', 'POST')).json()) as BackupRunResponse
+    if (PGLITE) {
+      assert(run.ok && !!run.skipped, 'respaldo manual: omitido con PGlite')
+    } else {
+      assert(
+        run.ok && !!run.file && existsSync(join(bdir, run.file.name)) && run.file.sizeBytes > 0,
+        `respaldo manual: archivo en la carpeta elegida (${run.file?.name ?? run.error})`
+      )
+      const after = (await (await asAdmin('/api/admin/respaldos')).json()) as BackupStatus
+      assert(
+        after.dir === bdir && !after.isDefaultDir && after.backups[0]?.name === run.file?.name,
+        'respaldos: el estado muestra la carpeta elegida y el último respaldo'
+      )
+    }
+    await asAdmin('/api/config', 'PUT', { backup_dir: '' })
+
+    const printers = (await (
+      await asAdmin('/api/admin/impresoras')
+    ).json()) as SystemPrintersResponse
+    assert(
+      printers.supported === (process.platform === 'win32'),
+      'impresoras: lista de Windows sólo si el servidor corre en Windows'
+    )
+    // Impresora de red falsa: un socket TCP que junta lo que llega.
+    const received: Buffer[] = []
+    const fakePrinter = createServer((sock) => sock.on('data', (d) => received.push(d)))
+    await new Promise<void>((r) => fakePrinter.listen(0, '127.0.0.1', r))
+    const fakePort = (fakePrinter.address() as AddressInfo).port
+    const printed = (await (
+      await asAdmin('/api/admin/impresora/prueba', 'POST', {
+        interface: `tcp://127.0.0.1:${fakePort}`
+      })
+    ).json()) as { printed: boolean; error?: string }
+    await new Promise((r) => setTimeout(r, 200))
+    fakePrinter.close()
+    const bytes = Buffer.concat(received).toString('latin1')
+    assert(
+      printed.printed && bytes.includes('PRUEBA DE IMPRESION'),
+      `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
+    )
+    const noPrinter = (await (
+      await asAdmin('/api/admin/impresora/prueba', 'POST', { interface: '' })
+    ).json()) as { printed: boolean }
+    assert(!noPrinter.printed, 'impresora: prueba sin impresora elegida -> printed:false')
 
     const dash = (await (await asAdmin('/api/dashboard')).json()) as {
       totalTransactions: number
