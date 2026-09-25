@@ -7,13 +7,36 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useLicenseStore } from '@/stores/license.store'
 import { homeFor } from '@/lib/routing'
 
+/**
+ * Último usuario que entró en ESTE dispositivo (sólo el nombre, nunca la contraseña), para
+ * no tener que escribirlo en cada turno. localStorage es por navegador/tableta; si no está
+ * disponible (modo privado, bloqueado), simplemente no se recuerda.
+ */
+const LAST_USER_KEY = 'pos-last-username'
+
+function readLastUser(): string {
+  try {
+    return localStorage.getItem(LAST_USER_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function saveLastUser(username: string): void {
+  try {
+    localStorage.setItem(LAST_USER_KEY, username)
+  } catch {
+    // sin storage: no pasa nada
+  }
+}
+
 export default function Login(): React.JSX.Element {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
   const user = useAuthStore((s) => s.user)
   const licenseActive = useLicenseStore((s) => s.status?.active ?? false)
 
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState(readLastUser)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -27,6 +50,7 @@ export default function Login(): React.JSX.Element {
     setSubmitting(true)
     try {
       const res = await loginRequest(username.trim(), password)
+      saveLastUser(res.user.username)
       setAuth(res.token, res.user)
       navigate(homeFor(res.user.role), { replace: true })
     } catch (err) {
@@ -43,11 +67,15 @@ export default function Login(): React.JSX.Element {
   }
 
   return (
-    <AuthShell title="Iniciar sesión" subtitle="Punto de venta" footer="SpArTaN Tech · POS Fase 1">
+    <AuthShell
+      title="Iniciar sesión"
+      subtitle="Punto de venta"
+      footer="SpArTaN Tech · Punto de venta"
+    >
       <form onSubmit={onSubmit} className="space-y-4">
         <TextField
           label="Usuario"
-          autoFocus
+          autoFocus={!username}
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -55,6 +83,8 @@ export default function Login(): React.JSX.Element {
         <TextField
           label="Contraseña"
           type="password"
+          // Con el usuario ya recordado, el cursor va directo a la contraseña.
+          autoFocus={!!username}
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
+import logo from '@/assets/logo-spartan.webp'
 
-/** Contenedor centrado y minimalista para Login y Activación. */
+/** Contenedor centrado para Login y Activación: logo de SpArTaN Tech + tarjeta. */
 export function AuthShell({
   title,
   subtitle,
@@ -13,16 +14,26 @@ export function AuthShell({
   footer?: ReactNode
 }): React.JSX.Element {
   return (
-    <div className="cobrador flex min-h-full items-center justify-center bg-background p-6 text-foreground">
-      <div className="w-full max-w-sm">
+    <div className="cobrador relative flex min-h-full items-center justify-center overflow-hidden bg-background p-6 text-foreground">
+      {/* Halo detrás del logo: da profundidad sin competir con el formulario. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-[18%] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-sky-400/10 blur-3xl"
+      />
+      <div className="relative w-full max-w-sm">
         <div className="mb-6 text-center">
-          <p className="text-xs font-semibold tracking-[0.3em] text-muted-foreground">
-            SPARTAN TECH
-          </p>
-          <h1 className="mt-1 text-xl font-bold">{title}</h1>
+          <img
+            src={logo}
+            alt="SpArTaN Tech"
+            className="mx-auto h-36 w-auto drop-shadow-[0_8px_24px_rgba(56,189,248,0.25)] select-none"
+            draggable={false}
+          />
+          <h1 className="mt-5 text-xl font-bold">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
         </div>
-        <div className="rounded-xl border border-border bg-card p-6 shadow-lg">{children}</div>
+        <div className="rounded-xl border border-white/10 bg-card/80 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+          {children}
+        </div>
         {footer && <div className="mt-4 text-center text-xs text-muted-foreground">{footer}</div>}
       </div>
     </div>
