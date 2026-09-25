@@ -43,12 +43,21 @@ const createSaleSchema = z.object({
  * crear otra con su propio folio. En memoria: suficiente para un servidor único.
  */
 const IDEMPOTENCY_TTL_MS = 5 * 60_000
-const recentSales = new Map<string, { saleId: number; at: number }>()
+/**
+ * Se guarda la venta EN CURSO (promesa), no sólo la terminada: un doble clic manda los dos
+ * POST antes de que el primero haga commit, y ambos pasaban el chequeo creando dos ventas.
+ */
+const recentSales = new Map<string, { saleId: Promise<number>; at: number }>()
 
-function rememberSale(key: string, saleId: number): void {
+function rememberSale(key: string, saleId: Promise<number>): void {
   const now = Date.now()
   for (const [k, v] of recentSales) if (now - v.at > IDEMPOTENCY_TTL_MS) recentSales.delete(k)
-  recentSales.set(key, { saleId, at: now })
+  const entry = { saleId, at: now }
+  recentSales.set(key, entry)
+  // Si la venta falla (sin caja, producto inactivo…) el reintento debe poder intentarlo de nuevo.
+  saleId.catch(() => {
+    if (recentSales.get(key) === entry) recentSales.delete(key)
+  })
 }
 
 const idParam = z.object({ id: z.coerce.number().int().positive() })
@@ -64,13 +73,18 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     if (dedupKey) {
       const prev = recentSales.get(dedupKey)
       if (prev && Date.now() - prev.at <= IDEMPOTENCY_TTL_MS) {
-        const existing = await getSaleWithItems(db, prev.saleId)
+        const existing = await getSaleWithItems(db, await prev.saleId)
         return reply.code(200).send({ ...existing, print: { printed: false }, duplicate: true })
       }
     }
 
-    const sale = await createSale(db, request.authUser!.id, input)
-    if (dedupKey) rememberSale(dedupKey, sale.id)
+    const pending = createSale(db, request.authUser!.id, input)
+    if (dedupKey)
+      rememberSale(
+        dedupKey,
+        pending.then((s) => s.id)
+      )
+    const sale = await pending
 
     emit('venta:nueva', {
       saleId: sale.id,
