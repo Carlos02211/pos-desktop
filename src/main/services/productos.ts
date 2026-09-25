@@ -1,8 +1,9 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import type { ProductInput, ProductWithCategory } from '../../shared/types'
 import type { ProductRow } from '../db/schema'
 import { categories, products } from '../db/schema'
 import type { DB } from '../db'
+import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
 import { fromCents, toCents } from '../lib/money'
 
@@ -18,6 +19,7 @@ const selection = {
   unit: products.unit,
   categoryId: products.categoryId,
   imagePath: products.imagePath,
+  barcode: products.barcode,
   active: products.active,
   createdAt: products.createdAt,
   updatedAt: products.updatedAt,
@@ -54,6 +56,37 @@ export async function getProduct(db: DB, id: number): Promise<ProductRow> {
   return row
 }
 
+/** Vacío = sin código. El lector no manda espacios; los de los extremos se ignoran. */
+function normalizeBarcode(barcode: string | null | undefined): string | null {
+  const code = barcode?.trim()
+  return code ? code : null
+}
+
+/** 409 con el nombre del dueño del código: el admin sabe cuál producto corregir. */
+async function assertBarcodeFree(db: DB, barcode: string, exceptId?: number): Promise<void> {
+  const where =
+    exceptId === undefined
+      ? eq(products.barcode, barcode)
+      : and(eq(products.barcode, barcode), ne(products.id, exceptId))
+  const [owner] = await db
+    .select({ name: products.name, active: products.active })
+    .from(products)
+    .where(where)
+    .limit(1)
+  if (owner) {
+    const inactive = owner.active === 1 ? '' : ' (desactivado)'
+    throw new HttpError(409, `El código ${barcode} ya es del producto "${owner.name}"${inactive}.`)
+  }
+}
+
+/** El índice único es la última palabra: dos altas simultáneas con el mismo código. */
+function barcodeClash(err: unknown, barcode: string | null): never {
+  if (barcode && isUniqueViolation(err)) {
+    throw new HttpError(409, `El código ${barcode} ya es de otro producto.`)
+  }
+  throw err
+}
+
 async function validateCategory(db: DB, categoryId: number | null): Promise<void> {
   if (categoryId == null) return
   const [cat] = await db.select().from(categories).where(eq(categories.id, categoryId)).limit(1)
@@ -63,6 +96,8 @@ async function validateCategory(db: DB, categoryId: number | null): Promise<void
 export async function createProduct(db: DB, input: ProductInput): Promise<ProductRow> {
   if (input.price < 0) throw new HttpError(400, 'El precio no puede ser negativo.')
   await validateCategory(db, input.categoryId)
+  const barcode = normalizeBarcode(input.barcode)
+  if (barcode) await assertBarcodeFree(db, barcode)
   const now = Math.floor(Date.now() / 1000)
   const [row] = await db
     .insert(products)
@@ -71,11 +106,13 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
       price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
+      barcode,
       active: input.active === false ? 0 : 1,
       createdAt: now,
       updatedAt: now
     })
     .returning()
+    .catch((err: unknown) => barcodeClash(err, barcode))
   return toApi(row)
 }
 
@@ -83,6 +120,9 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
   await getProduct(db, id)
   if (input.price < 0) throw new HttpError(400, 'El precio no puede ser negativo.')
   await validateCategory(db, input.categoryId)
+  // `barcode` omitido = se conserva (clientes que no conocen el campo no lo borran).
+  const barcode = input.barcode === undefined ? undefined : normalizeBarcode(input.barcode)
+  if (barcode) await assertBarcodeFree(db, barcode, id)
   // El cambio de precio aplica a ventas futuras; `sale_items` conserva el snapshot histórico.
   const [row] = await db
     .update(products)
@@ -91,11 +131,13 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
       price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
+      ...(barcode === undefined ? {} : { barcode }),
       active: input.active === false ? 0 : 1,
       updatedAt: Math.floor(Date.now() / 1000)
     })
     .where(eq(products.id, id))
     .returning()
+    .catch((err: unknown) => barcodeClash(err, barcode ?? null))
   return toApi(row)
 }
 

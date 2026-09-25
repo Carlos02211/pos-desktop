@@ -8,6 +8,7 @@ import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
+import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { money } from '@/lib/format'
 import { socket } from '@/lib/socket'
 import { cartCount, cartTotal, useCartStore } from '@/stores/cart.store'
@@ -76,9 +77,40 @@ export default function PanelVenta(): React.JSX.Element {
     return products.filter(
       (p) =>
         (activeCat === null || p.categoryId === activeCat) &&
-        (term === '' || p.name.toLowerCase().includes(term))
+        (term === '' || p.name.toLowerCase().includes(term) || p.barcode === search.trim())
     )
   }, [products, activeCat, search])
+
+  const byBarcode = useMemo(
+    () => new Map(products.flatMap((p) => (p.barcode ? [[p.barcode, p] as const] : []))),
+    [products]
+  )
+
+  /** Agrega el producto del código escaneado. El catálogo ya está en memoria: sin ida al servidor. */
+  const scan = useCallback(
+    (code: string): boolean => {
+      const product = byBarcode.get(code.trim())
+      if (!product) {
+        toast.error(`No hay ningún producto con el código ${code.trim()}`)
+        return false
+      }
+      addItem(product)
+      return true
+    },
+    [byBarcode, addItem]
+  )
+
+  // Con un modal abierto el lector no agrega nada detrás (el cobro ya está en curso).
+  useBarcodeScanner(scan, load === 'ready' && !cobroOpen && !movimientoOpen)
+
+  /** Enter en el buscador: si es un código (lector o tecleado a mano), agrega ese producto. */
+  function onSearchEnter(): void {
+    const term = search.trim()
+    if (!term || /\s/.test(term)) return
+    // Un nombre que sí filtra productos no es un código desconocido: no se avisa nada.
+    if (!byBarcode.has(term) && visible.length > 0) return
+    if (scan(term)) setSearch('')
+  }
 
   function onSaleDone(sale: CreateSaleResponse): void {
     clear()
@@ -125,7 +157,12 @@ export default function PanelVenta(): React.JSX.Element {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar producto…"
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              onSearchEnter()
+            }}
+            placeholder="Buscar producto o escanear código…"
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
           />
           <div className="flex flex-wrap gap-1.5">
@@ -182,7 +219,7 @@ export default function PanelVenta(): React.JSX.Element {
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {items.length === 0 ? (
             <p className="pt-8 text-center text-sm text-muted-foreground">
-              Toca un producto para agregarlo.
+              Toca un producto o escanea su código.
             </p>
           ) : (
             items.map((it) => (

@@ -38,6 +38,8 @@ export interface Product {
   unit: ProductUnit
   categoryId: number | null
   imagePath: string | null
+  /** Código de barras (EAN/UPC o interno); null si el producto no tiene. */
+  barcode: string | null
   active: number
   createdAt: number
   updatedAt: number
@@ -106,6 +108,8 @@ export interface ProductInput {
   /** Default 'PIEZA' si se omite. */
   unit?: ProductUnit
   categoryId: number | null
+  /** Omitido = no se toca; null o '' = se quita el código. */
+  barcode?: string | null
   active?: boolean
 }
 

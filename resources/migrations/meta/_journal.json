@@ -64,6 +64,13 @@
       "when": 1788999374194,
       "tag": "0008_remarkable_menace",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790361306289,
+      "tag": "0009_wide_patriot",
+      "breakpoints": true
     }
   ]
 }

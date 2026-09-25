@@ -487,6 +487,60 @@ async function main(): Promise<void> {
       'producto: PUT actualiza nombre, precio y categoría'
     )
 
+    // Código de barras: único, se conserva si el PUT no lo manda, '' lo quita.
+    const conCodigo = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id,
+      barcode: ' 7501055300075 '
+    })
+    assert(
+      ((await conCodigo.json()) as ProductWithCategory).barcode === '7501055300075',
+      'código de barras: PUT lo guarda sin espacios de los extremos'
+    )
+    const duplicado = await asAdmin('/api/productos', 'POST', {
+      name: 'Otro refresco',
+      price: 10,
+      categoryId: null,
+      barcode: '7501055300075'
+    })
+    const dupMsg = ((await duplicado.json()) as { error?: string }).error ?? ''
+    assert(
+      duplicado.status === 409 && dupMsg.includes('Refresco 600ml'),
+      `código de barras repetido -> 409 con el producto dueño (${duplicado.status}: ${dupMsg})`
+    )
+    const conEspacio = await asAdmin('/api/productos', 'POST', {
+      name: 'Z',
+      price: 1,
+      categoryId: null,
+      barcode: '750 105'
+    })
+    assert(conEspacio.status === 400, `código con espacio interno -> 400 (${conEspacio.status})`)
+    const sinCampo = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id
+    })
+    assert(
+      ((await sinCampo.json()) as ProductWithCategory).barcode === '7501055300075',
+      'código de barras: un PUT sin el campo lo conserva'
+    )
+    const cobradorVe = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(
+      cobradorVe.find((p) => p.id === refresco.id)?.barcode === '7501055300075',
+      'código de barras: el cobrador lo recibe en GET /api/productos'
+    )
+    const quitado = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id,
+      barcode: ''
+    })
+    assert(
+      ((await quitado.json()) as ProductWithCategory).barcode === null,
+      "código de barras: '' lo quita (queda null)"
+    )
+
     // Subida de imagen (multipart).
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
