@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { CashMovement, CashMovementType } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
-import { getMovimientos, registrarMovimiento } from '@/api/caja'
+import { getMovimientos, getResumen, registrarMovimiento } from '@/api/caja'
 import { Modal } from '@/components/Modal'
 import { dateTime, money } from '@/lib/format'
 
@@ -17,10 +17,15 @@ export function MovimientoCajaModal({ onClose }: { onClose: () => void }): React
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<CashMovement[]>([])
+  // Efectivo que debería haber en el cajón ahora (el mismo cálculo que el cierre).
+  const [available, setAvailable] = useState<number | null>(null)
 
   useEffect(() => {
     getMovimientos()
       .then(setHistory)
+      .catch(() => {})
+    getResumen()
+      .then((r) => setAvailable(r.expectedCash))
       .catch(() => {})
   }, [])
 
@@ -33,6 +38,7 @@ export function MovimientoCajaModal({ onClose }: { onClose: () => void }): React
     try {
       const mov = await registrarMovimiento({ type, amount, reason: reason.trim() })
       setHistory((h) => [...h, mov])
+      setAvailable((a) => (a === null ? a : a + (type === 'IN' ? mov.amount : -mov.amount)))
       setAmountText('')
       setReason('')
       toast.success(type === 'OUT' ? 'Retiro registrado' : 'Ingreso registrado')
@@ -46,29 +52,44 @@ export function MovimientoCajaModal({ onClose }: { onClose: () => void }): React
   return (
     <Modal title="Efectivo de caja" onClose={onClose} busy={submitting}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setType('OUT')}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-              type === 'OUT'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground'
-            }`}
-          >
-            Retiro
-          </button>
-          <button
-            type="button"
-            onClick={() => setType('IN')}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-              type === 'IN'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground'
-            }`}
-          >
-            Ingreso
-          </button>
+        {available !== null && (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Efectivo en caja ahora</span>
+            <span className="font-semibold tabular-nums">{money(available)}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Tipo de movimiento">
+          {(
+            [
+              {
+                v: 'OUT',
+                label: 'Retiro',
+                hint: 'Sale dinero',
+                on: 'border-pos-danger bg-pos-danger/15 text-pos-danger'
+              },
+              {
+                v: 'IN',
+                label: 'Ingreso',
+                hint: 'Entra dinero',
+                on: 'border-pos-success bg-pos-success/15 text-pos-success'
+              }
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              role="radio"
+              aria-checked={type === o.v}
+              onClick={() => setType(o.v)}
+              className={`rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                type === o.v ? o.on : 'border-border text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              {o.label}
+              <span className="block text-xs font-normal opacity-80">{o.hint}</span>
+            </button>
+          ))}
         </div>
 
         <div>
@@ -102,7 +123,7 @@ export function MovimientoCajaModal({ onClose }: { onClose: () => void }): React
           disabled={!valid || submitting}
           className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
-          {submitting ? 'Guardando…' : 'Registrar'}
+          {submitting ? 'Guardando…' : type === 'OUT' ? 'Registrar retiro' : 'Registrar ingreso'}
         </button>
 
         {history.length > 0 && (
