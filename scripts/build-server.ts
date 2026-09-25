@@ -56,7 +56,13 @@ writeFileSync(
 )
 // Los .ps1 van con BOM UTF-8: Windows PowerShell 5.1 lee los archivos sin BOM como
 // Windows-1252, y los bytes de «—» / acentos rompen el parser (0x94 = comilla ”).
-for (const ps1 of ['setup-server.ps1', 'ip-fija.ps1', 'setup-https.ps1', 'backup-pg.ps1']) {
+for (const ps1 of [
+  'setup-server.ps1',
+  'ip-fija.ps1',
+  'setup-https.ps1',
+  'renovar-certificado.ps1',
+  'backup-pg.ps1'
+]) {
   const text = readFileSync(join(root, 'deploy', ps1), 'utf8').replace(/^\uFEFF/, '')
   writeFileSync(join(out, ps1), '\uFEFF' + text.replace(/\r?\n/g, '\r\n'))
 }
@@ -105,6 +111,7 @@ writeFileSync(
     '  setup-server.ps1      instalación idempotente (Node, npm install, pm2, firewall)',
     '  ip-fija.ps1           fija la IP de esta PC (las cajas la buscan siempre en la misma)',
     '  setup-https.ps1       HTTPS en la red local con mkcert (después de ip-fija.ps1)',
+    '  renovar-certificado.ps1  renueva el certificado (lo corre sola una tarea semanal)',
     '  backup-pg.ps1         respaldo MANUAL (los automáticos los hace el servidor)',
     '',
     'Pasos: ver docs/fase-2-instalacion-windows.md (o correr setup-server.ps1 como admin).'

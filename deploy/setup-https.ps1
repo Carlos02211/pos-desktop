@@ -5,7 +5,11 @@
 # Las cajas/tabletas confían en esa CA una sola vez (se descarga de https://<IP>:3000/ca.crt).
 #
 # Requisitos: IP FIJA (.\ip-fija.ps1) — el certificado es para esa IP. Si la IP cambia,
-# o para renovar el certificado (dura ~2 años), volver a correr este script.
+# volver a correr este script.
+#
+# Renovación: el certificado dura ~2 años. Este script registra la tarea programada
+# "POS SpArTaN Tech - renovar certificado" (semanal, como SYSTEM) que corre
+# renovar-certificado.ps1 y lo renueva sola 60 días antes de que venza.
 #
 # PowerShell COMO ADMINISTRADOR, en C:\pos-server:
 #   .\setup-https.ps1                 # usa la IP actual de la PC
@@ -13,7 +17,7 @@
 #
 # La clave privada de la CA queda en la carpeta de mkcert del usuario que corre esto
 # (mkcert -CAROOT), NO en C:\pos-server: quien la tenga podría emitir certificados en los
-# que confían las tabletas. Renovar con el mismo usuario de Windows.
+# que confían las tabletas.
 
 param(
   [string]$Ip,
@@ -63,7 +67,8 @@ New-Item -ItemType Directory -Force ".\certs" | Out-Null
 $certFile = Join-Path $PSScriptRoot "certs\servidor.pem"
 $keyFile  = Join-Path $PSScriptRoot "certs\servidor-key.pem"
 $caFile   = Join-Path $PSScriptRoot "certs\CA-POS-SpArTaN.crt"
-mkcert -cert-file $certFile -key-file $keyFile $Ip localhost 127.0.0.1 $env:COMPUTERNAME
+$names    = @($Ip, "localhost", "127.0.0.1", $env:COMPUTERNAME)
+mkcert -cert-file $certFile -key-file $keyFile @names
 if ($LASTEXITCODE -ne 0) { throw "mkcert no pudo generar el certificado." }
 $caRoot = (mkcert -CAROOT).Trim()
 $ErrorActionPreference = "Stop"
@@ -106,9 +111,38 @@ try {
   Write-Host "  No respondió por HTTPS — revisá 'pm2 logs pos-server'. ($($_.Exception.Message))" -ForegroundColor Yellow
 }
 
+# --- Renovación automática ------------------------------------------------------
+Step "Renovación automática"
+# La tarea corre como SYSTEM, que no ve el PATH ni la carpeta de mkcert de este usuario:
+# se guardan las rutas absolutas que va a necesitar.
+$pm2 = (Get-Command pm2.cmd -ErrorAction SilentlyContinue).Source
+if (-not $pm2) { $pm2 = (Get-Command pm2 -ErrorAction SilentlyContinue).Source }
+@{
+  caRoot = $caRoot
+  mkcert = (Get-Command mkcert).Source
+  pm2    = $pm2
+  names  = $names
+} | ConvertTo-Json | Set-Content (Join-Path $PSScriptRoot "certs\renovacion.json") -Encoding UTF8
+
+$taskName = "POS SpArTaN Tech - renovar certificado"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" `
+  -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSScriptRoot\renovar-certificado.ps1`""
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 3am
+# StartWhenAvailable: si la PC estaba apagada el lunes a las 3, corre al encenderla.
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
+  -Principal $principal -Description "Renueva el certificado HTTPS del POS 60 días antes de que venza." `
+  -Force | Out-Null
+Write-Host "Tarea '$taskName' registrada (lunes 3:00; renueva sola 60 días antes del vencimiento)."
+if (-not $pm2 -or $pm2 -like "$env:APPDATA*") {
+  Write-Host "ATENCIÓN: pm2 no está instalado como servicio (pm2-installer): la renovación va a" -ForegroundColor Yellow
+  Write-Host "generar el certificado pero no podrá reiniciar el servidor. Ver la guía, B5." -ForegroundColor Yellow
+}
+
 $notAfter = (New-Object Security.Cryptography.X509Certificates.X509Certificate2 $certFile).NotAfter
 Write-Host ""
-Write-Host "Listo. Certificado válido hasta: $($notAfter.ToString('yyyy-MM-dd'))  (anotalo para renovarlo)" -ForegroundColor Green
+Write-Host "Listo. Certificado válido hasta: $($notAfter.ToString('yyyy-MM-dd'))  (se renueva solo)" -ForegroundColor Green
 Write-Host ""
 Write-Host "Las cajas ahora entran por:   https://${Ip}:$Port/" -ForegroundColor Cyan
 Write-Host "En CADA caja/tableta, una sola vez, instalar la CA:"
