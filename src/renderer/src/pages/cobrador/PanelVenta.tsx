@@ -89,7 +89,8 @@ export default function PanelVenta(): React.JSX.Element {
     } else {
       toast.success(`Venta #${sale.ticketNumber} registrada · ${money(sale.total)}`)
     }
-    if (!sale.print.printed) {
+    // Sin impresora activada (decisión del negocio) no se avisa nada: sólo si falló.
+    if (!sale.print.printed && !sale.print.skipped) {
       toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
     }
   }

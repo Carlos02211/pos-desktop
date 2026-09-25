@@ -24,7 +24,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { count, eq } from 'drizzle-orm'
 import { closeDb, initDb } from '../src/main/db'
-import { users } from '../src/main/db/schema'
+import { config, users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
 import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
@@ -342,8 +342,8 @@ async function main(): Promise<void> {
       'venta tarjeta: sin cambio ni monto pagado'
     )
     assert(
-      sale2.print.printed === false && sale2.print.error === 'Impresora no configurada',
-      'venta: sin impresora configurada, print.printed=false y la venta igual se registra'
+      sale2.print.printed === false && sale2.print.skipped === true && !sale2.print.error,
+      'venta: negocio sin impresora -> print.skipped (sin error ni aviso) y la venta se registra'
     )
 
     // ---- Sprint 3: resumen, cierre de caja + respaldo, reimpresión ----
@@ -389,7 +389,10 @@ async function main(): Promise<void> {
     )
 
     const reimpr = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
-    assert(reimpr.status === 502, `reimprimir sin impresora -> 502 (status: ${reimpr.status})`)
+    assert(
+      reimpr.status === 409,
+      `reimprimir sin impresora activada -> 409 (status: ${reimpr.status})`
+    )
 
     const cierre = await asCajero('/api/caja/cierre', 'POST', { closingAmount: 540 })
     assert(cierre.status === 200, `cierre de caja -> 200 (status: ${cierre.status})`)
@@ -793,12 +796,57 @@ async function main(): Promise<void> {
       })
     ).json()) as { printed: boolean; error?: string }
     await new Promise((r) => setTimeout(r, 200))
-    fakePrinter.close()
     const bytes = Buffer.concat(received).toString('latin1')
     assert(
       printed.printed && bytes.includes('PRUEBA DE IMPRESION'),
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
+
+    // Activada y con conexión: reimprimir llega a la impresora.
+    await asAdmin('/api/config', 'PUT', {
+      printer_enabled: '1',
+      printer_interface: `tcp://127.0.0.1:${fakePort}`
+    })
+    received.length = 0
+    const reprintOk = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
+    await new Promise((r) => setTimeout(r, 200))
+    assert(
+      reprintOk.status === 200 &&
+        Buffer.concat(received).toString('latin1').includes(`Ticket #${sale1.ticketNumber}`),
+      `impresora activada: reimprimir llega a la impresora (status ${reprintOk.status})`
+    )
+    // Apagarla conserva la conexión (para volver a activarla tal cual).
+    const off = (await (
+      await asAdmin('/api/config', 'PUT', { printer_enabled: '0' })
+    ).json()) as ConfigResponse
+    assert(
+      off.printer_enabled === '0' && off.printer_interface === `tcp://127.0.0.1:${fakePort}`,
+      'impresora: desactivarla conserva la conexión configurada'
+    )
+    assert(
+      (await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')).status === 409,
+      'impresora desactivada: reimprimir -> 409'
+    )
+    // Activada pero sin elegir impresora: eso sí es un error que hay que avisar.
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '1', printer_interface: '' })
+    const missing = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
+    assert(
+      missing.status === 502,
+      `impresora activada sin elegir -> 502 (status ${missing.status})`
+    )
+    fakePrinter.close()
+
+    // Actualización desde una versión sin printer_enabled: si ya había impresora cargada,
+    // el seed la deja activada (no en el '0' por defecto).
+    await asAdmin('/api/config', 'PUT', { printer_interface: 'tcp://10.0.0.9:9100' })
+    await db.delete(config).where(eq(config.key, 'printer_enabled'))
+    await runSeed(db)
+    const migrated = (await (await asAdmin('/api/config')).json()) as ConfigResponse
+    assert(
+      migrated.printer_enabled === '1',
+      'seed: instalación previa con impresora -> printer_enabled=1'
+    )
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
     const noPrinter = (await (
       await asAdmin('/api/admin/impresora/prueba', 'POST', { interface: '' })
     ).json()) as { printed: boolean }

@@ -3,7 +3,7 @@ import { Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import type { SaleWithItems } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
-import { getVentaDetalle, reimprimirTicket } from '@/api/admin'
+import { getConfig, getVentaDetalle, reimprimirTicket } from '@/api/admin'
 import { Modal } from '@/components/Modal'
 import { dateTime, formatQty, money, paymentLabel } from '@/lib/format'
 
@@ -17,12 +17,23 @@ export function VentaDetalleModal({
   const [sale, setSale] = useState<SaleWithItems | null>(null)
   const [error, setError] = useState('')
   const [printing, setPrinting] = useState(false)
+  // Sin impresora activada no se ofrece reimprimir (mismo criterio que el servidor).
+  const [hasPrinter, setHasPrinter] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     getVentaDetalle(saleId)
       .then((s) => !cancelled && setSale(s))
       .catch(() => !cancelled && setError('No se pudo cargar la venta'))
+    getConfig()
+      .then(
+        (c) =>
+          !cancelled &&
+          setHasPrinter(
+            c.printer_enabled === '1' || (c.printer_enabled === '' && !!c.printer_interface.trim())
+          )
+      )
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -101,14 +112,16 @@ export function VentaDetalleModal({
             )}
           </div>
 
-          <button
-            onClick={() => void reprint()}
-            disabled={printing}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
-          >
-            <Printer size={14} />
-            {printing ? 'Enviando…' : 'Reimprimir ticket'}
-          </button>
+          {hasPrinter && (
+            <button
+              onClick={() => void reprint()}
+              disabled={printing}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-secondary disabled:opacity-50"
+            >
+              <Printer size={14} />
+              {printing ? 'Enviando…' : 'Reimprimir ticket'}
+            </button>
+          )}
         </div>
       )}
     </Modal>

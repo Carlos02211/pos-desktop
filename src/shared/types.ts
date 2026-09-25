@@ -152,6 +152,8 @@ export interface SaleWithItems extends Sale {
 export interface PrintResult {
   printed: boolean
   error?: string
+  /** El negocio no usa impresora (desactivada en Configuración): no es un error. */
+  skipped?: boolean
 }
 
 /** Impresora instalada en Windows en la PC del servidor (`GET /api/admin/impresoras`). */
@@ -402,6 +404,8 @@ export interface ConfigResponse {
   business_utc_offset: string
   /** Descuento máximo (%) que el cobrador puede aplicar al editar un precio. '100' = sin límite. */
   max_line_discount_pct: string
+  /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
+  printer_enabled: string
   printer_interface: string
   backup_dir: string
 }

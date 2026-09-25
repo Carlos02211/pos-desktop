@@ -90,7 +90,8 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
     // La impresión es best-effort: la venta ya está registrada.
     const print = await printTicket(sale, await getConfigMap(db))
-    if (!print.printed) request.log.warn({ err: print.error }, 'ticket no impreso')
+    if (!print.printed && !print.skipped)
+      request.log.warn({ err: print.error }, 'ticket no impreso')
 
     return reply.code(201).send({ ...sale, print })
   })
@@ -114,6 +115,11 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       const db = getDb()
       const sale = await getSaleWithItems(db, id)
       const print = await printTicket(sale, await getConfigMap(db))
+      if (print.skipped) {
+        return reply
+          .code(409)
+          .send({ error: 'No hay impresora activada (Configuración → Impresora de tickets).' })
+      }
       if (!print.printed)
         return reply.code(502).send({ error: print.error ?? 'No se pudo imprimir' })
       return { ok: true }

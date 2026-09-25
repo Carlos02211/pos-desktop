@@ -180,6 +180,11 @@ export default function Configuracion(): React.JSX.Element {
         </section>
 
         <ImpresoraSection
+          enabled={
+            form.printer_enabled === '1' ||
+            (form.printer_enabled === '' && !!form.printer_interface.trim())
+          }
+          onEnabledChange={(on) => set('printer_enabled', on ? '1' : '0')}
           value={form.printer_interface}
           onChange={(v) => set('printer_interface', v)}
         />

@@ -251,10 +251,17 @@ export function buildTicketLines(sale: SaleWithItems, config: ConfigMap): string
   return lines
 }
 
+/** ¿El negocio usa impresora? Sin `printer_enabled` (instalaciones previas): si hay interfaz. */
+export function printerEnabled(config: ConfigMap): boolean {
+  const flag = config.printer_enabled ?? ''
+  return flag === '1' || (flag === '' && !!config.printer_interface?.trim())
+}
+
 export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promise<PrintResult> {
+  if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
   if (!iface) {
-    return { printed: false, error: 'Impresora no configurada' }
+    return { printed: false, error: 'Falta elegir la impresora en Configuración' }
   }
 
   try {

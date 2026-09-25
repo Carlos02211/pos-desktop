@@ -30,6 +30,7 @@ const configSchema = z.object({
       message: 'El descuento máximo debe ser un entero entre 0 y 100.'
     })
     .optional(),
+  printer_enabled: z.enum(['0', '1']).optional(),
   printer_interface: z.string().max(200).optional(),
   backup_dir: z.string().max(400).optional()
 })

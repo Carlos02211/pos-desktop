@@ -13,6 +13,7 @@ const DEFAULTS: ConfigResponse = {
   currency_symbol: '$',
   business_utc_offset: '',
   max_line_discount_pct: '100',
+  printer_enabled: '',
   printer_interface: '',
   backup_dir: ''
 }

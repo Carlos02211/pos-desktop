@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { DB } from './index'
 import { categories, config, customers, products, users } from './schema'
 
@@ -19,8 +19,11 @@ const DEFAULT_CONFIG: Record<string, string> = {
   // Descuento máximo (%) que un cobrador puede aplicar al editar el precio de una
   // línea. '100' = sin límite (comportamiento por defecto). '0' = no se puede editar.
   max_line_discount_pct: '100',
-  // Interfaz de node-thermal-printer. Vacío = impresión deshabilitada.
-  // Ejemplos: "printer:XP-80T" (driver de Windows), "tcp://192.168.1.100:9100", "/dev/usb/lp0".
+  // '1' / '0' = el negocio usa (o no) impresora de tickets. Desactivarla conserva la
+  // interfaz. En una base que ya existía se deduce de printer_interface (ver abajo).
+  printer_enabled: '0',
+  // Conexión de la impresora (ver src/main/services/printer.ts): "tcp://<ip>:9100",
+  // "windows:<nombre>" (instalada en Windows) o una ruta de dispositivo.
   printer_interface: '',
   // Carpeta de respaldo. Vacío = <userData>/backups. En el cliente se apunta al SSD de respaldo.
   backup_dir: ''
@@ -99,7 +102,17 @@ export async function runSeed(db: DB, opts: SeedOptions = {}): Promise<void> {
     }
   }
 
-  for (const [key, value] of Object.entries(DEFAULT_CONFIG)) {
+  // printer_enabled llegó después: en una instalación que ya tenía impresora cargada
+  // tiene que nacer en '1', no en el '0' por defecto (si no, dejaría de imprimir).
+  const [iface] = await db
+    .select({ value: config.value })
+    .from(config)
+    .where(eq(config.key, 'printer_interface'))
+  const defaults = {
+    ...DEFAULT_CONFIG,
+    printer_enabled: iface?.value.trim() ? '1' : DEFAULT_CONFIG.printer_enabled
+  }
+  for (const [key, value] of Object.entries(defaults)) {
     await db.insert(config).values({ key, value }).onConflictDoNothing()
   }
 }

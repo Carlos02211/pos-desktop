@@ -308,6 +308,12 @@ instalación nueva: un respaldo que nunca se restauró no está probado.
 Admin → Configuración → **Impresora de tickets**. Los tickets salen por esa impresora sin
 importar desde qué caja o tableta se cobre.
 
+**¿El negocio usa impresora?** Por defecto **No**: las ventas se registran sin imprimir y la
+caja no muestra ningún aviso (tampoco aparece "Reimprimir ticket"). Cuando consigan
+impresora, elegir **Sí**, configurarla como se indica abajo y **Guardar cambios**. Volver a
+**No** (p. ej. si se descompone) **conserva** la conexión configurada, para reactivarla igual.
+Con la impresora en **Sí**, el aviso "Ticket no impreso" en la caja sí indica una falla real.
+
 - **Conectada a la PC servidor (USB):** instalar primero el **driver del fabricante** (p. ej.
   Xprinter) en la PC servidor; luego elegirla de la lista (botón ⟳ para actualizarla). El
   ticket se manda directo a la cola de impresión de Windows, así que funciona aunque el
