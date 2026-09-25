@@ -5,6 +5,7 @@ import { ApiRequestError } from '@/api/client'
 import { login as loginRequest } from '@/api/auth'
 import { AuthShell, ErrorText, SubmitButton, TextField } from '@/components/AuthShell'
 import { useAuthStore } from '@/stores/auth.store'
+import { useBrandingStore } from '@/stores/branding.store'
 import { useLicenseStore } from '@/stores/license.store'
 import { homeFor } from '@/lib/routing'
 
@@ -35,6 +36,7 @@ export default function Login(): React.JSX.Element {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
   const user = useAuthStore((s) => s.user)
+  const businessName = useBrandingStore((s) => s.name)
   const licenseActive = useLicenseStore((s) => s.status?.active ?? false)
 
   const [remembered] = useState(readLastUser)
@@ -75,7 +77,11 @@ export default function Login(): React.JSX.Element {
   return (
     <AuthShell
       title="Iniciar sesión"
-      subtitle="Entrá con tu usuario para empezar el turno."
+      subtitle={
+        businessName
+          ? `Entrá a ${businessName} con tu usuario.`
+          : 'Entrá con tu usuario para empezar el turno.'
+      }
       footer="SpArTaN Tech · Punto de venta"
     >
       <form onSubmit={onSubmit} className="space-y-5">

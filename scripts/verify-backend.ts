@@ -32,6 +32,7 @@ import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/se
 import type {
   BackupRunResponse,
   BackupStatus,
+  BrandingResponse,
   FolderListing,
   SystemPrintersResponse,
   CashMovement,
@@ -740,6 +741,12 @@ async function main(): Promise<void> {
     assert(
       (await fetch(`${base}/uploads/${cfg2.logo_path}`)).status === 200,
       'config: el logo se sirve en /uploads/'
+    )
+    // Marca pública (barra superior / login): sin token, refleja nombre y logo.
+    const marca = (await (await fetch(`${base}/api/marca`)).json()) as BrandingResponse
+    assert(
+      marca.businessName === cfg2.business_name && marca.logoPath === cfg2.logo_path,
+      'marca: /api/marca es pública y trae el nombre y el logo del negocio'
     )
 
     // ---- Sistema: respaldos, carpetas del servidor e impresora (ADMIN) ----

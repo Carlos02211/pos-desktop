@@ -5,6 +5,7 @@ import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { getConfig, subirLogo, updateConfig } from '@/api/admin'
 import { ImpresoraSection } from '@/components/admin/ImpresoraSection'
 import { RespaldosSection } from '@/components/admin/RespaldosSection'
+import { useBrandingStore } from '@/stores/branding.store'
 
 type Form = Omit<ConfigResponse, 'logo_path'>
 
@@ -18,6 +19,7 @@ const TIMEZONES: { value: string; label: string }[] = [
 ]
 
 export default function Configuracion(): React.JSX.Element {
+  const setBranding = useBrandingStore((s) => s.set)
   const [form, setForm] = useState<Form | null>(null)
   const [logoPath, setLogoPath] = useState('')
   const [saving, setSaving] = useState(false)
@@ -49,7 +51,8 @@ export default function Configuracion(): React.JSX.Element {
     try {
       // backup_dir lo guarda RespaldosSection al elegir la carpeta: no pisarlo con el
       // valor que se cargó al abrir la página.
-      await updateConfig({ ...form, backup_dir: undefined })
+      const saved = await updateConfig({ ...form, backup_dir: undefined })
+      setBranding({ businessName: saved.business_name, logoPath: saved.logo_path })
       toast.success('Configuración guardada')
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo guardar')
@@ -63,6 +66,7 @@ export default function Configuracion(): React.JSX.Element {
     try {
       const res = await subirLogo(file)
       setLogoPath(res.path)
+      setBranding({ businessName: res.config.business_name, logoPath: res.config.logo_path })
       toast.success('Logo actualizado')
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo subir el logo')
@@ -80,7 +84,10 @@ export default function Configuracion(): React.JSX.Element {
       <div className="space-y-4">
         <section className="space-y-4 rounded-xl border border-border p-4">
           <h2 className="font-semibold">Negocio y ticket</h2>
-          <Field label="Nombre del negocio">
+          <Field
+            label="Nombre del negocio"
+            hint="Aparece en la barra superior, el inicio de sesión, el ticket y los reportes."
+          >
             <input
               value={form.business_name}
               onChange={(e) => set('business_name', e.target.value)}
@@ -118,7 +125,10 @@ export default function Configuracion(): React.JSX.Element {
               className={inputClass}
             />
           </Field>
-          <Field label="Logo (ticket y reportes PDF)">
+          <Field
+            label="Logo"
+            hint="Se muestra en la barra superior de todas las pantallas y en los reportes PDF."
+          >
             <div className="flex items-center gap-3">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-secondary/40 text-xs text-muted-foreground">
                 {logoPath ? (

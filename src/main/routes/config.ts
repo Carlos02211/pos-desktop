@@ -3,6 +3,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import type { BrandingResponse } from '../../shared/types'
 import { getDb } from '../db'
 import { HttpError } from '../lib/http-error'
 import { extForImage, sniffImage } from '../lib/image-type'
@@ -36,6 +37,14 @@ const configSchema = z.object({
 })
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
+  // Marca del negocio (nombre + logo) para la barra superior, el login y el título de la
+  // pestaña. Pública a propósito: la ven el cobrador y la pantalla de login, y no es
+  // información sensible (el logo ya se sirve público en /uploads/).
+  app.get('/api/marca', async (): Promise<BrandingResponse> => {
+    const c = await getConfig(getDb())
+    return { businessName: c.business_name, logoPath: c.logo_path }
+  })
+
   app.get('/api/config', { preHandler: requireRole('ADMIN') }, async () => await getConfig(getDb()))
 
   app.put('/api/config', { preHandler: requireRole('ADMIN') }, async (request) => {

@@ -416,6 +416,13 @@ export interface ConfigResponse {
 
 export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path'>>
 
+/** `GET /api/marca` (pública): lo que se muestra del negocio en la barra y el login. */
+export interface BrandingResponse {
+  businessName: string
+  /** Relativo a /uploads/ ('' = sin logo). */
+  logoPath: string
+}
+
 export interface OpenSessionInfo {
   cashSessionId: number
   userId: number
