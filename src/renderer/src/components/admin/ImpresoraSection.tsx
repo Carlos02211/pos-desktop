@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { CheckCircle2, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
 import type { SystemPrintersResponse } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
@@ -53,12 +54,18 @@ export function ImpresoraSection({
   enabled,
   onEnabledChange,
   value,
-  onChange
+  onChange,
+  extra,
+  ticketLogo
 }: {
   enabled: boolean
   onEnabledChange: (enabled: boolean) => void
   value: string
   onChange: (value: string) => void
+  /** Opciones extra con la impresora activada (p. ej. logo en el ticket), antes de la prueba. */
+  extra?: ReactNode
+  /** Estado actual (sin guardar) del logo en el ticket, para que la prueba lo refleje. */
+  ticketLogo?: boolean
 }): React.JSX.Element {
   const parsed = parse(value)
   const [mode, setMode] = useState<Mode>(parsed.mode)
@@ -108,7 +115,7 @@ export function ImpresoraSection({
     setTesting(true)
     setTest(null)
     try {
-      const r = await imprimirPrueba(value)
+      const r = await imprimirPrueba(value, ticketLogo)
       setTest(
         r.printed
           ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisá papel y tapa.' }
@@ -282,6 +289,8 @@ export function ImpresoraSection({
               />
             </label>
           )}
+
+          {extra}
 
           {mode && (
             <div className="mt-4 flex flex-wrap items-center gap-3">

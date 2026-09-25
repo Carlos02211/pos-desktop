@@ -89,7 +89,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // La impresión es best-effort: la venta ya está registrada.
-    const print = await printTicket(sale, await getConfigMap(db))
+    const print = await printTicket(sale, await getConfigMap(db), app.posContext.uploadsDir)
     if (!print.printed && !print.skipped)
       request.log.warn({ err: print.error }, 'ticket no impreso')
 
@@ -114,7 +114,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       const { id } = parse(idParam, request.params)
       const db = getDb()
       const sale = await getSaleWithItems(db, id)
-      const print = await printTicket(sale, await getConfigMap(db))
+      const print = await printTicket(sale, await getConfigMap(db), app.posContext.uploadsDir)
       if (print.skipped) {
         return reply
           .code(409)

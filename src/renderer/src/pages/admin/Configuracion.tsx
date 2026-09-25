@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { ConfigResponse } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
-import { getConfig, subirLogo, updateConfig } from '@/api/admin'
+import { getConfig, subirLogo, subirLogoTicket, updateConfig } from '@/api/admin'
 import { ImpresoraSection } from '@/components/admin/ImpresoraSection'
 import { RespaldosSection } from '@/components/admin/RespaldosSection'
+import { TicketLogoOption } from '@/components/admin/TicketLogoOption'
+import { makeTicketLogo } from '@/lib/ticket-logo'
 import { useBrandingStore } from '@/stores/branding.store'
 
 type Form = Omit<ConfigResponse, 'logo_path'>
@@ -67,6 +69,11 @@ export default function Configuracion(): React.JSX.Element {
       const res = await subirLogo(file)
       setLogoPath(res.path)
       setBranding({ businessName: res.config.business_name, logoPath: res.config.logo_path })
+      // Si el logo se imprime en el ticket, su versión blanco y negro también cambia.
+      if (form?.ticket_logo === '1') {
+        const t = await subirLogoTicket(await makeTicketLogo(file))
+        set('ticket_logo_path', t.path)
+      }
       toast.success('Logo actualizado')
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo subir el logo')
@@ -197,6 +204,16 @@ export default function Configuracion(): React.JSX.Element {
           onEnabledChange={(on) => set('printer_enabled', on ? '1' : '0')}
           value={form.printer_interface}
           onChange={(v) => set('printer_interface', v)}
+          ticketLogo={form.ticket_logo === '1'}
+          extra={
+            <TicketLogoOption
+              logoPath={logoPath}
+              enabled={form.ticket_logo === '1'}
+              ticketLogoPath={form.ticket_logo_path}
+              onEnabledChange={(on) => set('ticket_logo', on ? '1' : '0')}
+              onTicketLogoPath={(p) => set('ticket_logo_path', p)}
+            />
+          }
         />
 
         <button

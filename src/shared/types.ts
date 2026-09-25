@@ -411,10 +411,14 @@ export interface ConfigResponse {
   /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
   printer_enabled: string
   printer_interface: string
+  /** '1' = imprimir el logo arriba del ticket. */
+  ticket_logo: string
+  /** PNG blanco y negro para el ticket (relativo a /uploads/). Lo sube su propio endpoint. */
+  ticket_logo_path: string
   backup_dir: string
 }
 
-export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path'>>
+export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path' | 'ticket_logo_path'>>
 
 /** `GET /api/marca` (pública): lo que se muestra del negocio en la barra y el login. */
 export interface BrandingResponse {

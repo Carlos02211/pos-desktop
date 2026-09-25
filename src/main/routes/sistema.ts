@@ -32,7 +32,11 @@ const createFolderSchema = z.object({
   name: z.string().min(1).max(120)
 })
 const probeSchema = z.object({ path: z.string().min(1).max(400) })
-const testPrintSchema = z.object({ interface: z.string().max(200) })
+const testPrintSchema = z.object({
+  interface: z.string().max(200),
+  /** Lo que se ve en pantalla aunque todavía no se haya guardado. */
+  ticketLogo: z.boolean().optional()
+})
 
 /** Si el servidor corre como servicio de Windows, cómo darle permiso a una carpeta. */
 function permissionHint(path: string): string {
@@ -111,7 +115,9 @@ export async function sistemaRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/api/admin/impresora/prueba', admin, async (request) => {
-    const { interface: iface } = parse(testPrintSchema, request.body)
-    return printTestPage(iface, await getConfigMap(getDb()))
+    const { interface: iface, ticketLogo } = parse(testPrintSchema, request.body)
+    const config = await getConfigMap(getDb())
+    if (ticketLogo !== undefined) config.ticket_logo = ticketLogo ? '1' : '0'
+    return printTestPage(iface, config, app.posContext.uploadsDir)
   })
 }

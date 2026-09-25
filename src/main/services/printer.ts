@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { randomUUID } from 'crypto'
-import { unlink, writeFile } from 'fs/promises'
+import { readFile, unlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -150,6 +150,27 @@ async function connectOrFail(printer: ThermalPrinter, iface: string): Promise<vo
   )
 }
 
+/**
+ * Logo arriba del ticket, si está activado. Es el PNG blanco y negro que armó el panel
+ * (ancho de la impresora + tramado). Un logo que falla no impide imprimir el ticket.
+ */
+async function printLogo(
+  printer: ThermalPrinter,
+  config: ConfigMap,
+  uploadsDir: string | undefined
+): Promise<void> {
+  const rel = config.ticket_logo_path?.trim()
+  if (config.ticket_logo !== '1' || !rel || !uploadsDir) return
+  try {
+    const png = await readFile(join(uploadsDir, rel))
+    printer.alignCenter()
+    await printer.printImageBuffer(png)
+    printer.newLine()
+  } catch {
+    // sin logo: el ticket sale igual
+  }
+}
+
 /** Impresoras instaladas en Windows (en la PC del servidor). Fuera de Windows: []. */
 export async function listSystemPrinters(): Promise<SystemPrinter[]> {
   if (process.platform !== 'win32') return []
@@ -175,11 +196,16 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
 }
 
 /** Hoja de prueba: confirma interfaz, conexión y corte de papel. */
-export async function printTestPage(iface: string, config: ConfigMap): Promise<PrintResult> {
+export async function printTestPage(
+  iface: string,
+  config: ConfigMap,
+  uploadsDir?: string
+): Promise<PrintResult> {
   if (!iface.trim()) return { printed: false, error: 'Elegí una impresora primero.' }
   try {
     const { printer, timeoutMs } = createPrinter(iface.trim())
     await connectOrFail(printer, iface.trim())
+    await printLogo(printer, config, uploadsDir)
     printer.alignCenter()
     printer.bold(true)
     printer.println('PRUEBA DE IMPRESION')
@@ -257,7 +283,11 @@ export function printerEnabled(config: ConfigMap): boolean {
   return flag === '1' || (flag === '' && !!config.printer_interface?.trim())
 }
 
-export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promise<PrintResult> {
+export async function printTicket(
+  sale: SaleWithItems,
+  config: ConfigMap,
+  uploadsDir?: string
+): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
   if (!iface) {
@@ -268,6 +298,7 @@ export async function printTicket(sale: SaleWithItems, config: ConfigMap): Promi
     const { printer, timeoutMs } = createPrinter(iface)
     await connectOrFail(printer, iface)
 
+    await printLogo(printer, config, uploadsDir)
     const symbol = config.currency_symbol || '$'
 
     printer.alignCenter()

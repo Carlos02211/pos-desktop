@@ -827,6 +827,42 @@ async function main(): Promise<void> {
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
 
+    // Logo en el ticket: PNG blanco y negro subido aparte; la prueba lo imprime (GS v 0).
+    const upTicketLogo = (buf: Buffer, name: string, type: string): Promise<Response> =>
+      fetch(`${base}/api/config/logo-ticket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}` },
+        body: (() => {
+          const f = new FormData()
+          f.append('file', new Blob([new Uint8Array(buf)], { type }), name)
+          return f
+        })()
+      })
+    assert(
+      (await upTicketLogo(Buffer.from('no es una imagen de verdad'), 'x.png', 'image/png'))
+        .status === 400,
+      'logo del ticket: sólo PNG (otra cosa -> 400)'
+    )
+    const upOk = await upTicketLogo(png, 'logo-ticket.png', 'image/png')
+    const upBody = (await upOk.json()) as { path: string; config: ConfigResponse }
+    assert(
+      upOk.status === 201 && upBody.config.ticket_logo_path.startsWith('config/logo-ticket-'),
+      'logo del ticket: se sube y queda en config/logo-ticket-*.png'
+    )
+    received.length = 0
+    const withLogo = (await (
+      await asAdmin('/api/admin/impresora/prueba', 'POST', {
+        interface: `tcp://127.0.0.1:${fakePort}`,
+        ticketLogo: true
+      })
+    ).json()) as { printed: boolean; error?: string }
+    await new Promise((r) => setTimeout(r, 200))
+    const withLogoBytes = Buffer.concat(received)
+    assert(
+      withLogo.printed && withLogoBytes.includes(Buffer.from([0x1d, 0x76, 0x30])),
+      `logo del ticket: la hoja de prueba incluye la imagen (${withLogo.error ?? 'ok'})`
+    )
+
     // Activada y con conexión: reimprimir llega a la impresora.
     await asAdmin('/api/config', 'PUT', {
       printer_enabled: '1',

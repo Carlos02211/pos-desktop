@@ -9,7 +9,7 @@ import { HttpError } from '../lib/http-error'
 import { extForImage, sniffImage } from '../lib/image-type'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
-import { getConfig, setLogoPath, updateConfig } from '../services/config'
+import { getConfig, setLogoPath, setTicketLogoPath, updateConfig } from '../services/config'
 
 const configSchema = z.object({
   business_name: z.string().max(120).optional(),
@@ -33,6 +33,7 @@ const configSchema = z.object({
     .optional(),
   printer_enabled: z.enum(['0', '1']).optional(),
   printer_interface: z.string().max(200).optional(),
+  ticket_logo: z.enum(['0', '1']).optional(),
   backup_dir: z.string().max(400).optional()
 })
 
@@ -76,4 +77,31 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.code(201).send({ path: relative, config: await getConfig(db) })
   })
+
+  // Versión del logo para el ticket: PNG blanco y negro que ya arma el navegador (ancho de
+  // la impresora + tramado), así el servidor no necesita librerías de imagen nativas.
+  app.post(
+    '/api/config/logo-ticket',
+    { preHandler: requireRole('ADMIN') },
+    async (request, reply) => {
+      const db = getDb()
+      const data = await request.file()
+      if (!data) throw new HttpError(400, 'No se recibió ningún archivo.')
+      const buffer = await data.toBuffer()
+      if (data.file.truncated) throw new HttpError(413, 'La imagen es demasiado grande.')
+      if (sniffImage(buffer) !== 'png') throw new HttpError(400, 'El logo del ticket debe ser PNG.')
+
+      const dir = join(app.posContext.uploadsDir, 'config')
+      await mkdir(dir, { recursive: true })
+      const relative = `config/logo-ticket-${randomUUID()}.png`
+      await writeFile(join(app.posContext.uploadsDir, relative), buffer)
+
+      const previous = (await getConfig(db)).ticket_logo_path
+      await setTicketLogoPath(db, relative)
+      if (previous && previous.startsWith('config/')) {
+        await unlink(join(app.posContext.uploadsDir, previous)).catch(() => {})
+      }
+      return reply.code(201).send({ path: relative, config: await getConfig(db) })
+    }
+  )
 }

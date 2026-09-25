@@ -163,10 +163,23 @@ export function listImpresoras(): Promise<SystemPrintersResponse> {
   return api.get<SystemPrintersResponse>('/api/admin/impresoras')
 }
 
-export function imprimirPrueba(printerInterface: string): Promise<PrintResult> {
-  return api.post<PrintResult>('/api/admin/impresora/prueba', { interface: printerInterface })
+export function imprimirPrueba(
+  printerInterface: string,
+  ticketLogo?: boolean
+): Promise<PrintResult> {
+  return api.post<PrintResult>('/api/admin/impresora/prueba', {
+    interface: printerInterface,
+    ticketLogo
+  })
 }
 
 export function getMovimientosCorte(sessionId: number): Promise<CashMovementWithUser[]> {
   return api.get<CashMovementWithUser[]>(`/api/caja/${sessionId}/movimientos`)
+}
+
+/** Sube la versión blanco y negro del logo para el ticket (PNG que arma makeTicketLogo). */
+export function subirLogoTicket(png: Blob): Promise<{ path: string; config: ConfigResponse }> {
+  const form = new FormData()
+  form.append('file', png, 'logo-ticket.png')
+  return api.post<{ path: string; config: ConfigResponse }>('/api/config/logo-ticket', form)
 }
