@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { Category, CreateSaleResponse, ProductWithCategory } from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
-import { getSesionActiva } from '@/api/caja'
+import { abrirCajon, cajonActivo, getSesionActiva } from '@/api/caja'
+import { ApiRequestError } from '@/api/client'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
@@ -24,6 +25,8 @@ export default function PanelVenta(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [cobroOpen, setCobroOpen] = useState(false)
   const [movimientoOpen, setMovimientoOpen] = useState(false)
+  const [hasDrawer, setHasDrawer] = useState(false)
+  const [opening, setOpening] = useState(false)
 
   // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
   const items = useCartStore((s) => s.items)
@@ -51,7 +54,12 @@ export default function PanelVenta(): React.JSX.Element {
           return
         }
         await loadCatalog()
-        if (!cancelled) setLoad('ready')
+        // Sin cajón configurado el botón no aparece; si la consulta falla, tampoco.
+        const drawer = await cajonActivo().catch(() => false)
+        if (!cancelled) {
+          setHasDrawer(drawer)
+          setLoad('ready')
+        }
       } catch {
         if (!cancelled) setLoad('error')
       }
@@ -110,6 +118,18 @@ export default function PanelVenta(): React.JSX.Element {
     // Un nombre que sí filtra productos no es un código desconocido: no se avisa nada.
     if (!byBarcode.has(term) && visible.length > 0) return
     if (scan(term)) setSearch('')
+  }
+
+  async function openDrawer(): Promise<void> {
+    setOpening(true)
+    try {
+      const r = await abrirCajon()
+      if (!r.opened) toast.error(r.error ?? 'El cajón no está configurado.')
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo abrir el cajón.')
+    } finally {
+      setOpening(false)
+    }
   }
 
   function onSaleDone(sale: CreateSaleResponse): void {
@@ -195,6 +215,15 @@ export default function PanelVenta(): React.JSX.Element {
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm font-semibold">
           <span>Carrito · {cartCount(items)} art.</span>
           <div className="flex gap-1.5">
+            {hasDrawer && (
+              <button
+                onClick={() => void openDrawer()}
+                disabled={opening}
+                className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary disabled:opacity-50"
+              >
+                Cajón
+              </button>
+            )}
             <button
               onClick={() => navigate('/cobrador/cuentas')}
               className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"

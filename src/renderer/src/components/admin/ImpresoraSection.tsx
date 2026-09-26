@@ -55,17 +55,14 @@ export function ImpresoraSection({
   onEnabledChange,
   value,
   onChange,
-  extra,
-  ticketLogo
+  extra
 }: {
   enabled: boolean
   onEnabledChange: (enabled: boolean) => void
   value: string
   onChange: (value: string) => void
-  /** Opciones extra con la impresora activada (p. ej. logo en el ticket), antes de la prueba. */
+  /** Opciones extra con la impresora activada (p. ej. el cajón), antes de la prueba. */
   extra?: ReactNode
-  /** Estado actual (sin guardar) del logo en el ticket, para que la prueba lo refleje. */
-  ticketLogo?: boolean
 }): React.JSX.Element {
   const parsed = parse(value)
   const [mode, setMode] = useState<Mode>(parsed.mode)
@@ -115,7 +112,7 @@ export function ImpresoraSection({
     setTesting(true)
     setTest(null)
     try {
-      const r = await imprimirPrueba(value, ticketLogo)
+      const r = await imprimirPrueba(value)
       setTest(
         r.printed
           ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisá papel y tapa.' }

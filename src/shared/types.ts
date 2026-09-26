@@ -160,6 +160,14 @@ export interface PrintResult {
   skipped?: boolean
 }
 
+/** Resultado de abrir el cajón de dinero (va conectado a la impresora). */
+export interface DrawerResult {
+  opened: boolean
+  error?: string
+  /** El negocio no tiene cajón configurado: no es un error. */
+  skipped?: boolean
+}
+
 /** Impresora instalada en Windows en la PC del servidor (`GET /api/admin/impresoras`). */
 export interface SystemPrinter {
   name: string
@@ -415,14 +423,12 @@ export interface ConfigResponse {
   /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
   printer_enabled: string
   printer_interface: string
-  /** '1' = imprimir el logo arriba del ticket. */
-  ticket_logo: string
-  /** PNG blanco y negro para el ticket (relativo a /uploads/). Lo sube su propio endpoint. */
-  ticket_logo_path: string
+  /** '1' = hay cajón de dinero en el puerto RJ11 de la impresora: se abre al recibir efectivo. */
+  cash_drawer: string
   backup_dir: string
 }
 
-export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path' | 'ticket_logo_path'>>
+export type ConfigInput = Partial<Omit<ConfigResponse, 'logo_path'>>
 
 /** `GET /api/marca` (pública): lo que se muestra del negocio en la barra y el login. */
 export interface BrandingResponse {

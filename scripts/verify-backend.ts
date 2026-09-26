@@ -47,6 +47,7 @@ import type {
   CreditAccountDetail,
   CreditAccountListItem,
   CustomerWithBalance,
+  DrawerResult,
   LicenseStatusResponse,
   LoginResponse,
   PingResponse,
@@ -881,42 +882,6 @@ async function main(): Promise<void> {
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
 
-    // Logo en el ticket: PNG blanco y negro subido aparte; la prueba lo imprime (GS v 0).
-    const upTicketLogo = (buf: Buffer, name: string, type: string): Promise<Response> =>
-      fetch(`${base}/api/config/logo-ticket`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${session.token}` },
-        body: (() => {
-          const f = new FormData()
-          f.append('file', new Blob([new Uint8Array(buf)], { type }), name)
-          return f
-        })()
-      })
-    assert(
-      (await upTicketLogo(Buffer.from('no es una imagen de verdad'), 'x.png', 'image/png'))
-        .status === 400,
-      'logo del ticket: sólo PNG (otra cosa -> 400)'
-    )
-    const upOk = await upTicketLogo(png, 'logo-ticket.png', 'image/png')
-    const upBody = (await upOk.json()) as { path: string; config: ConfigResponse }
-    assert(
-      upOk.status === 201 && upBody.config.ticket_logo_path.startsWith('config/logo-ticket-'),
-      'logo del ticket: se sube y queda en config/logo-ticket-*.png'
-    )
-    received.length = 0
-    const withLogo = (await (
-      await asAdmin('/api/admin/impresora/prueba', 'POST', {
-        interface: `tcp://127.0.0.1:${fakePort}`,
-        ticketLogo: true
-      })
-    ).json()) as { printed: boolean; error?: string }
-    await new Promise((r) => setTimeout(r, 200))
-    const withLogoBytes = Buffer.concat(received)
-    assert(
-      withLogo.printed && withLogoBytes.includes(Buffer.from([0x1d, 0x76, 0x30])),
-      `logo del ticket: la hoja de prueba incluye la imagen (${withLogo.error ?? 'ok'})`
-    )
-
     // Activada y con conexión: reimprimir llega a la impresora.
     await asAdmin('/api/config', 'PUT', {
       printer_enabled: '1',
@@ -927,7 +892,7 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, 200))
     assert(
       reprintOk.status === 200 &&
-        Buffer.concat(received).toString('latin1').includes(`Ticket #${sale1.ticketNumber}`),
+        Buffer.concat(received).toString('latin1').includes(`Folio: ${sale1.ticketNumber}`),
       `impresora activada: reimprimir llega a la impresora (status ${reprintOk.status})`
     )
     // Apagarla conserva la conexión (para volver a activarla tal cual).
@@ -1292,6 +1257,139 @@ async function main(): Promise<void> {
       'historial de ventas: expone customerName cuando la venta tiene cliente'
     )
 
+    // ---- Ticket (sólo texto) + cajón de dinero ----
+    // Impresora falsa: junta cada trabajo que llega. El cajón es `ESC p 0 25 250` en el pin 2.
+    const jobs: Buffer[] = []
+    const cajonPrinter = createServer((sock) => {
+      const parts: Buffer[] = []
+      sock.on('data', (d) => parts.push(d))
+      // La librería abre una conexión vacía para ver si la impresora responde: no cuenta.
+      sock.on('end', () => {
+        const job = Buffer.concat(parts)
+        if (job.length) jobs.push(job)
+      })
+    })
+    await new Promise<void>((r) => cajonPrinter.listen(0, '127.0.0.1', r))
+    const cajonPort = (cajonPrinter.address() as AddressInfo).port
+    const KICK = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
+    const lastJob = async (): Promise<Buffer> => {
+      await new Promise((r) => setTimeout(r, 250))
+      return jobs.at(-1) ?? Buffer.alloc(0)
+    }
+    await asAdmin('/api/config', 'PUT', {
+      printer_enabled: '1',
+      printer_interface: `tcp://127.0.0.1:${cajonPort}`,
+      cash_drawer: '1'
+    })
+    assert(
+      ((await (await asCajero('/api/caja/cajon')).json()) as { enabled: boolean }).enabled,
+      'cajón: el cobrador sabe que hay cajón (muestra el botón)'
+    )
+
+    const ticketCash = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 100
+      })
+    ).json()) as CreateSaleResponse
+    const cashJob = await lastJob()
+    const cashText = cashJob.toString('latin1')
+    assert(
+      ticketCash.print.printed && cashJob.includes(KICK),
+      'venta en efectivo: el ticket abre el cajón'
+    )
+    assert(
+      [
+        `Folio: ${ticketCash.ticketNumber}`,
+        `Turno de caja: ${ticketCash.cashSessionId}`,
+        'Cobrador: cajero',
+        'Efectivo',
+        'Recibido',
+        'Cambio'
+      ].every((t) => cashText.includes(t)) && !cashText.includes('CASH'),
+      'ticket: folio, turno de caja, cobrador y pago en español'
+    )
+    assert(
+      !cashJob.includes(Buffer.from([0x1d, 0x76, 0x30])),
+      'ticket: sin imagen (sólo texto, no gasta en logo)'
+    )
+
+    const ticketCard = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const cardJob = await lastJob()
+    assert(
+      ticketCard.print.printed &&
+        !cardJob.includes(KICK) &&
+        cardJob.toString('latin1').includes('Tarjeta'),
+      'venta con tarjeta: imprime pero NO abre el cajón'
+    )
+
+    await asAdmin(`/api/ventas/${ticketCash.id}/reimprimir`, 'POST')
+    assert(!(await lastJob()).includes(KICK), 'reimpresión: no abre el cajón')
+
+    const fiadoTicket = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 2 }],
+        paymentMethod: 'CREDIT',
+        customerId: juan.id,
+        amountPaid: 5
+      })
+    ).json()) as CreateSaleResponse
+    const fiadoText = (await lastJob()).toString('latin1')
+    assert(
+      jobs.at(-1)!.includes(KICK) &&
+        fiadoText.includes('Fiado') &&
+        fiadoText.includes('Enganche') &&
+        fiadoText.includes('Queda a deber') &&
+        fiadoText.includes('Cliente: Juan'),
+      'venta fiada con enganche: abre el cajón y el ticket dice cuánto queda a deber'
+    )
+
+    const nJobs = jobs.length
+    await asCajero(`/api/cuentas/${fiadoTicket.creditAccountId}/abono`, 'POST', {
+      amount: 1,
+      paymentMethod: 'TRANSFER'
+    })
+    await new Promise((r) => setTimeout(r, 250))
+    assert(jobs.length === nJobs, 'abono por transferencia: no abre el cajón')
+    const abonoCash = await asCajero(`/api/cuentas/${fiadoTicket.creditAccountId}/abono`, 'POST', {
+      amount: 1,
+      paymentMethod: 'CASH'
+    })
+    const abonoJob = await lastJob()
+    assert(
+      jobs.length === nJobs + 1 && abonoJob.includes(KICK),
+      `abono en efectivo: abre el cajón (status ${abonoCash.status}, trabajos ${jobs.length - nJobs})`
+    )
+
+    await asCajero('/api/caja/movimiento', 'POST', { type: 'IN', amount: 50, reason: 'Cambio' })
+    assert((await lastJob()).includes(KICK), 'ingreso de efectivo: abre el cajón')
+
+    const manual = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
+    assert(manual.opened && (await lastJob()).includes(KICK), 'botón "Cajón" del cobrador: lo abre')
+
+    const pruebaCajon = (await (
+      await asAdmin('/api/admin/impresora/cajon', 'POST', {
+        interface: `tcp://127.0.0.1:${cajonPort}`
+      })
+    ).json()) as DrawerResult
+    assert(pruebaCajon.opened && (await lastJob()).includes(KICK), 'Configuración: "Probar cajón"')
+
+    await asAdmin('/api/config', 'PUT', { cash_drawer: '0' })
+    const sinCajon = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
+    assert(
+      sinCajon.skipped === true &&
+        !((await (await asCajero('/api/caja/cajon')).json()) as { enabled: boolean }).enabled,
+      'sin cajón configurado: el botón no aparece y no se manda nada'
+    )
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
+    cajonPrinter.close()
+
     console.log(
       `\n✅ Backend verificado (${PG ? 'PostgreSQL' : 'SQLite'}) — Sprints 0–8 + cuentas por cobrar OK`
     )
@@ -1304,5 +1402,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('\n❌ Verificación fallida\n', err)
-  process.exitCode = 1
+  // Salir ya: una impresora falsa que quedó abierta dejaría el proceso (y el CI) colgado.
+  process.exit(1)
 })

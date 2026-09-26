@@ -10,6 +10,7 @@ import type {
   ConfigInput,
   ConfigResponse,
   CreateUserInput,
+  DrawerResult,
   DashboardData,
   FolderListing,
   PrintResult,
@@ -163,23 +164,15 @@ export function listImpresoras(): Promise<SystemPrintersResponse> {
   return api.get<SystemPrintersResponse>('/api/admin/impresoras')
 }
 
-export function imprimirPrueba(
-  printerInterface: string,
-  ticketLogo?: boolean
-): Promise<PrintResult> {
-  return api.post<PrintResult>('/api/admin/impresora/prueba', {
-    interface: printerInterface,
-    ticketLogo
-  })
+/** Abre el cajón con la impresora que se ve en pantalla (aunque no esté guardada). */
+export function probarCajon(printerInterface: string): Promise<DrawerResult> {
+  return api.post<DrawerResult>('/api/admin/impresora/cajon', { interface: printerInterface })
+}
+
+export function imprimirPrueba(printerInterface: string): Promise<PrintResult> {
+  return api.post<PrintResult>('/api/admin/impresora/prueba', { interface: printerInterface })
 }
 
 export function getMovimientosCorte(sessionId: number): Promise<CashMovementWithUser[]> {
   return api.get<CashMovementWithUser[]>(`/api/caja/${sessionId}/movimientos`)
-}
-
-/** Sube la versión blanco y negro del logo para el ticket (PNG que arma makeTicketLogo). */
-export function subirLogoTicket(png: Blob): Promise<{ path: string; config: ConfigResponse }> {
-  const form = new FormData()
-  form.append('file', png, 'logo-ticket.png')
-  return api.post<{ path: string; config: ConfigResponse }>('/api/config/logo-ticket', form)
 }

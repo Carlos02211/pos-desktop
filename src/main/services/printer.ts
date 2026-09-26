@@ -1,11 +1,12 @@
 import { execFile } from 'child_process'
 import { randomUUID } from 'crypto'
-import { readFile, unlink, writeFile } from 'fs/promises'
+import { unlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
 import { CharacterSet, PrinterTypes, ThermalPrinter } from 'node-thermal-printer'
-import type { PrintResult, SaleWithItems, SystemPrinter } from '../../shared/types'
+import type { DrawerResult, PrintResult, SaleWithItems, SystemPrinter } from '../../shared/types'
+import { businessOffsetMinutes } from '../lib/timezone'
 import type { ConfigMap } from './config'
 
 const execFileAsync = promisify(execFile)
@@ -150,27 +151,6 @@ async function connectOrFail(printer: ThermalPrinter, iface: string): Promise<vo
   )
 }
 
-/**
- * Logo arriba del ticket, si está activado. Es el PNG blanco y negro que armó el panel
- * (ancho de la impresora + tramado). Un logo que falla no impide imprimir el ticket.
- */
-async function printLogo(
-  printer: ThermalPrinter,
-  config: ConfigMap,
-  uploadsDir: string | undefined
-): Promise<void> {
-  const rel = config.ticket_logo_path?.trim()
-  if (config.ticket_logo !== '1' || !rel || !uploadsDir) return
-  try {
-    const png = await readFile(join(uploadsDir, rel))
-    printer.alignCenter()
-    await printer.printImageBuffer(png)
-    printer.newLine()
-  } catch {
-    // sin logo: el ticket sale igual
-  }
-}
-
 /** Impresoras instaladas en Windows (en la PC del servidor). Fuera de Windows: []. */
 export async function listSystemPrinters(): Promise<SystemPrinter[]> {
   if (process.platform !== 'win32') return []
@@ -196,16 +176,11 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
 }
 
 /** Hoja de prueba: confirma interfaz, conexión y corte de papel. */
-export async function printTestPage(
-  iface: string,
-  config: ConfigMap,
-  uploadsDir?: string
-): Promise<PrintResult> {
+export async function printTestPage(iface: string, config: ConfigMap): Promise<PrintResult> {
   if (!iface.trim()) return { printed: false, error: 'Elegí una impresora primero.' }
   try {
     const { printer, timeoutMs } = createPrinter(iface.trim())
     await connectOrFail(printer, iface.trim())
-    await printLogo(printer, config, uploadsDir)
     printer.alignCenter()
     printer.bold(true)
     printer.println('PRUEBA DE IMPRESION')
@@ -213,7 +188,7 @@ export async function printTestPage(
     printer.println((config.business_name || 'Mi Negocio').toUpperCase())
     printer.drawLine()
     printer.alignLeft()
-    printer.println(`Fecha: ${new Date().toLocaleString('es-MX')}`)
+    printer.println(`Fecha: ${ticketDate(Math.floor(Date.now() / 1000), config)}`)
     printer.println('Si puede leer esto, la impresora')
     printer.println('esta bien configurada.')
     printer.drawLine()
@@ -244,37 +219,29 @@ function fmtQty(quantity: number, unit: 'PIEZA' | 'KG'): string {
   return quantity < 1 ? `${Math.round(quantity * 1000)}g` : `${quantity.toFixed(3)}kg`
 }
 
-/** Ticket en texto plano — puro y testeable, sin dependencia de la impresora. */
-export function buildTicketLines(sale: SaleWithItems, config: ConfigMap): string[] {
-  const symbol = config.currency_symbol || '$'
-  const lines: string[] = []
+const METHOD_LABEL: Record<SaleWithItems['paymentMethod'], string> = {
+  CASH: 'Efectivo',
+  CARD: 'Tarjeta',
+  TRANSFER: 'Transferencia',
+  CREDIT: 'Fiado'
+}
 
-  lines.push((config.business_name || 'Mi Negocio').toUpperCase())
-  if (config.business_address) lines.push(config.business_address)
-  if (config.business_phone) lines.push(`Tel: ${config.business_phone}`)
-  lines.push('-'.repeat(32))
-  lines.push(`Ticket #${sale.ticketNumber}`)
-  lines.push(`Fecha: ${new Date(sale.createdAt * 1000).toLocaleString('es-MX')}`)
-  lines.push(`Cobrador: ${sale.userName}`)
-  if (sale.customerName) lines.push(`Cliente: ${sale.customerName}`)
-  lines.push('-'.repeat(32))
+/** Fecha y hora en la zona del negocio: el proceso (pm2 como servicio) puede correr en UTC. */
+function ticketDate(unixSeconds: number, config: ConfigMap): string {
+  const d = new Date((unixSeconds + businessOffsetMinutes(config) * 60) * 1000)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return (
+    `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+  )
+}
 
-  for (const item of sale.items) {
-    lines.push(`${fmtQty(item.quantity, item.unit)} x ${item.name}`)
-    lines.push(`${' '.repeat(10)}${fmtMoney(item.subtotal, symbol).padStart(22)}`)
-  }
-
-  lines.push('-'.repeat(32))
-  lines.push(`TOTAL:${fmtMoney(sale.total, symbol).padStart(26)}`)
-  lines.push(`Metodo: ${sale.paymentMethod}`)
-  if (sale.paymentMethod === 'CASH') {
-    lines.push(`Pago: ${fmtMoney(sale.amountPaid ?? 0, symbol)}`)
-    lines.push(`Cambio: ${fmtMoney(sale.change ?? 0, symbol)}`)
-  }
-  lines.push('-'.repeat(32))
-  lines.push(config.ticket_footer || '¡Gracias por su compra!')
-
-  return lines
+/** Renglón con texto a la izquierda y valor a la derecha (48 columnas en 80 mm). */
+function pair(printer: ThermalPrinter, left: string, right: string, leftWidth = 0.6): void {
+  printer.tableCustom([
+    { text: left, align: 'LEFT', width: leftWidth },
+    { text: right, align: 'RIGHT', width: 1 - leftWidth }
+  ])
 }
 
 /** ¿El negocio usa impresora? Sin `printer_enabled` (instalaciones previas): si hay interfaz. */
@@ -283,10 +250,60 @@ export function printerEnabled(config: ConfigMap): boolean {
   return flag === '1' || (flag === '' && !!config.printer_interface?.trim())
 }
 
+/**
+ * Pulso de apertura del cajón (va en el puerto RJ11 de la impresora): `ESC p m t1 t2`.
+ * Se arma a mano porque `openCashDrawer()` de la librería manda sólo `ESC p m` (3 bytes) y
+ * la impresora se come los 2 bytes siguientes del ticket como tiempos del pulso.
+ * 50 ms encendido (25×2) y 500 ms de pausa, en el pin 2 y en el 5: cada cajón viene
+ * cableado a uno de los dos y el otro pulso no hace nada.
+ */
+const DRAWER_KICK = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa, 0x1b, 0x70, 0x01, 0x19, 0xfa])
+
+/** El cajón se abre por la impresora: sin impresora activa no hay cajón. */
+export function cashDrawerEnabled(config: ConfigMap): boolean {
+  return printerEnabled(config) && config.cash_drawer === '1'
+}
+
+/** ¿Hay billetes que guardar? Efectivo, o el enganche en efectivo de una venta fiada. */
+function receivesCash(sale: SaleWithItems): boolean {
+  return (
+    sale.paymentMethod === 'CASH' || (sale.paymentMethod === 'CREDIT' && (sale.amountPaid ?? 0) > 0)
+  )
+}
+
+/**
+ * Abre el cajón sin imprimir nada (botón del cobrador, abonos y movimientos en efectivo).
+ * Nunca lanza. Con `ifaceOverride` (prueba desde Configuración) no se mira si está activado.
+ */
+export async function openCashDrawer(
+  config: ConfigMap,
+  ifaceOverride?: string
+): Promise<DrawerResult> {
+  if (ifaceOverride === undefined && !cashDrawerEnabled(config)) {
+    return { opened: false, skipped: true }
+  }
+  const iface = (ifaceOverride ?? config.printer_interface ?? '').trim()
+  if (!iface) return { opened: false, error: 'Falta elegir la impresora en Configuración.' }
+  try {
+    const { printer, timeoutMs } = createPrinter(iface)
+    await connectOrFail(printer, iface)
+    printer.add(DRAWER_KICK)
+    await withTimeout(printer.execute(), timeoutMs, 'impresora')
+    return { opened: true }
+  } catch (err) {
+    return { opened: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Ticket de venta: sólo texto (sin logo: una imagen por ticket gasta papel, cabezal y
+ * tiempo de impresión). Negocio, folio y turno de caja, fecha/hora, cobrador, productos,
+ * total y cómo se pagó.
+ */
 export async function printTicket(
   sale: SaleWithItems,
   config: ConfigMap,
-  uploadsDir?: string
+  { openDrawer = false }: { openDrawer?: boolean } = {}
 ): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
@@ -298,8 +315,12 @@ export async function printTicket(
     const { printer, timeoutMs } = createPrinter(iface)
     await connectOrFail(printer, iface)
 
-    await printLogo(printer, config, uploadsDir)
+    // Primero el cajón: se abre mientras sale el ticket, no al terminar. Sólo en la venta
+    // (`openDrawer`): una reimpresión no mete ni saca dinero.
+    if (openDrawer && cashDrawerEnabled(config) && receivesCash(sale)) printer.add(DRAWER_KICK)
+
     const symbol = config.currency_symbol || '$'
+    const money = (n: number): string => fmtMoney(n, symbol)
 
     printer.alignCenter()
     printer.bold(true)
@@ -310,29 +331,29 @@ export async function printTicket(
     printer.drawLine()
 
     printer.alignLeft()
-    printer.println(`Ticket #${sale.ticketNumber}`)
-    printer.println(`Fecha: ${new Date(sale.createdAt * 1000).toLocaleString('es-MX')}`)
+    // El folio vuelve a 1 en cada turno: folio + turno identifican el ticket (reimpresiones).
+    pair(printer, `Folio: ${sale.ticketNumber}`, `Turno de caja: ${sale.cashSessionId}`, 0.4)
+    printer.println(`Fecha: ${ticketDate(sale.createdAt, config)}`)
     printer.println(`Cobrador: ${sale.userName}`)
+    if (sale.customerName) printer.println(`Cliente: ${sale.customerName}`)
     printer.drawLine()
 
     for (const item of sale.items) {
-      printer.tableCustom([
-        { text: `${fmtQty(item.quantity, item.unit)} x ${item.name}`, align: 'LEFT', width: 0.65 },
-        { text: fmtMoney(item.subtotal, symbol), align: 'RIGHT', width: 0.35 }
-      ])
+      pair(printer, `${fmtQty(item.quantity, item.unit)} x ${item.name}`, money(item.subtotal), 0.7)
     }
 
     printer.drawLine()
     printer.bold(true)
-    printer.tableCustom([
-      { text: 'TOTAL', align: 'LEFT', width: 0.5 },
-      { text: fmtMoney(sale.total, symbol), align: 'RIGHT', width: 0.5 }
-    ])
+    pair(printer, 'TOTAL', money(sale.total), 0.5)
     printer.bold(false)
-    printer.println(`Metodo: ${sale.paymentMethod}`)
+    pair(printer, 'Pago', METHOD_LABEL[sale.paymentMethod])
     if (sale.paymentMethod === 'CASH') {
-      printer.println(`Pago: ${fmtMoney(sale.amountPaid ?? 0, symbol)}`)
-      printer.println(`Cambio: ${fmtMoney(sale.change ?? 0, symbol)}`)
+      pair(printer, 'Recibido', money(sale.amountPaid ?? 0))
+      pair(printer, 'Cambio', money(sale.change ?? 0))
+    } else if (sale.paymentMethod === 'CREDIT') {
+      const paid = sale.amountPaid ?? 0
+      if (paid > 0) pair(printer, 'Enganche', money(paid))
+      pair(printer, 'Queda a deber', money(Math.round((sale.total - paid) * 100) / 100))
     }
     printer.drawLine()
     printer.alignCenter()

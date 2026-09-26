@@ -14,16 +14,15 @@ const DEFAULTS: ConfigResponse = {
   business_utc_offset: '',
   max_line_discount_pct: '100',
   printer_enabled: '',
-  ticket_logo: '0',
-  ticket_logo_path: '',
+  cash_drawer: '0',
   printer_interface: '',
   backup_dir: ''
 }
 
 /** Claves que `PUT /api/config` puede modificar (los logos van por sus propios endpoints). */
-export const EDITABLE_KEYS = Object.keys(DEFAULTS).filter(
-  (k) => k !== 'logo_path' && k !== 'ticket_logo_path'
-) as Array<keyof ConfigInput>
+export const EDITABLE_KEYS = Object.keys(DEFAULTS).filter((k) => k !== 'logo_path') as Array<
+  keyof ConfigInput
+>
 
 /** Toda la configuración del negocio como un mapa `clave -> valor`. */
 export async function getConfigMap(db: DB): Promise<ConfigMap> {
@@ -53,8 +52,4 @@ export async function updateConfig(db: DB, input: ConfigInput): Promise<ConfigRe
 
 export async function setLogoPath(db: DB, relativePath: string): Promise<void> {
   await setKey(db, 'logo_path', relativePath)
-}
-
-export async function setTicketLogoPath(db: DB, relativePath: string): Promise<void> {
-  await setKey(db, 'ticket_logo_path', relativePath)
 }
