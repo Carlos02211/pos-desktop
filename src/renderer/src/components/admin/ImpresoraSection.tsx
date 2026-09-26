@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { CheckCircle2, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
 import type { SystemPrintersResponse } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
@@ -53,12 +54,15 @@ export function ImpresoraSection({
   enabled,
   onEnabledChange,
   value,
-  onChange
+  onChange,
+  extra
 }: {
   enabled: boolean
   onEnabledChange: (enabled: boolean) => void
   value: string
   onChange: (value: string) => void
+  /** Opciones extra con la impresora activada (p. ej. el cajón), antes de la prueba. */
+  extra?: ReactNode
 }): React.JSX.Element {
   const parsed = parse(value)
   const [mode, setMode] = useState<Mode>(parsed.mode)
@@ -282,6 +286,8 @@ export function ImpresoraSection({
               />
             </label>
           )}
+
+          {extra}
 
           {mode && (
             <div className="mt-4 flex flex-wrap items-center gap-3">

@@ -8,7 +8,8 @@ import { defineConfig } from 'tsup'
  * `dist-server/` a partir del `package.json` que genera `scripts/build-server.mjs`).
  */
 export default defineConfig({
-  entry: { server: 'src/server/index.ts' },
+  // export-worker: hilo aparte para PDF/Excel de reportes (ver services/export-job.ts).
+  entry: { server: 'src/server/index.ts', 'export-worker': 'src/main/services/export-worker.ts' },
   outDir: 'dist-server',
   format: ['cjs'],
   platform: 'node',

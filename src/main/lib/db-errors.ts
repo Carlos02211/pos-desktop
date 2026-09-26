@@ -3,7 +3,9 @@
  */
 export function isUniqueViolation(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
-  const e = err as { code?: string; message?: string }
+  const e = err as { code?: string; message?: string; cause?: unknown }
+  // Drizzle envuelve el error del driver (DrizzleQueryError): el código real está en `cause`.
+  if (e.cause && isUniqueViolation(e.cause)) return true
   // PostgreSQL: unique_violation
   if (e.code === '23505') return true
   // better-sqlite3

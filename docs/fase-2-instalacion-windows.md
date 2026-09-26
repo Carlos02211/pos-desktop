@@ -21,6 +21,7 @@ pnpm build:server        # → genera dist-server/
 | Archivo / carpeta      | Qué es                                                                      |
 | ---------------------- | --------------------------------------------------------------------------- |
 | `server.cjs`           | el servidor (bundle único)                                                  |
+| `export-worker.cjs`    | reportes PDF/Excel en un hilo aparte (no congela las cajas)                 |
 | `public/`              | la app web (React) que se sirve a las tabletas                              |
 | `migrations-pg/`       | migraciones de PostgreSQL (se aplican solas al arrancar)                    |
 | `package.json`         | dependencias de runtime (sin `better-sqlite3` → sin compilador)             |
@@ -38,6 +39,9 @@ arrastre por SPICE si es una VM). **Nada más del repo.**
 ---
 
 ## Parte B — En la PC del cliente / VM (Windows 10/11 x64)
+
+Llevar una copia de la [**ficha del cliente**](ficha-cliente.md) e ir llenándola: IP, licencia,
+vencimiento del certificado, respaldos y la lista de verificación de entrega.
 
 ### B1. PostgreSQL 16
 
@@ -239,6 +243,12 @@ avisa "no seguro" porque todavía no confía: continuar) e instalar el certifica
 
 Después, `https://<IP>:3000/` abre sin avisos. Las URLs `http://` dejan de funcionar.
 
+**5. Instalarla como app en cada caja / tableta** (opcional, recomendado): con HTTPS ya
+funcionando, en la pantalla de inicio de sesión aparece **"Instalar como app en este
+equipo"** (Chrome/Edge). También desde el menú del navegador: "Instalar aplicación" en PC,
+"Agregar a la pantalla principal" en Android/iPhone. Queda un ícono con el nombre del
+negocio que abre el POS en su propia ventana, sin barra del navegador.
+
 **Checklist de red del cliente:** IP fija ✔ · red Privada ✔ · las tabletas en la red
 principal, no en la de **invitados** (muchos routers aíslan a los dispositivos entre sí) ✔.
 
@@ -249,12 +259,18 @@ principal, no en la de **invitados** (muchos routers aíslan a los dispositivos 
 | CA local (autoridad de mkcert)         | instalada en cada caja/tableta | 10 años                      |
 | Certificado del servidor (el de la IP) | sólo en la PC servidor         | ~2 años y 3 meses (825 días) |
 
-Sólo el del servidor vence en la práctica. **Renovarlo = volver a correr
-`.\setup-https.ps1` en la PC servidor** (mismo usuario de Windows): usa la misma CA, así que
-**las tabletas no se tocan**. No se puede emitir por más tiempo: iPhone/iPad rechazan
-certificados de servidor de más de 825 días. Si vence sin renovarse, las cajas ven "La
-conexión no es privada" hasta renovarlo. `setup-https.ps1` muestra la fecha al terminar y el
-log del servidor avisa 60 días antes: **anotar la fecha** en la ficha del cliente.
+Sólo el del servidor vence en la práctica, y **se renueva solo**: `setup-https.ps1` registra
+la tarea programada **"POS SpArTaN Tech - renovar certificado"** (lunes 3:00, como SYSTEM; si
+la PC estaba apagada, corre al encenderla). Si faltan menos de 60 días, emite un certificado
+nuevo con la **misma CA** — **las tabletas no se tocan** — y reinicia el servidor. Cada
+ejecución queda en `C:\pos-server\data\logs\renovar-certificado.log`.
+
+- Probarla: `.\renovar-certificado.ps1 -Forzar` (renueva ya) o ejecutar la tarea desde el
+  Programador de tareas.
+- No se puede emitir por más tiempo: iPhone/iPad rechazan certificados de servidor de más
+  de 825 días.
+- Si aun así venciera (p. ej. se borró la tarea), las cajas ven "La conexión no es privada":
+  volver a correr `.\setup-https.ps1`. El log del servidor avisa 60 días antes.
 
 **¿Qué pasa si se va el internet?** Nada: el POS funciona **sin internet**. Todo ocurre dentro
 de la red local (servidor, base de datos, licencia y HTTPS son locales; la app no carga

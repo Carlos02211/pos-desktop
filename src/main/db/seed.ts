@@ -25,6 +25,9 @@ const DEFAULT_CONFIG: Record<string, string> = {
   // Conexión de la impresora (ver src/main/services/printer.ts): "tcp://<ip>:9100",
   // "windows:<nombre>" (instalada en Windows) o una ruta de dispositivo.
   printer_interface: '',
+  // Cajón de dinero en el puerto RJ11 de la impresora ('1'/'0'): se abre al cobrar en
+  // efectivo, en abonos y retiros/ingresos en efectivo, y con el botón del cobrador.
+  cash_drawer: '0',
   // Carpeta de respaldo. Vacío = <userData>/backups. En el cliente se apunta al SSD de respaldo.
   backup_dir: ''
 }

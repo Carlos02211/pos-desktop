@@ -10,6 +10,7 @@ import type {
   ConfigInput,
   ConfigResponse,
   CreateUserInput,
+  DrawerResult,
   DashboardData,
   FolderListing,
   PrintResult,
@@ -161,6 +162,11 @@ export function probarCarpeta(path: string): Promise<{ ok: boolean; error?: stri
 
 export function listImpresoras(): Promise<SystemPrintersResponse> {
   return api.get<SystemPrintersResponse>('/api/admin/impresoras')
+}
+
+/** Abre el cajón con la impresora que se ve en pantalla (aunque no esté guardada). */
+export function probarCajon(printerInterface: string): Promise<DrawerResult> {
+  return api.post<DrawerResult>('/api/admin/impresora/cajon', { interface: printerInterface })
 }
 
 export function imprimirPrueba(printerInterface: string): Promise<PrintResult> {

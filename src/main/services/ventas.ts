@@ -9,7 +9,7 @@ import type {
 import type { DB } from '../db'
 import type { SaleItemRow, SaleRow } from '../db/schema'
 import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
-import { lockRow, withTx } from '../db/tx'
+import { lockOpenSession, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -73,7 +73,9 @@ export async function createSale(
       throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
     }
     // Serializa las ventas de esta sesión de caja (folio + cierre) bajo PostgreSQL.
-    await lockRow(tx, 'cash_sessions', session.id)
+    if (!(await lockOpenSession(tx, session.id))) {
+      throw new HttpError(409, 'La caja se acaba de cerrar. Abre caja para seguir vendiendo.')
+    }
 
     let customerName: string | null = null
     if (input.customerId != null) {

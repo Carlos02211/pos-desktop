@@ -19,7 +19,7 @@ import {
 } from '../services/backup'
 import { getConfigMap } from '../services/config'
 import { createFolder, listFolder } from '../services/folders'
-import { listSystemPrinters, printTestPage } from '../services/printer'
+import { listSystemPrinters, openCashDrawer, printTestPage } from '../services/printer'
 
 /**
  * Herramientas de administración que actúan sobre la PC del SERVIDOR: respaldos, elegir
@@ -32,6 +32,7 @@ const createFolderSchema = z.object({
   name: z.string().min(1).max(120)
 })
 const probeSchema = z.object({ path: z.string().min(1).max(400) })
+/** La impresora que se ve en pantalla, aunque todavía no se haya guardado. */
 const testPrintSchema = z.object({ interface: z.string().max(200) })
 
 /** Si el servidor corre como servicio de Windows, cómo darle permiso a una carpeta. */
@@ -113,5 +114,11 @@ export async function sistemaRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/impresora/prueba', admin, async (request) => {
     const { interface: iface } = parse(testPrintSchema, request.body)
     return printTestPage(iface, await getConfigMap(getDb()))
+  })
+
+  // Prueba del cajón con la impresora que se ve en pantalla (aunque no esté guardada).
+  app.post('/api/admin/impresora/cajon', admin, async (request) => {
+    const { interface: iface } = parse(testPrintSchema, request.body)
+    return openCashDrawer(await getConfigMap(getDb()), iface)
   })
 }

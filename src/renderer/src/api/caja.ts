@@ -2,12 +2,22 @@ import type {
   CashMovement,
   CashMovementInput,
   CashSession,
-  CashSessionSummary
+  CashSessionSummary,
+  DrawerResult
 } from '@shared/types'
 import { api } from './client'
 
 export function getSesionActiva(): Promise<CashSession | null> {
   return api.get<CashSession | null>('/api/caja/sesion-activa')
+}
+
+/** ¿El negocio tiene cajón de dinero configurado? (muestra el botón en el cobrador) */
+export async function cajonActivo(): Promise<boolean> {
+  return (await api.get<{ enabled: boolean }>('/api/caja/cajon')).enabled
+}
+
+export function abrirCajon(): Promise<DrawerResult> {
+  return api.post<DrawerResult>('/api/caja/cajon', {})
 }
 
 export function getResumen(): Promise<CashSessionSummary> {

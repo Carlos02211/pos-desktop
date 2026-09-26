@@ -14,11 +14,12 @@ const DEFAULTS: ConfigResponse = {
   business_utc_offset: '',
   max_line_discount_pct: '100',
   printer_enabled: '',
+  cash_drawer: '0',
   printer_interface: '',
   backup_dir: ''
 }
 
-/** Claves que `PUT /api/config` puede modificar (el logo va por su propio endpoint). */
+/** Claves que `PUT /api/config` puede modificar (los logos van por sus propios endpoints). */
 export const EDITABLE_KEYS = Object.keys(DEFAULTS).filter((k) => k !== 'logo_path') as Array<
   keyof ConfigInput
 >

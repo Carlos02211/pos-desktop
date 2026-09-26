@@ -38,6 +38,8 @@ export interface Product {
   unit: ProductUnit
   categoryId: number | null
   imagePath: string | null
+  /** Código de barras (EAN/UPC o interno); null si el producto no tiene. */
+  barcode: string | null
   active: number
   createdAt: number
   updatedAt: number
@@ -106,6 +108,8 @@ export interface ProductInput {
   /** Default 'PIEZA' si se omite. */
   unit?: ProductUnit
   categoryId: number | null
+  /** Omitido = no se toca; null o '' = se quita el código. */
+  barcode?: string | null
   active?: boolean
 }
 
@@ -153,6 +157,14 @@ export interface PrintResult {
   printed: boolean
   error?: string
   /** El negocio no usa impresora (desactivada en Configuración): no es un error. */
+  skipped?: boolean
+}
+
+/** Resultado de abrir el cajón de dinero (va conectado a la impresora). */
+export interface DrawerResult {
+  opened: boolean
+  error?: string
+  /** El negocio no tiene cajón configurado: no es un error. */
   skipped?: boolean
 }
 
@@ -411,6 +423,8 @@ export interface ConfigResponse {
   /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
   printer_enabled: string
   printer_interface: string
+  /** '1' = hay cajón de dinero en el puerto RJ11 de la impresora: se abre al recibir efectivo. */
+  cash_drawer: string
   backup_dir: string
 }
 

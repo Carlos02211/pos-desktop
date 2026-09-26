@@ -1,6 +1,6 @@
 import './load-env' // DEBE ir primero: carga .env antes de que ningún módulo lea process.env
 import { mkdirSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { closeDb, DIALECT, initDb } from '../main/db'
 import { runSeed } from '../main/db/seed'
 import { initStore } from '../main/lib/store'
@@ -26,6 +26,9 @@ async function main(): Promise<void> {
   assertProductionConfig()
 
   mkdirSync(cfg.dataDir, { recursive: true })
+  // En el bundle, export-worker.cjs va junto a server.cjs (PDF/Excel fuera del hilo
+  // principal). Con `tsx` en desarrollo no existe y se exporta en el mismo hilo.
+  process.env.POS_EXPORT_WORKER ??= join(dirname(process.argv[1] ?? ''), 'export-worker.cjs')
   // pm2 guarda el entorno del usuario que lo arrancó, así que TEMP apunta a
   // C:\Users\<admin>\AppData\Local\Temp, donde el servicio ("Servicio local") no puede
   // escribir: la impresión por la cola de Windows (archivo temporal + Add-Type de

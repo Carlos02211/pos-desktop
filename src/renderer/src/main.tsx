@@ -9,6 +9,8 @@ import { setTokenProvider, setUnauthorizedHandler } from './api/client'
 import { getToken, useAuthStore } from './stores/auth.store'
 // Conecta Socket.io y engancha los listeners de eventos de negocio al arrancar.
 import './stores/socket.store'
+// Captura el aviso de "se puede instalar como app" antes de que se muestre el login.
+import './stores/install.store'
 
 // El cliente HTTP toma el JWT del store de sesión en cada request.
 setTokenProvider(getToken)
@@ -26,6 +28,15 @@ if (restoredToken) {
     .catch(() => {
       // 401 ya lo maneja el handler; un error de red deja la sesión (se reintenta al usarla).
     })
+}
+
+// Instalar como app (PWA): sólo cuando la SPA la sirve el servidor por http(s). En la app
+// de escritorio (file://) no aplica y el enlace daría un error en la consola.
+if (window.location.protocol.startsWith('http')) {
+  const link = document.createElement('link')
+  link.rel = 'manifest'
+  link.href = '/manifest.webmanifest'
+  document.head.appendChild(link)
 }
 
 createRoot(document.getElementById('root')!).render(

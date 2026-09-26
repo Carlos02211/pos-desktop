@@ -63,5 +63,12 @@ jobs:
         env:
           DATABASE_URL: postgres://pos:pos@localhost:5432/pos
 
+      # Carreras entre cajas (folios, cierre, abonos, doble envío): sólo se ven con un pool
+      # de conexiones reales. Crea y borra su propia base temporal.
+      - name: verify:multicaja (PostgreSQL real, cajas en paralelo)
+        run: pnpm verify:multicaja
+        env:
+          DATABASE_URL: postgres://pos:pos@localhost:5432/pos
+
       - name: verify:backend (PGlite)
         run: pnpm verify:backend:pg

@@ -32,6 +32,7 @@
     "migrate:sqlite-to-pg": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/sqlite-to-postgres.ts",
     "verify:backend": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/verify-backend.ts",
     "verify:backend:pg": "cross-env DATABASE_URL=pglite://memory ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/verify-backend.ts",
+    "verify:multicaja": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/verify-multicaja.ts",
     "license:gen": "cross-env ELECTRON_RUN_AS_NODE=1 electron --import tsx scripts/gen-license.ts",
     "license:keygen": "tsx scripts/license-keygen.ts"
   },

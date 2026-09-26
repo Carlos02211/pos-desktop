@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import type { ConfigResponse } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { getConfig, subirLogo, updateConfig } from '@/api/admin'
+import { CashDrawerOption } from '@/components/admin/CashDrawerOption'
 import { ImpresoraSection } from '@/components/admin/ImpresoraSection'
 import { RespaldosSection } from '@/components/admin/RespaldosSection'
 import { useBrandingStore } from '@/stores/branding.store'
@@ -197,6 +198,13 @@ export default function Configuracion(): React.JSX.Element {
           onEnabledChange={(on) => set('printer_enabled', on ? '1' : '0')}
           value={form.printer_interface}
           onChange={(v) => set('printer_interface', v)}
+          extra={
+            <CashDrawerOption
+              enabled={form.cash_drawer === '1'}
+              printerInterface={form.printer_interface}
+              onEnabledChange={(on) => set('cash_drawer', on ? '1' : '0')}
+            />
+          }
         />
 
         <button
