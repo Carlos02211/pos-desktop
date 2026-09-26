@@ -296,6 +296,19 @@ export async function openCashDrawer(
 }
 
 /**
+ * Abre el cajón sin esperar a la impresora (abonos y movimientos): si está apagada, el
+ * cobrador no se queda los segundos del timeout con la pantalla colgada.
+ */
+export function openCashDrawerInBackground(
+  config: ConfigMap,
+  onError: (error: string) => void
+): void {
+  void openCashDrawer(config).then((r) => {
+    if (r.error) onError(r.error)
+  })
+}
+
+/**
  * Ticket de venta: sólo texto (sin logo: una imagen por ticket gasta papel, cabezal y
  * tiempo de impresión). Negocio, folio y turno de caja, fecha/hora, cobrador, productos,
  * total y cómo se pagó.
@@ -339,7 +352,14 @@ export async function printTicket(
     printer.drawLine()
 
     for (const item of sale.items) {
-      pair(printer, `${fmtQty(item.quantity, item.unit)} x ${item.name}`, money(item.subtotal), 0.7)
+      const label = `${fmtQty(item.quantity, item.unit)} x ${item.name}`
+      // Nombre largo en su propio renglón: dentro de la columna se parte a media palabra.
+      if (label.length > 32) {
+        printer.println(label)
+        pair(printer, '', money(item.subtotal), 0.7)
+      } else {
+        pair(printer, label, money(item.subtotal), 0.7)
+      }
     }
 
     printer.drawLine()

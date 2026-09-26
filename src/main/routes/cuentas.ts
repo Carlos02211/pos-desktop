@@ -5,7 +5,7 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getConfigMap } from '../services/config'
-import { openCashDrawer } from '../services/printer'
+import { openCashDrawerInBackground } from '../services/printer'
 import {
   addAbono,
   getCreditAccountDetail,
@@ -49,8 +49,9 @@ export async function cuentasRoutes(app: FastifyInstance): Promise<void> {
       const input = parse(abonoSchema, request.body)
       const detail = await addAbono(getDb(), id, request.authUser!.id, input)
       if (input.paymentMethod === 'CASH') {
-        const drawer = await openCashDrawer(await getConfigMap(getDb()))
-        if (drawer.error) request.log.warn({ err: drawer.error }, 'cajón no abrió (abono)')
+        openCashDrawerInBackground(await getConfigMap(getDb()), (err) =>
+          request.log.warn({ err }, 'cajón no abrió (abono)')
+        )
       }
       emit('cuenta:abono', {
         creditAccountId: detail.id,

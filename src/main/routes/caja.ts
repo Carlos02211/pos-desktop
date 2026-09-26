@@ -19,7 +19,7 @@ import {
   sessionToApi
 } from '../services/caja'
 import { getConfigMap } from '../services/config'
-import { cashDrawerEnabled, openCashDrawer } from '../services/printer'
+import { cashDrawerEnabled, openCashDrawer, openCashDrawerInBackground } from '../services/printer'
 
 const openSchema = z.object({
   openingAmount: z.number().nonnegative().max(1_000_000)
@@ -62,8 +62,9 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
       const body = parse(movementSchema, request.body)
       const movement = await addCashMovement(getDb(), request.authUser!.id, body)
       // Retiro o ingreso: hay que meter o sacar billetes. Best-effort, como el ticket.
-      const drawer = await openCashDrawer(await getConfigMap(getDb()))
-      if (drawer.error) request.log.warn({ err: drawer.error }, 'cajón no abrió (movimiento)')
+      openCashDrawerInBackground(await getConfigMap(getDb()), (err) =>
+        request.log.warn({ err }, 'cajón no abrió (movimiento)')
+      )
       return reply.code(201).send(movement)
     }
   )
