@@ -210,7 +210,10 @@ async function main(): Promise<void> {
       folios.length === CAJAS && folios.every((f) => f.folios.join(',') === esperado),
       `folios de cada caja: 1..${VENTAS_POR_CAJA} sin huecos ni repetidos`
     )
-    await new Promise((r) => setTimeout(r, 300))
+    // Hasta 3 s: en un runner de CI lento los eventos del socket llegan tarde.
+    for (let i = 0; i < 30 && ventasVistas < ventas.length; i++) {
+      await new Promise((r) => setTimeout(r, 100))
+    }
     assert(
       ventasVistas === ventas.length,
       `dashboard recibió ${ventasVistas}/${ventas.length} eventos venta:nueva`
