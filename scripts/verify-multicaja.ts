@@ -355,5 +355,13 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('\n❌ Verificación multicaja fallida\n', err)
+  // Anotación del CI: se lee sin permisos de admin (los logs del job no).
+  if (process.env.GITHUB_ACTIONS) {
+    const msg = (err instanceof Error ? (err.stack ?? err.message) : String(err)).replace(
+      /\n/g,
+      '%0A'
+    )
+    console.log(`::error title=verify:multicaja::${msg}`)
+  }
   process.exitCode = 1
 })
