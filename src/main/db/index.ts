@@ -62,6 +62,12 @@ export async function createDb(sqlitePath: string): Promise<DbHandle> {
     const { Pool } = await import('pg')
     const { drizzle } = await import('drizzle-orm/node-postgres')
     const pool = new Pool({ connectionString: url })
+    // Una conexión inactiva que PostgreSQL corta (reinicio del servicio, DROP DATABASE
+    // … FORCE) emite 'error' en el pool; sin listener, Node tumba el proceso. El pool ya
+    // la descartó y abre otra en la próxima consulta: basta con registrarlo.
+    pool.on('error', (err) => {
+      console.warn(`[db] conexión inactiva de PostgreSQL cerrada: ${err.message}`)
+    })
     return {
       db: drizzle(pool) as unknown as DB,
       close: async () => {
