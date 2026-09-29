@@ -879,9 +879,7 @@ async function main(): Promise<void> {
     const bytes = Buffer.concat(received).toString('latin1')
     assert(
       // Acentos en PC858 (Ó = 0xE0, á = 0xA0), no en latin1/UTF-8
-      printed.printed &&
-        bytes.includes('PRUEBA DE IMPRESI\xe0N') &&
-        bytes.includes('est\xa0 bien'),
+      printed.printed && bytes.includes('PRUEBA DE IMPRESI\xe0N') && bytes.includes('est\xa0 bien'),
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
 
@@ -893,6 +891,18 @@ async function main(): Promise<void> {
     received.length = 0
     const reprintOk = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
     await new Promise((r) => setTimeout(r, 200))
+    // Ningún renglón pasa de 48 columnas (80 mm): uno de 49 manda el último carácter abajo.
+    const ticketLines = Buffer.concat(received)
+      .toString('latin1')
+      // Quitar los comandos ESC/POS (ESC @, GS V n, ESC x n), que no ocupan columnas.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b@|\x1dV.|\x1b[\s\S]./g, '')
+      .split('\n')
+    const wide = ticketLines.filter((l) => l.length > 48)
+    assert(
+      wide.length === 0 && ticketLines.some((l) => l.startsWith('TOTAL')),
+      `ticket: todos los renglones caben en 48 columnas (${wide.length} más anchos)`
+    )
     assert(
       reprintOk.status === 200 &&
         Buffer.concat(received).toString('latin1').includes(`Folio: ${sale1.ticketNumber}`),

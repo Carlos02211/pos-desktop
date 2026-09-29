@@ -236,11 +236,19 @@ function ticketDate(unixSeconds: number, config: ConfigMap): string {
   )
 }
 
-/** Renglón con texto a la izquierda y valor a la derecha (48 columnas en 80 mm). */
+/** Columnas de un ticket de 80 mm con la fuente normal. */
+const TICKET_COLS = 48
+
+/**
+ * Renglón con texto a la izquierda y valor a la derecha. Columnas enteras (`cols`): con
+ * `width` fraccionario la librería redondea cada celda hacia arriba (48 × 0.6 = 28.8 → 29)
+ * y el renglón sale de 49, así que el último carácter brinca al renglón siguiente.
+ */
 function pair(printer: ThermalPrinter, left: string, right: string, leftWidth = 0.6): void {
+  const leftCols = Math.floor(TICKET_COLS * leftWidth)
   printer.tableCustom([
-    { text: left, align: 'LEFT', width: leftWidth },
-    { text: right, align: 'RIGHT', width: 1 - leftWidth }
+    { text: left, align: 'LEFT', cols: leftCols },
+    { text: right, align: 'RIGHT', cols: TICKET_COLS - leftCols }
   ])
 }
 
