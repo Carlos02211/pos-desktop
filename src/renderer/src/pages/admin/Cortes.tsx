@@ -31,7 +31,7 @@ function MovimientosCorte({ sessionId }: { sessionId: number }): React.JSX.Eleme
       </thead>
       <tbody>
         {movs.map((m) => (
-          <tr key={m.id} className="border-t border-border/60">
+          <tr key={m.id} className="border-t border-border">
             <td className="py-1.5 pr-3 text-muted-foreground">{dateTime(m.createdAt)}</td>
             <td className="py-1.5 pr-3">
               <span
