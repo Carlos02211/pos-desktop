@@ -292,6 +292,11 @@ Se navegan las carpetas **de la PC servidor** (también se puede crear una nueva
 el sistema comprueba que puede escribir ahí y la guarda. **Respaldar ahora** hace uno en el
 momento y la sección muestra el último respaldo y si alguno falló.
 
+**No usar unidades de red con letra** (`Z:`, `Y:`…, incluida la carpeta compartida de SPICE
+en una VM): la letra existe sólo en la sesión del usuario que la conectó, el servicio no la
+ve y el respaldo falla con `ENOENT … mkdir 'Z:\…'`. Usar un disco local o una USB fija; si
+se quiere copia en otra PC, la ruta completa `\\PC\carpeta` con permiso para el servicio.
+
 Si al elegir una carpeta dice que **no tiene permiso** (el servidor corre como "Servicio
 local"), darle permiso en la PC servidor — PowerShell como Administrador:
 
@@ -319,6 +324,29 @@ pm2 start pos-server
 (pide la contraseña del usuario `postgres`). Probar una restauración **una vez** en cada
 instalación nueva: un respaldo que nunca se restauró no está probado.
 
+**Prueba de restauración sin tocar la base real** — en una base aparte `pos_restaurada`,
+comparando conteos. `dropdb --if-exists` evita restaurar encima de una prueba anterior (el
+restore "funciona" con decenas de errores y los conteos salen iguales por casualidad), y
+`--exit-on-error` hace que cualquier error detenga el proceso:
+
+```powershell
+$pg = (Get-ChildItem "$env:ProgramFiles\PostgreSQL\*\bin").FullName | Select-Object -Last 1
+$dump = (Get-ChildItem "<carpeta de respaldos>\pos_*.dump" | Sort-Object LastWriteTime | Select-Object -Last 1).FullName
+$s = Read-Host "Contraseña de postgres" -AsSecureString
+$env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+& "$pg\dropdb.exe" -U postgres --if-exists pos_restaurada
+& "$pg\createdb.exe" -U postgres -O pos pos_restaurada
+& "$pg\pg_restore.exe" -U postgres -d pos_restaurada --no-owner --role=pos --exit-on-error $dump
+"pg_restore terminó con código $LASTEXITCODE"   # debe ser 0
+$q = "select (select count(*) from products) productos, (select count(*) from sales) ventas, (select count(*) from sale_items) lineas, (select count(*) from cash_sessions) cajas, (select count(*) from customers) clientes, (select coalesce(sum(total),0) from sales) total_centavos"
+foreach ($db in 'pos','pos_restaurada') { "== $db"; & "$pg\psql.exe" -U postgres -d $db -c $q }
+& "$pg\dropdb.exe" -U postgres pos_restaurada
+Remove-Item Env:PGPASSWORD
+```
+
+Las dos filas deben coincidir (salvo ventas hechas después del respaldo). Los acentos raros
+en los mensajes (`relaciÃ³n`) son de la consola; `chcp 65001` antes los corrige.
+
 ### B9. Impresora de tickets
 
 Admin → Configuración → **Impresora de tickets**. Los tickets salen por esa impresora sin
@@ -342,6 +370,24 @@ Con la impresora en **Sí**, el aviso "Ticket no impreso" en la caja sí indica 
 
 Si la impresora falla durante el día, las ventas se registran igual y la caja ve el aviso de
 que el ticket no salió (se puede reimprimir desde Ventas).
+
+### B10. Actualizar a una versión nueva
+
+En dev: `pnpm build:server`. Luego en la PC servidor, PowerShell como Administrador:
+
+1. **Respaldar primero** (Admin → Respaldos → **Respaldar ahora**) y confirmar el `.dump`
+   nuevo en la carpeta: las migraciones de la versión nueva cambian la base al arrancar.
+2. `pm2 stop pos-server`
+3. En `C:\pos-server`, reemplazar `server.cjs`, `export-worker.cjs`, `migrations-pg\` y
+   `public\` (borrar la `public\` vieja antes, para no dejar archivos sueltos). **No tocar**
+   `.env`, `data\`, `pos-config.json` ni `node_modules\`.
+4. Sólo si cambió `package.json` (dependencias nuevas): `npm install --omit=dev`.
+5. `pm2 restart pos-server` y `pm2 logs pos-server --lines 20 --nostream`: debe decir
+   "servidor Fase 2 en https://…" sin errores (si una migración falla, el servidor no arranca
+   y el error sale en el log). En cada caja, **Ctrl+F5** para cargar la app nueva.
+
+Los avisos `DeprecationWarning` (`util._extend`, `util.isArray`) vienen de pm2 y
+dependencias; son inofensivos.
 
 ---
 

@@ -60,7 +60,7 @@ Si cambian disco, placa de red o **nombre del equipo**, el ID cambia: emitir una
 
 | Dato                                    | Valor   |
 | --------------------------------------- | ------- |
-| Carpeta de respaldos (otro disco / USB) |         |
+| Carpeta de respaldos (otro disco / USB, **no** `Z:` ni unidad de red) |         |
 | `icacls` aplicado a esa carpeta         | sí / no |
 | Impresora (modelo / USB o red / IP)     |         |
 
@@ -77,7 +77,7 @@ Si cambian disco, placa de red o **nombre del equipo**, el ID cambia: emitir una
 - [ ] Reinicio de la PC **sin iniciar sesión** → el POS responde solo
 - [ ] Venta de prueba desde dos cajas a la vez (folios correctos)
 - [ ] Cierre de caja cuadra; aparece en Admin → Cortes de caja
-- [ ] "Respaldar ahora" OK y **restauración probada** (guía B8)
+- [ ] "Respaldar ahora" OK y **restauración probada** en `pos_restaurada`, código 0 y conteos iguales (guía B8)
 - [ ] Hoja de prueba de la impresora (si tiene)
 - [ ] Contraseña de `admin` cambiada y guardada en el gestor
 - [ ] Capacitación: cobrador (venta, efectivo, cierre) y admin (productos, cortes, reportes)
