@@ -8,6 +8,7 @@ import { CashDrawerOption } from '@/components/admin/CashDrawerOption'
 import { ImpresoraSection } from '@/components/admin/ImpresoraSection'
 import { RespaldosSection } from '@/components/admin/RespaldosSection'
 import { SettingsCard, actionButtonClass } from '@/components/admin/SettingsCard'
+import { VersionInfo } from '@/components/admin/VersionInfo'
 import { useBrandingStore } from '@/stores/branding.store'
 
 type Form = Omit<ConfigResponse, 'logo_path'>
@@ -264,6 +265,8 @@ export default function Configuracion(): React.JSX.Element {
         </div>
 
         <RespaldosSection />
+
+        <VersionInfo />
       </div>
     </div>
   )

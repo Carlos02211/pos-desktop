@@ -1,4 +1,7 @@
 import { defineConfig } from 'tsup'
+import { buildInfo } from './scripts/build-info'
+
+const build = buildInfo()
 
 /**
  * Empaqueta el servidor standalone de Fase 2 en `dist-server/server.cjs`.
@@ -28,5 +31,10 @@ export default defineConfig({
   external: [/^[^./]/],
   // La clave pública de licencias queda fija en el código: en la PC del cliente no se
   // puede sustituir por otra vía entorno (ver src/main/services/license.ts).
-  define: { 'process.env.POS_LICENSE_PUBLIC_KEY': '""' }
+  define: {
+    'process.env.POS_LICENSE_PUBLIC_KEY': '""',
+    // Versión visible en /api/ping y en Configuración (ver src/main/lib/build-info.ts).
+    'process.env.POS_BUILD_COMMIT': JSON.stringify(build.commit),
+    'process.env.POS_BUILD_DATE': JSON.stringify(build.date)
+  }
 })

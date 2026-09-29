@@ -137,7 +137,16 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
     // reiniciar, los bundles nuevos (otro hash) caían en index.html → pantalla en blanco.
     await app.register(fastifyStatic, {
       root: opts.staticDir,
-      prefix: '/'
+      prefix: '/',
+      // index.html se revalida siempre: tras actualizar public\ el navegador toma las
+      // pantallas nuevas con un F5 normal. Los bundles de assets/ llevan hash en el nombre,
+      // así que ésos sí pueden guardarse para siempre.
+      cacheControl: false,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('.html')) res.header('Cache-Control', 'no-cache')
+        else if (/[\\/]assets[\\/]/.test(filePath))
+          res.header('Cache-Control', 'public, max-age=31536000, immutable')
+      }
     })
     app.setNotFoundHandler((request, reply) => {
       const isSpaRoute =

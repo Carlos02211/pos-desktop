@@ -9,6 +9,7 @@ import type {
   CategoryWithCount,
   ConfigInput,
   ConfigResponse,
+  PingResponse,
   CreateUserInput,
   DrawerResult,
   DashboardData,
@@ -126,6 +127,10 @@ export function getDashboard(): Promise<DashboardData> {
 
 export function getConfig(): Promise<ConfigResponse> {
   return api.get<ConfigResponse>('/api/config')
+}
+
+export function getPing(): Promise<PingResponse> {
+  return api.get<PingResponse>('/api/ping')
 }
 
 export function updateConfig(input: ConfigInput): Promise<ConfigResponse> {

@@ -572,6 +572,10 @@ export interface PingResponse {
   /** Motor de base de datos activo. */
   engine: 'sqlite' | 'postgres'
   version: string
+  /** Commit con el que se compiló el servidor ("desarrollo" si corre sin compilar). */
+  commit: string
+  /** Fecha de compilación (ISO), o null sin compilar. */
+  builtAt: string | null
 }
 
 /** Envoltura de error homogénea para todos los endpoints. */
