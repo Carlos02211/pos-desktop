@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Genera una clave de licencia desde cualquier carpeta (pensado para usarse por SSH desde
+# el celular, en el negocio del cliente). Instalación: ln -s "$PWD/scripts/lic" ~/.local/bin/lic
+#
+#   lic <ID de 64 caracteres>     → imprime sólo la clave
+set -euo pipefail
+repo="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+if [[ $# -ne 1 ]]; then
+  echo "Uso: lic <ID del equipo>" >&2
+  exit 1
+fi
+# El ID pegado desde el celular puede traer espacios o saltos de línea.
+id="$(printf '%s' "$1" | tr -d '[:space:]')"
+cd "$repo"
+# Directo con el electron del repo: no depende de que nvm/pnpm estén en el PATH de la sesión SSH.
+ELECTRON_RUN_AS_NODE=1 exec node_modules/.bin/electron --import tsx scripts/gen-license.ts "$id" --solo-clave
