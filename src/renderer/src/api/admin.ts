@@ -26,13 +26,14 @@ import type {
   SystemPrintersResponse,
   UpdateUserInput,
   UserListItem,
+  BarcodeLookup,
   CatalogInfo,
   CatalogItem,
   ImportProductsRequest,
   ImportProductsResult,
   ParsedImportRow
 } from '@shared/types'
-import { api } from './client'
+import { api, ApiRequestError } from './client'
 
 /* ---- Categorías ---- */
 
@@ -89,6 +90,16 @@ export function listCatalogos(): Promise<CatalogInfo[]> {
 
 export function getCatalogo(id: string): Promise<CatalogItem[]> {
   return api.get<CatalogItem[]>(`/api/catalogos/${id}`)
+}
+
+/** Datos sugeridos para un código nuevo (catálogo base o internet); null si no hay. */
+export async function buscarDatosPorCodigo(code: string): Promise<BarcodeLookup | null> {
+  try {
+    return await api.get<BarcodeLookup>(`/api/catalogos/codigo/${encodeURIComponent(code)}`)
+  } catch (err) {
+    if (err instanceof ApiRequestError && (err.status === 404 || err.status === 400)) return null
+    throw err
+  }
 }
 
 export function subirImagenProducto(id: number, file: File): Promise<{ path: string }> {

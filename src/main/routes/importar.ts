@@ -5,7 +5,7 @@ import { HttpError } from '../lib/http-error'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
-import { getCatalog, listCatalogs } from '../services/catalogos'
+import { getCatalog, listCatalogs, lookupBarcode } from '../services/catalogos'
 import {
   buildImportTemplate,
   importProducts,
@@ -27,6 +27,10 @@ const importSchema = z.object({
   dryRun: z.boolean().optional()
 })
 const catalogParam = z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) })
+// EAN-8, UPC-A, EAN-13, GTIN-14: sólo dígitos (lo único que tiene sentido buscar afuera).
+const codeParam = z.object({
+  codigo: z.string().regex(/^\d{8,14}$/, 'El código debe tener de 8 a 14 dígitos.')
+})
 
 export async function importarRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/productos/plantilla', { preHandler: requireRole('ADMIN') }, async (_req, reply) =>
@@ -63,6 +67,18 @@ export async function importarRoutes(app: FastifyInstance): Promise<void> {
   )
 
   app.get('/api/catalogos', { preHandler: requireRole('ADMIN') }, async () => listCatalogs())
+
+  // Antes que /api/catalogos/:id para que "codigo" no se tome como id de catálogo.
+  app.get(
+    '/api/catalogos/codigo/:codigo',
+    { preHandler: requireRole('ADMIN') },
+    async (request, reply) => {
+      const { codigo } = parse(codeParam, request.params)
+      const found = await lookupBarcode(codigo)
+      if (!found) return reply.code(404).send({ error: 'No se encontraron datos para ese código.' })
+      return found
+    }
+  )
 
   app.get('/api/catalogos/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(catalogParam, request.params)

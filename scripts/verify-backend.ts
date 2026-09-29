@@ -59,6 +59,7 @@ import type {
   SalesReport,
   SaleWithItems,
   UserListItem,
+  BarcodeLookup,
   CatalogInfo,
   CatalogItem,
   ImportProductsResult,
@@ -1812,6 +1813,23 @@ async function main(): Promise<void> {
     assert(
       (await asAdmin('/api/catalogos/no-existe')).status === 404,
       'catálogo inexistente -> 404'
+    )
+
+    // Alta por código escaneado: datos del catálogo base (sin internet).
+    const porCodigo = (await (
+      await asAdmin(`/api/catalogos/codigo/${catItems[0].barcode}`)
+    ).json()) as BarcodeLookup
+    assert(
+      porCodigo.source === 'catalogo' && porCodigo.item.name === catItems[0].name,
+      `código escaneado: datos del catálogo base (${JSON.stringify(porCodigo)})`
+    )
+    assert(
+      (await asAdmin('/api/catalogos/codigo/abc123')).status === 400,
+      'código con letras -> 400 (no se busca afuera)'
+    )
+    assert(
+      (await asCajero(`/api/catalogos/codigo/${catItems[0].barcode}`)).status === 403,
+      'buscar datos por código: sólo el admin'
     )
 
     console.log(

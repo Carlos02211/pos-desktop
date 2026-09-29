@@ -6,6 +6,7 @@ import type { Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { desactivarProducto, listCategoriasAdmin, listProductosAdmin } from '@/api/admin'
 import { ProductoFormModal } from '@/components/admin/ProductoFormModal'
+import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { money } from '@/lib/format'
 
 export default function Productos(): React.JSX.Element {
@@ -16,6 +17,7 @@ export default function Productos(): React.JSX.Element {
   const [catFilter, setCatFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<ProductWithCategory | null>(null)
   const [creating, setCreating] = useState(false)
+  const [scannedCode, setScannedCode] = useState<string | undefined>()
 
   const [nonce, setNonce] = useState(0)
   const reload = useCallback(() => setNonce((n) => n + 1), [])
@@ -46,6 +48,22 @@ export default function Productos(): React.JSX.Element {
     )
   }, [rows, search, catFilter])
 
+  // Lector de códigos en la lista: si el producto existe se abre para editarlo; si no, se da
+  // de alta con el código puesto (y los datos del catálogo, si los hay).
+  useBarcodeScanner(
+    (code) => {
+      const existing = rows.find((r) => r.barcode === code)
+      if (existing) {
+        toast.info(`Ya está registrado: ${existing.name}`)
+        setEditing(existing)
+      } else {
+        setScannedCode(code)
+        setCreating(true)
+      }
+    },
+    !loading && !creating && !editing
+  )
+
   async function deactivate(row: ProductWithCategory): Promise<void> {
     try {
       await desactivarProducto(row.id)
@@ -75,6 +93,11 @@ export default function Productos(): React.JSX.Element {
           </button>
         </div>
       </header>
+
+      <p className="mb-3 text-sm text-muted-foreground">
+        Tip: con el lector puedes escanear un producto aquí mismo. Si no está registrado se abre el
+        alta con el código puesto y, si lo conocemos, con su nombre y categoría.
+      </p>
 
       <div className="mb-3 flex gap-2">
         <input
@@ -190,13 +213,16 @@ export default function Productos(): React.JSX.Element {
         <ProductoFormModal
           product={editing}
           categories={categories}
+          initialBarcode={editing ? undefined : scannedCode}
           onClose={() => {
             setCreating(false)
             setEditing(null)
+            setScannedCode(undefined)
           }}
           onSaved={() => {
             setCreating(false)
             setEditing(null)
+            setScannedCode(undefined)
             reload()
           }}
         />

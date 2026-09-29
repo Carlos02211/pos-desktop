@@ -142,6 +142,13 @@ export interface CatalogItem {
   unit: ProductUnit
 }
 
+/** Resultado de buscar un código de barras que no está dado de alta. */
+export interface BarcodeLookup {
+  /** 'catalogo' = catálogo base (sin internet) · 'internet' = Open Food Facts en línea. */
+  source: 'catalogo' | 'internet'
+  item: CatalogItem
+}
+
 /** Categoría con el número de productos asociados (para la tabla de administración). */
 export interface CategoryWithCount extends Category {
   productCount: number

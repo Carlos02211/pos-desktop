@@ -1,18 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import type { Category, ProductWithCategory } from '@shared/types'
+import type { BarcodeLookup, Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
-import { actualizarProducto, crearProducto, subirImagenProducto } from '@/api/admin'
+import { Loader2, Sparkles } from 'lucide-react'
+import {
+  actualizarProducto,
+  buscarDatosPorCodigo,
+  crearCategoria,
+  crearProducto,
+  subirImagenProducto
+} from '@/api/admin'
 import { Modal } from '@/components/Modal'
+
+/** Categoría sugerida que todavía no existe: se crea al guardar. */
+const NEW_CATEGORY = -1
+
+/** Sólo se buscan datos de códigos EAN/UPC (8 a 14 dígitos). */
+const LOOKUP_RE = /^\d{8,14}$/
 
 export function ProductoFormModal({
   product,
   categories,
+  initialBarcode,
   onClose,
   onSaved
 }: {
   product: ProductWithCategory | null
   categories: Category[]
+  /** Alta desde el lector: el código escaneado que no estaba registrado. */
+  initialBarcode?: string
   onClose: () => void
   onSaved: () => void
 }): React.JSX.Element {
@@ -20,12 +36,70 @@ export function ProductoFormModal({
   const [priceText, setPriceText] = useState(product ? String(product.price) : '')
   const [unit, setUnit] = useState<'PIEZA' | 'KG'>(product?.unit ?? 'PIEZA')
   const [categoryId, setCategoryId] = useState<number | null>(product?.categoryId ?? null)
-  const [barcode, setBarcode] = useState(product?.barcode ?? '')
+  const [barcode, setBarcode] = useState(product?.barcode ?? initialBarcode ?? '')
+  const initialLookup = !product && !!initialBarcode && LOOKUP_RE.test(initialBarcode)
+  const [newCategory, setNewCategory] = useState('')
+  const [lookup, setLookup] = useState<{
+    state: 'idle' | 'loading' | 'found' | 'none'
+    source?: string
+  }>({ state: initialLookup ? 'loading' : 'idle' })
+  const lookedUp = useRef<string | null>(null)
   const [active, setActive] = useState(product ? product.active === 1 : true)
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+
+  /**
+   * Sólo al dar de alta: busca el código en el catálogo base (y en internet, si el servidor
+   * tiene) y llena lo que esté vacío. Nunca pisa lo que el admin ya escribió.
+   */
+  async function lookupCode(code: string): Promise<void> {
+    if (product || !LOOKUP_RE.test(code) || lookedUp.current === code) return
+    lookedUp.current = code
+    setLookup({ state: 'loading' })
+    try {
+      applyLookup(code, await buscarDatosPorCodigo(code))
+    } catch {
+      setLookup({ state: 'none' })
+    }
+  }
+
+  function applyLookup(code: string, found: BarcodeLookup | null): void {
+    if (lookedUp.current !== code) return // el admin ya escaneó otro
+    if (!found) {
+      setLookup({ state: 'none' })
+      return
+    }
+    setName((n) => n.trim() || found.item.name)
+    setUnit(found.item.unit)
+    if (categoryId == null) {
+      const match = categories.find(
+        (c) => c.name.trim().toLowerCase() === found.item.category.trim().toLowerCase()
+      )
+      if (match) setCategoryId(match.id)
+      else {
+        setNewCategory(found.item.category)
+        setCategoryId(NEW_CATEGORY)
+      }
+    }
+    setLookup({
+      state: 'found',
+      source:
+        found.source === 'catalogo' ? 'del catálogo de abarrotes' : 'de Open Food Facts (internet)'
+    })
+  }
+
+  // Escaneado desde la lista de productos: buscar sus datos al abrir (el estado inicial ya
+  // dice "buscando…"; aquí sólo se cambia al llegar la respuesta).
+  useEffect(() => {
+    if (!initialLookup) return
+    lookedUp.current = initialBarcode!
+    buscarDatosPorCodigo(initialBarcode!)
+      .then((found) => applyLookup(initialBarcode!, found))
+      .catch(() => setLookup({ state: 'none' }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sólo al abrir
+  }, [])
 
   const price = Number.parseFloat(priceText.replace(',', '.'))
   const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
@@ -45,11 +119,19 @@ export function ProductoFormModal({
     setError('')
     setSaving(true)
     try {
+      let catId = categoryId
+      if (catId === NEW_CATEGORY) {
+        // La categoría sugerida puede haberse creado mientras tanto (otra pestaña).
+        const existing = categories.find(
+          (c) => c.name.trim().toLowerCase() === newCategory.trim().toLowerCase()
+        )
+        catId = existing ? existing.id : (await crearCategoria({ name: newCategory.trim() })).id
+      }
       const payload = {
         name: name.trim(),
         price,
         unit,
-        categoryId,
+        categoryId: catId,
         barcode: barcode.trim(),
         active
       }
@@ -72,7 +154,8 @@ export function ProductoFormModal({
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Nombre</span>
           <input
-            autoFocus
+            // Alta nueva: el foco va al código (si se escanea en el nombre, el código acabaría ahí).
+            autoFocus={!!product || !!initialBarcode}
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
@@ -108,11 +191,33 @@ export function ProductoFormModal({
           <input
             value={barcode}
             onChange={(e) => setBarcode(e.target.value.replace(/\s/g, ''))}
-            // El lector termina con Enter: que no haga nada más que dejar el código escrito.
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+            // El lector termina con Enter: deja el código escrito y busca sus datos.
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              void lookupCode(barcode)
+            }}
+            onBlur={() => void lookupCode(barcode)}
             placeholder="Escanéalo aquí o escríbelo"
+            autoFocus={!product && !initialBarcode}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
           />
+          {lookup.state === 'loading' && (
+            <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando datos del código…
+            </span>
+          )}
+          {lookup.state === 'found' && (
+            <span className="mt-1 flex items-center gap-1.5 text-xs text-pos-success">
+              <Sparkles className="h-3.5 w-3.5" /> Datos tomados {lookup.source}. Revisa el nombre y
+              pon el precio.
+            </span>
+          )}
+          {lookup.state === 'none' && (
+            <span className="mt-1 block text-xs text-muted-foreground">
+              No hay datos de este código: llena el nombre a mano.
+            </span>
+          )}
         </label>
 
         <label className="block">
@@ -123,6 +228,9 @@ export function ProductoFormModal({
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
           >
             <option value="">Sin categoría</option>
+            {newCategory && (
+              <option value={NEW_CATEGORY}>{newCategory} (nueva, se crea al guardar)</option>
+            )}
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
