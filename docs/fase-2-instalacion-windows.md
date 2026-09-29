@@ -240,6 +240,15 @@ avisa "no seguro" porque todavía no confía: continuar) e instalar el certifica
   Ajustes de confianza de certificados → activarlo.
 - **Windows:** doble clic al `.crt` → Instalar certificado → Equipo local → "Entidades de
   certificación raíz de confianza".
+- **Linux (Chrome / Brave / Chromium):** usan su propio almacén (`~/.pki/nssdb`), no el del
+  sistema, y cada navegador puede tener el suyo (importarla en Firefox no sirve para Brave).
+  En Configuración del navegador → Privacidad y seguridad → Seguridad → Administrar
+  certificados → Entidades → Importar, marcar "Confiar para identificar sitios web"; o en
+  terminal: `certutil -A -d sql:$HOME/.pki/nssdb -t "C,," -n "CA POS" -i CA-POS-SpArTaN.crt`
+  (paquete `nss`/`libnss3-tools`). **Cerrar el navegador por completo** y volver a abrirlo.
+
+Sin el candado, Chrome/Edge/Brave **no ofrecen "Instalar como app"** (sólo en conexiones
+seguras): si el botón no aparece en un equipo, casi siempre es que ahí falta este paso.
 
 Después, `https://<IP>:3000/` abre sin avisos. Las URLs `http://` dejan de funcionar.
 
