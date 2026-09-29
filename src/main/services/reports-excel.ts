@@ -54,7 +54,7 @@ export async function generateReportExcel(
     { header: 'Fecha', key: 'fecha', width: 22 },
     { header: 'Cobrador', key: 'cobrador', width: 18 },
     { header: 'Método', key: 'metodo', width: 16 },
-    { header: 'Artículos', key: 'items', width: 12 },
+    { header: 'Productos', key: 'items', width: 12 },
     { header: 'Total', key: 'total', width: 14, style: { numFmt: money } }
   ]
   det.getRow(1).font = { bold: true }

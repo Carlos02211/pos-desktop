@@ -100,7 +100,7 @@ export function generateReportPdf(
 
   autoTable(doc, {
     startY: y,
-    head: [['Folio', 'Fecha', 'Cobrador', 'Método', 'Art.', 'Total']],
+    head: [['Folio', 'Fecha', 'Cobrador', 'Método', 'Prod.', 'Total']],
     body: detail.map((s) => [
       `#${s.ticketNumber}`,
       new Date(s.createdAt * 1000).toLocaleString('es-MX'),

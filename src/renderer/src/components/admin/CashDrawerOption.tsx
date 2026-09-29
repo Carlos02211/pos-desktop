@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, Unlock, XCircle } from 'lucide-react'
 import { ApiRequestError } from '@/api/client'
 import { probarCajon } from '@/api/admin'
+import { actionButtonClass } from '@/components/admin/SettingsCard'
 import { cn } from '@/lib/utils'
 
 /**
@@ -43,7 +44,7 @@ export function CashDrawerOption({
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-border p-3">
+    <div className="mt-5 rounded-lg border border-border bg-secondary/20 p-4">
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"
@@ -63,9 +64,13 @@ export function CashDrawerOption({
             type="button"
             onClick={() => void runTest()}
             disabled={testing || !printerInterface.trim()}
-            className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            className={actionButtonClass}
           >
-            {testing && <Loader2 className="h-4 w-4 animate-spin" />}
+            {testing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Unlock className="h-4 w-4" />
+            )}
             {testing ? 'Abriendo…' : 'Probar cajón'}
           </button>
           {test && (

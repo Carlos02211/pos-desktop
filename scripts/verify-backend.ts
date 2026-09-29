@@ -658,6 +658,7 @@ async function main(): Promise<void> {
     // Historial de ventas — hay 2 ventas (efectivo 50 folio1, tarjeta 25 folio2), ambas del cajero.
     const ventasPage = (await (await asAdmin('/api/ventas')).json()) as SalesPage
     assert(ventasPage.total === 2, `ventas: total 2 (got ${ventasPage.total})`)
+    assert(ventasPage.sumTotal === 75, `ventas: suma de totales $75 (got ${ventasPage.sumTotal})`)
     assert(
       ventasPage.rows[0].ticketNumber === 2 && ventasPage.rows[0].itemCount === 1,
       'ventas: orden por fecha desc y itemCount calculado'
@@ -1230,8 +1231,8 @@ async function main(): Promise<void> {
       (await (await asAdmin('/api/ventas?pageSize=100')).json()) as SalesPage
     ).rows.find((r) => r.id === mixta.id)
     assert(
-      filaMixta?.itemCount === 3,
-      `artículos: 2 piezas + 350 g = 3 artículos, no 2.35 (got ${filaMixta?.itemCount})`
+      filaMixta?.itemCount === 2,
+      `artículos: 2 piezas + 350 g = 2 productos, no 2.35 ni 3 (got ${filaMixta?.itemCount})`
     )
 
     const ventaPapaEntera = await asCajero('/api/ventas', 'POST', {

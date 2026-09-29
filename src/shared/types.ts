@@ -384,6 +384,8 @@ export interface SalesQuery {
 export interface SalesPage {
   rows: SaleListItem[]
   total: number
+  /** Suma en pesos de TODAS las ventas que cumplen los filtros (no sólo esta página). */
+  sumTotal: number
   page: number
   pageSize: number
 }

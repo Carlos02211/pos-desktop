@@ -73,7 +73,8 @@ export function VentasTurnoModal({
                 <span className="font-semibold">
                   #{s.ticketNumber}
                   <span className="ml-2 font-normal text-muted-foreground">
-                    {timeOnly(s.createdAt)} · {paymentLabel(s.paymentMethod)} · {s.itemCount} art.
+                    {timeOnly(s.createdAt)} · {paymentLabel(s.paymentMethod)} · {s.itemCount}{' '}
+                    {s.itemCount === 1 ? 'producto' : 'productos'}
                   </span>
                 </span>
                 <span className="font-semibold">{money(s.total)}</span>

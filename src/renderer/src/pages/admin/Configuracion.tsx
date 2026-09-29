@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { Loader2, Save, ShoppingCart, Store, Upload } from 'lucide-react'
 import type { ConfigResponse } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { getConfig, subirLogo, updateConfig } from '@/api/admin'
 import { CashDrawerOption } from '@/components/admin/CashDrawerOption'
 import { ImpresoraSection } from '@/components/admin/ImpresoraSection'
 import { RespaldosSection } from '@/components/admin/RespaldosSection'
+import { SettingsCard, actionButtonClass } from '@/components/admin/SettingsCard'
 import { useBrandingStore } from '@/stores/branding.store'
 
 type Form = Omit<ConfigResponse, 'logo_path'>
@@ -22,6 +24,8 @@ const TIMEZONES: { value: string; label: string }[] = [
 export default function Configuracion(): React.JSX.Element {
   const setBranding = useBrandingStore((s) => s.set)
   const [form, setForm] = useState<Form | null>(null)
+  // Lo último guardado, para saber si hay cambios pendientes.
+  const [saved, setSaved] = useState<Form | null>(null)
   const [logoPath, setLogoPath] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -34,6 +38,7 @@ export default function Configuracion(): React.JSX.Element {
         if (cancelled) return
         const { logo_path, ...rest } = c
         setForm(rest)
+        setSaved(rest)
         setLogoPath(logo_path)
       })
       .catch(() => {})
@@ -52,8 +57,9 @@ export default function Configuracion(): React.JSX.Element {
     try {
       // backup_dir lo guarda RespaldosSection al elegir la carpeta: no pisarlo con el
       // valor que se cargó al abrir la página.
-      const saved = await updateConfig({ ...form, backup_dir: undefined })
-      setBranding({ businessName: saved.business_name, logoPath: saved.logo_path })
+      const res = await updateConfig({ ...form, backup_dir: undefined })
+      setBranding({ businessName: res.business_name, logoPath: res.logo_path })
+      setSaved(form)
       toast.success('Configuración guardada')
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo guardar')
@@ -78,13 +84,24 @@ export default function Configuracion(): React.JSX.Element {
 
   if (!form) return <p className="text-sm text-muted-foreground">Cargando…</p>
 
-  return (
-    <div className="max-w-xl">
-      <h1 className="mb-4 text-xl font-bold">Configuración</h1>
+  const dirty =
+    saved != null &&
+    (Object.keys(form) as (keyof Form)[]).some((k) => k !== 'backup_dir' && form[k] !== saved[k])
 
-      <div className="space-y-4">
-        <section className="space-y-4 rounded-xl border border-border p-4">
-          <h2 className="font-semibold">Negocio y ticket</h2>
+  return (
+    <div className="max-w-2xl pb-4">
+      <h1 className="text-xl font-bold">Configuración</h1>
+      <p className="mb-6 mt-1 text-sm text-muted-foreground">
+        Los cambios de las primeras tres secciones se aplican al tocar{' '}
+        <strong>Guardar cambios</strong>.
+      </p>
+
+      <div className="space-y-8">
+        <SettingsCard
+          icon={Store}
+          title="Negocio y ticket"
+          description="Datos que se imprimen en el ticket y aparecen en las pantallas."
+        >
           <Field
             label="Nombre del negocio"
             hint="Aparece en la barra superior, el inicio de sesión, el ticket y los reportes."
@@ -130,7 +147,7 @@ export default function Configuracion(): React.JSX.Element {
             label="Logo"
             hint="Se muestra en la barra superior de todas las pantallas y en los reportes PDF."
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-secondary/40 text-xs text-muted-foreground">
                 {logoPath ? (
                   <img
@@ -148,17 +165,37 @@ export default function Configuracion(): React.JSX.Element {
                 accept="image/png,image/jpeg,image/webp"
                 onChange={(e) => {
                   const f = e.target.files?.[0]
+                  e.target.value = ''
                   if (f) void onLogo(f)
                 }}
                 disabled={uploading}
-                className="text-xs"
+                className="hidden"
               />
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                disabled={uploading}
+                className={actionButtonClass}
+              >
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                {uploading ? 'Subiendo…' : logoPath ? 'Cambiar logo…' : 'Subir logo…'}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                PNG, JPG o WebP. Se guarda al instante.
+              </span>
             </div>
           </Field>
-        </section>
+        </SettingsCard>
 
-        <section className="space-y-4 rounded-xl border border-border p-4">
-          <h2 className="font-semibold">Ventas</h2>
+        <SettingsCard
+          icon={ShoppingCart}
+          title="Ventas"
+          description="Reglas para los cobradores y el horario de los reportes."
+        >
           <Field label="Zona horaria" hint="Define qué es “hoy” en el dashboard y los reportes.">
             <select
               value={form.business_utc_offset}
@@ -188,7 +225,7 @@ export default function Configuracion(): React.JSX.Element {
               className={inputClass}
             />
           </Field>
-        </section>
+        </SettingsCard>
 
         <ImpresoraSection
           enabled={
@@ -207,13 +244,24 @@ export default function Configuracion(): React.JSX.Element {
           }
         />
 
-        <button
-          onClick={() => void save()}
-          disabled={saving}
-          className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
-          {saving ? 'Guardando…' : 'Guardar cambios'}
-        </button>
+        {/* Barra fija abajo: el botón queda a la vista sin importar dónde esté el scroll. */}
+        <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-3 rounded-xl border border-border bg-card/95 px-5 py-3 shadow-lg backdrop-blur">
+          <span
+            className={
+              dirty ? 'text-sm font-medium text-pos-warning' : 'text-sm text-muted-foreground'
+            }
+          >
+            {dirty ? 'Tienes cambios sin guardar' : 'Todo guardado'}
+          </span>
+          <button
+            onClick={() => void save()}
+            disabled={saving || !dirty}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
 
         <RespaldosSection />
       </div>

@@ -13,6 +13,7 @@ const PAGE_SIZE = 50
 export default function Ventas(): React.JSX.Element {
   const [rows, setRows] = useState<SaleListItem[]>([])
   const [total, setTotal] = useState(0)
+  const [sumTotal, setSumTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<UserListItem[]>([])
@@ -84,6 +85,7 @@ export default function Ventas(): React.JSX.Element {
         if (cancelled) return
         setRows(res.rows)
         setTotal(res.total)
+        setSumTotal(res.sumTotal)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -155,6 +157,12 @@ export default function Ventas(): React.JSX.Element {
             <option value="CREDIT">Fiado</option>
           </select>
         </Field>
+        <div className="ml-auto rounded-lg border border-border bg-card px-4 py-2 text-right">
+          <div className="text-xs font-medium text-muted-foreground">
+            Total de {total} {total === 1 ? 'venta' : 'ventas'}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{money(sumTotal)}</div>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
@@ -166,7 +174,7 @@ export default function Ventas(): React.JSX.Element {
               <th className="px-3 py-2">Cobrador</th>
               <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Método</th>
-              <th className="px-3 py-2 text-right">Art.</th>
+              <th className="px-3 py-2 text-right">Productos</th>
               <th className="px-3 py-2 text-right">Total</th>
               <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
@@ -244,7 +252,9 @@ export default function Ventas(): React.JSX.Element {
       </div>
 
       <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-        <span>{total} ventas</span>
+        <span>
+          {total} {total === 1 ? 'venta' : 'ventas'}
+        </span>
         <div className="flex items-center gap-2">
           <button
             disabled={page <= 1}

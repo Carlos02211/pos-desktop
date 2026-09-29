@@ -265,7 +265,11 @@ async function buildLines(
  * Artículos de una venta: las piezas cuentan por su cantidad y cada producto por peso (kg)
  * cuenta como 1 (0.350 kg de aguacate es "un artículo", no 0.35). Misma regla que el carrito.
  */
-export const saleItemCountSql = sql<number>`(select coalesce(sum(case when ${saleItems.unit} = 'KG' then 1 else ${saleItems.quantity} end), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+/**
+ * Productos distintos de la venta ("Art."): 3 kg de papa y 5 limones = 2, aunque una línea
+ * se haya agregado después (mismo producto en otra línea cuenta una sola vez).
+ */
+export const saleItemCountSql = sql<number>`(select count(distinct ${saleItems.productId}) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
 
 const MAX_PAGE_SIZE = 100
 
@@ -282,7 +286,10 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
   ].filter(Boolean)
   const where = conditions.length ? and(...conditions) : undefined
 
-  const [{ total }] = await db.select({ total: count() }).from(sales).where(where)
+  const [{ total, sumCents }] = await db
+    .select({ total: count(), sumCents: sql<number>`coalesce(sum(${sales.total}), 0)` })
+    .from(sales)
+    .where(where)
 
   const rows = (
     await db
@@ -315,7 +322,7 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
     itemCount: Number(r.itemCount)
   }))
 
-  return { rows, total: Number(total), page, pageSize }
+  return { rows, total: Number(total), sumTotal: fromCents(Number(sumCents)), page, pageSize }
 }
 
 /** Carga una venta con sus líneas y el nombre del cobrador (para reimpresión). */
