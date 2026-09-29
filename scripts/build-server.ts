@@ -99,7 +99,7 @@ writeFileSync(
   [
     'POS SpArTaN Tech — servidor Fase 2',
     '',
-    'Esta carpeta es lo ÚNICO que va al servidor del cliente. Copiala como C:\\pos-server',
+    'Esta carpeta es lo ÚNICO que va al servidor del cliente. Cópiala como C:\\pos-server',
     '',
     'Contenido:',
     '  server.cjs            el servidor (bundle)',

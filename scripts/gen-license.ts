@@ -39,7 +39,7 @@ async function main(): Promise<void> {
 
   const path = privateKeyPath()
   if (!existsSync(path)) {
-    console.error(`No existe la clave privada ${path}. Creala una vez con: pnpm license:keygen`)
+    console.error(`No existe la clave privada ${path}. Créala una vez con: pnpm license:keygen`)
     process.exitCode = 1
     return
   }
