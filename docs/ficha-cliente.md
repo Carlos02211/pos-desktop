@@ -38,6 +38,29 @@ llena durante la instalación siguiendo [`fase-2-instalacion-windows.md`](fase-2
 | Acceso al router (dónde está la contraseña) |                          |
 | Tabletas en la red principal (no invitados) | sí / no                  |
 
+### Requisitos de red (explicárselos al cliente)
+
+- **No necesita internet.** Ni la PC servidor ni las cajas. La licencia se valida en el mismo
+  equipo. Si se cae el internet, se sigue vendiendo.
+- **Sí necesita una red local**: el módem/router del proveedor (o uno propio) con WiFi o
+  cable. El módem hace dos cosas: internet y la red interna; el POS sólo usa la red interna,
+  que sigue funcionando **mientras el router tenga luz**, aunque no haya servicio.
+- **Celulares, tabletas, laptops y otras PC** entran al POS conectados al **WiFi del
+  negocio** (o por cable), en `https://<IP>:3000/`. Con **datos móviles (4G/5G) no
+  entran**: están fuera de la red aunque tengan internet.
+- **Red principal, no la de invitados**: la de invitados aísla a los equipos y no ven al
+  servidor.
+- **Certificado en cada equipo nuevo**, una sola vez (guía, parte HTTPS paso 4). Sin él
+  sale "No es seguro" y no se puede instalar como app.
+- **IP fija del servidor** reservada en el router. Si el proveedor cambia o resetea su
+  módem, la reserva se pierde → recomendable un **router propio** barato detrás del módem
+  del proveedor.
+- **No-break** para la PC servidor **y** el router: sin router, las cajas no ven al
+  servidor aunque la PC siga prendida.
+- **Acceso desde fuera del negocio** (p. ej. el dueño desde su casa): ése sí necesita
+  internet y **no viene configurado**. Si lo piden: VPN (Tailscale), **nunca** abrir el
+  puerto 3000 en el módem.
+
 ## Licencia
 
 | Dato                               | Valor |
@@ -75,6 +98,7 @@ Si cambian disco, placa de red o **nombre del equipo**, el ID cambia: emitir una
 
 - [ ] `https://<IP>:3000/` abre con candado en cada caja/tableta
 - [ ] Reinicio de la PC **sin iniciar sesión** → el POS responde solo
+- [ ] Con el internet **desconectado** (cable del proveedor fuera) se sigue vendiendo
 - [ ] Venta de prueba desde dos cajas a la vez (folios correctos)
 - [ ] Cierre de caja cuadra; aparece en Admin → Cortes de caja
 - [ ] "Respaldar ahora" OK y **restauración probada** en `pos_restaurada`, código 0 y conteos iguales (guía B8)
