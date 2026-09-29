@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, eq, ne, sql } from 'drizzle-orm'
 import type { ProductInput, ProductWithCategory } from '../../shared/types'
 import type { ProductRow } from '../db/schema'
 import { categories, products } from '../db/schema'
@@ -79,6 +79,25 @@ async function assertBarcodeFree(db: DB, barcode: string, exceptId?: number): Pr
   }
 }
 
+/** Nombre limpio: sin espacios de más ("Aguacate  Hass " → "Aguacate Hass"). */
+function normalizeName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * Dos productos ACTIVOS no pueden llamarse igual, sin importar mayúsculas: en el grid del
+ * cobrador serían indistinguibles. Uno desactivado sí puede repetirse (se da de alta otro).
+ */
+async function assertNameFree(db: DB, name: string, exceptId?: number): Promise<void> {
+  const sameName = and(sql`lower(${products.name}) = ${name.toLowerCase()}`, eq(products.active, 1))
+  const [owner] = await db
+    .select({ name: products.name })
+    .from(products)
+    .where(exceptId === undefined ? sameName : and(sameName, ne(products.id, exceptId)))
+    .limit(1)
+  if (owner) throw new HttpError(409, `Ya existe un producto llamado "${owner.name}".`)
+}
+
 /** El índice único es la última palabra: dos altas simultáneas con el mismo código. */
 function barcodeClash(err: unknown, barcode: string | null): never {
   if (barcode && isUniqueViolation(err)) {
@@ -98,11 +117,13 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
   await validateCategory(db, input.categoryId)
   const barcode = normalizeBarcode(input.barcode)
   if (barcode) await assertBarcodeFree(db, barcode)
+  const name = normalizeName(input.name)
+  if (input.active !== false) await assertNameFree(db, name)
   const now = Math.floor(Date.now() / 1000)
   const [row] = await db
     .insert(products)
     .values({
-      name: input.name.trim(),
+      name,
       price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
@@ -123,11 +144,13 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
   // `barcode` omitido = se conserva (clientes que no conocen el campo no lo borran).
   const barcode = input.barcode === undefined ? undefined : normalizeBarcode(input.barcode)
   if (barcode) await assertBarcodeFree(db, barcode, id)
+  const name = normalizeName(input.name)
+  if (input.active !== false) await assertNameFree(db, name, id)
   // El cambio de precio aplica a ventas futuras; `sale_items` conserva el snapshot histórico.
   const [row] = await db
     .update(products)
     .set({
-      name: input.name.trim(),
+      name,
       price: toCents(input.price),
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,

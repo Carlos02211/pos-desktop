@@ -9,6 +9,7 @@ import type {
 } from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
 import { abrirCajon, cajonActivo, getSesionActiva } from '@/api/caja'
+import { reimprimirVenta } from '@/api/ventas'
 import { ApiRequestError } from '@/api/client'
 import { AgregarCobroModal } from '@/components/AgregarCobroModal'
 import { CarritoItem } from '@/components/CarritoItem'
@@ -152,9 +153,7 @@ export default function PanelVenta(): React.JSX.Element {
       toast.success(`Venta #${sale.ticketNumber} registrada · ${money(sale.total)}`)
     }
     // Sin impresora activada (decisión del negocio) no se avisa nada: sólo si falló.
-    if (!sale.print.printed && !sale.print.skipped) {
-      toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
-    }
+    if (!sale.print.printed && !sale.print.skipped) warnNotPrinted(sale)
   }
 
   function onAddDone(sale: AddToSaleResponse): void {
@@ -164,9 +163,27 @@ export default function PanelVenta(): React.JSX.Element {
       `Se agregaron ${money(sale.addedTotal)} a la venta #${sale.ticketNumber} · nuevo total ${money(sale.total)}` +
         (sale.addedChange ? ` · cambio ${money(sale.addedChange)}` : '')
     )
-    if (!sale.print.printed && !sale.print.skipped) {
-      toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
-    }
+    if (!sale.print.printed && !sale.print.skipped) warnNotPrinted(sale)
+  }
+
+  /** Aviso de ticket no impreso con botón para reintentar (se acabó el papel, tapa abierta…). */
+  function warnNotPrinted(sale: CreateSaleResponse): void {
+    toast.warning(
+      `Ticket #${sale.ticketNumber} no impreso: ${sale.print.error ?? 'impresora no disponible'}`,
+      {
+        duration: 15_000,
+        action: {
+          label: 'Reimprimir',
+          onClick: () => {
+            reimprimirVenta(sale.id)
+              .then(() => toast.success(`Ticket #${sale.ticketNumber} reimpreso`))
+              .catch((err) =>
+                toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo reimprimir')
+              )
+          }
+        }
+      }
+    )
   }
 
   function startAppend(target: AppendTarget): void {

@@ -20,6 +20,7 @@ import {
 import { getConfigMap } from '../services/config'
 import { createFolder, listFolder } from '../services/folders'
 import { listSystemPrinters, openCashDrawer, printTestPage } from '../services/printer'
+import { errorMessage } from '../lib/error-message'
 
 /**
  * Herramientas de administración que actúan sobre la PC del SERVIDOR: respaldos, elegir
@@ -106,7 +107,7 @@ export async function sistemaRoutes(app: FastifyInstance): Promise<void> {
       return {
         supported: true,
         printers: [],
-        error: err instanceof Error ? err.message : 'No se pudo leer la lista de impresoras.'
+        error: errorMessage(err, 'No se pudo leer la lista de impresoras.')
       }
     }
   })

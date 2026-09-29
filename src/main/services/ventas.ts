@@ -536,3 +536,13 @@ export async function assertCanReprint(db: DB, actor: SaleActor, saleId: number)
     )
   }
 }
+
+/** Lo que debe hoy la cuenta de una venta fiada (total − abonos); null si no es fiada. */
+export async function creditBalanceForSale(db: DB, saleId: number): Promise<number | null> {
+  const [account] = await db
+    .select({ total: creditAccounts.total, paid: creditAccounts.paid })
+    .from(creditAccounts)
+    .where(eq(creditAccounts.saleId, saleId))
+    .limit(1)
+  return account ? fromCents(account.total - account.paid) : null
+}

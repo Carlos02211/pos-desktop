@@ -3,16 +3,16 @@
 # Se corre DENTRO de la carpeta del servidor (la que copiaste como C:\pos-server).
 # Es idempotente: se puede volver a correr tras una actualización del bundle.
 #
-#   1. Copiá esta carpeta completa como  C:\pos-server
-#   2. Corré setup-server.ps1: si no hay .env lo crea desde env-ejemplo.txt y lo abre;
-#      completá DATABASE_URL, guardá y volvé a correrlo
+#   1. Copia esta carpeta completa como  C:\pos-server
+#   2. Corre setup-server.ps1: si no hay .env lo crea desde env-ejemplo.txt y lo abre;
+#      completa DATABASE_URL, guarda y vuelve a correrlo
 #   3. PowerShell COMO ADMINISTRADOR:
 #        cd C:\pos-server
 #        Set-ExecutionPolicy -Scope Process Bypass
 #        .\setup-server.ps1
 #
 # Requisitos previos (Días 1-2 del runbook): PostgreSQL 16 instalado, base `pos`
-# creada y (si migrás datos de Fase 1) `pnpm migrate:sqlite-to-pg` ya ejecutado.
+# creada y (si migras datos de Fase 1) `pnpm migrate:sqlite-to-pg` ya ejecutado.
 
 param([int]$Port = 3000)
 
@@ -24,9 +24,9 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 Step ".env"
 if (-not (Test-Path ".\.env")) {
   $template = @(".\env-ejemplo.txt", ".\.env.example") | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if (-not $template) { throw "No está env-ejemplo.txt: copiá de nuevo la carpeta completa del servidor." }
+  if (-not $template) { throw "No está env-ejemplo.txt: copia de nuevo la carpeta completa del servidor." }
   Copy-Item $template ".\.env"
-  Write-Host "Se creó .env desde $template. Completá DATABASE_URL, guardá y volvé a correr este script." -ForegroundColor Yellow
+  Write-Host "Se creó .env desde $template. Completa DATABASE_URL, guarda y vuelve a correr este script." -ForegroundColor Yellow
   Start-Process notepad.exe ".\.env"
   exit 1
 }
@@ -59,7 +59,7 @@ if (-not (Get-Command pm2 -ErrorAction SilentlyContinue)) { npm install -g pm2 }
 $ErrorActionPreference = "Continue"
 pm2 delete pos-server *> $null
 pm2 start ecosystem.config.cjs
-if ($LASTEXITCODE -ne 0) { throw "pm2 start falló (código $LASTEXITCODE). Revisá 'pm2 logs pos-server'." }
+if ($LASTEXITCODE -ne 0) { throw "pm2 start falló (código $LASTEXITCODE). Revisa 'pm2 logs pos-server'." }
 # pm2-installer (servicio de Windows) ya trae su propio rotador, @jessety/pm2-logrotate:
 # instalar además pm2-logrotate deja dos rotadores peleándose por los mismos archivos.
 $modules = (pm2 jlist 2>$null | Out-String | ConvertFrom-Json) | ForEach-Object { $_.name }
@@ -89,7 +89,7 @@ try {
   $ping = Invoke-RestMethod "${scheme}://localhost:$Port/api/ping" -TimeoutSec 5
   Write-Host "  /api/ping → engine=$($ping.engine) db=$($ping.db)" -ForegroundColor Green
 } catch {
-  Write-Host "  No respondió /api/ping todavía — revisá 'pm2 logs pos-server'." -ForegroundColor Yellow
+  Write-Host "  No respondió /api/ping todavía — revisa 'pm2 logs pos-server'." -ForegroundColor Yellow
 }
 
 # --- Red: lo que impide que las cajas lleguen aunque el servidor funcione ---------

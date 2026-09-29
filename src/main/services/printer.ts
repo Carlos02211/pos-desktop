@@ -8,6 +8,7 @@ import { CharacterSet, PrinterTypes, ThermalPrinter } from 'node-thermal-printer
 import type { DrawerResult, PrintResult, SaleWithItems, SystemPrinter } from '../../shared/types'
 import { businessOffsetMinutes } from '../lib/timezone'
 import type { ConfigMap } from './config'
+import { errorMessage } from '../lib/error-message'
 
 const execFileAsync = promisify(execFile)
 
@@ -147,7 +148,7 @@ async function connectOrFail(printer: ThermalPrinter, iface: string): Promise<vo
     net
       ? `La impresora no responde en ${net[1]}:${net[2] ?? '9100'}. Revisa que esté encendida, ` +
           'conectada a la misma red y que la IP sea la de su hoja de autoprueba.'
-      : 'Impresora no conectada'
+      : 'La impresora no está conectada: revisa el cable y que esté encendida.'
   )
 }
 
@@ -196,7 +197,7 @@ export async function printTestPage(iface: string, config: ConfigMap): Promise<P
     await withTimeout(printer.execute(), timeoutMs, 'impresora')
     return { printed: true }
   } catch (err) {
-    return { printed: false, error: err instanceof Error ? err.message : String(err) }
+    return { printed: false, error: errorMessage(err, 'No se pudo usar la impresora.') }
   }
 }
 
@@ -204,7 +205,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label}: sin respuesta en ${ms} ms`)), ms).unref()
+      setTimeout(
+        () => reject(new Error(`La ${label} no respondió a tiempo (${Math.round(ms / 1000)} s).`)),
+        ms
+      ).unref()
     )
   ])
 }
@@ -299,7 +303,7 @@ export async function openCashDrawer(
     await withTimeout(printer.execute(), timeoutMs, 'impresora')
     return { opened: true }
   } catch (err) {
-    return { opened: false, error: err instanceof Error ? err.message : String(err) }
+    return { opened: false, error: errorMessage(err, 'No se pudo usar la impresora.') }
   }
 }
 
@@ -328,12 +332,14 @@ export interface TicketOptions {
   reprintAt?: number
   /** Se agregaron productos a la venta: este ticket reemplaza al que ya se entregó. */
   updated?: boolean
+  /** Reimpresión de un fiado: lo que debe HOY (tras abonos), además de lo que quedó a deber. */
+  creditBalance?: number
 }
 
 export async function printTicket(
   sale: SaleWithItems,
   config: ConfigMap,
-  { openDrawer = false, reprintAt, updated = false }: TicketOptions = {}
+  { openDrawer = false, reprintAt, updated = false, creditBalance }: TicketOptions = {}
 ): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
@@ -403,6 +409,9 @@ export async function printTicket(
       const paid = sale.amountPaid ?? 0
       if (paid > 0) pair(printer, 'Enganche', money(paid))
       pair(printer, 'Queda a deber', money(Math.round((sale.total - paid) * 100) / 100))
+      if (creditBalance != null) {
+        pair(printer, 'Saldo actual', creditBalance > 0 ? money(creditBalance) : 'Pagado')
+      }
     }
     printer.drawLine()
     printer.alignCenter()
@@ -412,6 +421,6 @@ export async function printTicket(
     await withTimeout(printer.execute(), timeoutMs, 'impresora')
     return { printed: true }
   } catch (err) {
-    return { printed: false, error: err instanceof Error ? err.message : String(err) }
+    return { printed: false, error: errorMessage(err, 'No se pudo usar la impresora.') }
   }
 }

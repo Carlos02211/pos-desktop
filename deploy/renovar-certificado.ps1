@@ -28,7 +28,7 @@ function Log([string]$m) {
 
 try {
   $cfgPath = Join-Path $PSScriptRoot "certs\renovacion.json"
-  if (-not (Test-Path $cfgPath)) { throw "Falta certs\renovacion.json: corré primero .\setup-https.ps1." }
+  if (-not (Test-Path $cfgPath)) { throw "Falta certs\renovacion.json: corre primero .\setup-https.ps1." }
   # Rutas guardadas por setup-https.ps1: SYSTEM no ve el PATH ni la carpeta de mkcert del admin.
   $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
 

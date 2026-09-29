@@ -11,6 +11,7 @@ import {
   addToSale,
   assertCanReprint,
   createSale,
+  creditBalanceForSale,
   getSaleWithItems,
   listSales,
   listTurnSales
@@ -213,7 +214,11 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       await assertCanReprint(db, request.authUser!, id)
       const sale = await getSaleWithItems(db, id)
       const print = await printTicket(sale, await getConfigMap(db), {
-        reprintAt: Math.floor(Date.now() / 1000)
+        reprintAt: Math.floor(Date.now() / 1000),
+        creditBalance:
+          sale.paymentMethod === 'CREDIT'
+            ? ((await creditBalanceForSale(db, sale.id)) ?? undefined)
+            : undefined
       })
       if (print.skipped) {
         return reply

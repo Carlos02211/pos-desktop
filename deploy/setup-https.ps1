@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 
-if (-not (Test-Path ".\.env")) { throw "No hay .env: corré primero .\setup-server.ps1." }
+if (-not (Test-Path ".\.env")) { throw "No hay .env: corre primero .\setup-server.ps1." }
 
 # --- IP --------------------------------------------------------------
 Step "IP del servidor"
@@ -53,7 +53,7 @@ if (-not (Get-Command mkcert -ErrorAction SilentlyContinue)) {
   $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
               [Environment]::GetEnvironmentVariable("Path","User")
   if (-not (Get-Command mkcert -ErrorAction SilentlyContinue)) {
-    throw "mkcert quedó instalado pero no está en el PATH: cerrá PowerShell, abrí otro como admin y volvé a correr."
+    throw "mkcert quedó instalado pero no está en el PATH: cierra PowerShell, abre otro como admin y vuelve a correr."
   }
 }
 
@@ -108,7 +108,7 @@ try {
   $ping = Invoke-RestMethod "https://localhost:$Port/api/ping" -TimeoutSec 5
   Write-Host "  https://localhost:$Port/api/ping → engine=$($ping.engine) db=$($ping.db)" -ForegroundColor Green
 } catch {
-  Write-Host "  No respondió por HTTPS — revisá 'pm2 logs pos-server'. ($($_.Exception.Message))" -ForegroundColor Yellow
+  Write-Host "  No respondió por HTTPS — revisa 'pm2 logs pos-server'. ($($_.Exception.Message))" -ForegroundColor Yellow
 }
 
 # --- Renovación automática ------------------------------------------------------

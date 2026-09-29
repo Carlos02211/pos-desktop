@@ -155,17 +155,34 @@ export async function buildServer(opts: StartServerOptions): Promise<FastifyInst
   app.setErrorHandler((err: FastifyError, _request, reply) => {
     if (err instanceof ValidationError) return sendValidationError(reply, err)
     if (err.validation)
-      return reply.code(400).send({ error: 'Datos inválidos', details: err.validation })
+      return reply.code(400).send({ error: 'Revisa los datos enviados.', details: err.validation })
     const status = err.statusCode ?? 500
     if (status >= 500) app.log.error({ err }, 'Error no controlado')
-    return reply
-      .code(status)
-      .send({ error: status >= 500 ? 'Error interno del servidor' : err.message })
+    // Los errores propios de Fastify/plugins vienen en inglés: al usuario, en español.
+    const message =
+      status >= 500
+        ? 'Error interno del servidor'
+        : err.code?.startsWith('FST_')
+          ? (FASTIFY_MESSAGES[err.code] ?? 'La solicitud no es válida.')
+          : err.message
+    return reply.code(status).send({ error: message })
   })
 
   await registerRoutes(app)
 
   return app
+}
+
+/** Mensajes en español para los errores de Fastify que puede provocar el cliente. */
+const FASTIFY_MESSAGES: Record<string, string> = {
+  FST_ERR_CTP_EMPTY_JSON_BODY: 'La solicitud llegó vacía.',
+  FST_ERR_CTP_INVALID_JSON_BODY: 'La solicitud no es válida.',
+  FST_ERR_CTP_INVALID_MEDIA_TYPE: 'Tipo de contenido no admitido.',
+  FST_ERR_CTP_BODY_TOO_LARGE: 'La solicitud es demasiado grande.',
+  FST_REQ_FILE_TOO_LARGE: 'El archivo es demasiado grande.',
+  FST_FILES_LIMIT: 'Se enviaron demasiados archivos.',
+  FST_INVALID_MULTIPART_CONTENT_TYPE: 'Falta el archivo.',
+  FST_ERR_NOT_FOUND: 'No encontrado'
 }
 
 /** Construye y arranca el servidor HTTP + Socket.io. */

@@ -12,6 +12,7 @@ import { dirname, join } from 'path'
 import { promisify } from 'util'
 import { DIALECT, getDb } from '../db'
 import { getConfigMap } from './config'
+import { errorMessage } from '../lib/error-message'
 
 const execFileAsync = promisify(execFile)
 
@@ -172,7 +173,7 @@ async function runBackupInner(target: BackupTarget, dir: string): Promise<Backup
     if (result.ok) prune(dir)
     return result
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Error de respaldo' }
+    return { ok: false, error: errorMessage(err, 'No se pudo hacer el respaldo.') }
   }
 }
 
@@ -194,9 +195,7 @@ export function checkWritable(dir: string): { ok: true } | { ok: false; error: s
       error:
         code === 'EACCES' || code === 'EPERM'
           ? 'El servidor no tiene permiso para escribir en esa carpeta.'
-          : err instanceof Error
-            ? err.message
-            : 'No se pudo escribir en la carpeta.'
+          : errorMessage(err, 'No se pudo escribir en la carpeta.')
     }
   }
 }

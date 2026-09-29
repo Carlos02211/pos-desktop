@@ -1610,6 +1610,41 @@ async function main(): Promise<void> {
       `usuario desactivado: su sesión abierta deja de servir de inmediato (status ${tokenViejo.status})`
     )
 
+    // Reimpresión de un fiado: además de lo que quedó a deber, el saldo de hoy (tras abonos).
+    await asAdmin(`/api/ventas/${fiadoTicket.id}/reimprimir`, 'POST')
+    const fiadoCopia = (await lastJob()).toString('latin1')
+    assert(
+      fiadoCopia.includes('Queda a deber') && fiadoCopia.includes('Saldo actual'),
+      'reimpresión de fiado: muestra el saldo actual además de lo que quedó a deber'
+    )
+
+    // Mensajes de validación en español y con el campo, no el texto técnico de Zod.
+    const sinNombre = (await (
+      await asAdmin('/api/productos', 'POST', { name: '', price: 10, categoryId: null })
+    ).json()) as { error: string }
+    assert(
+      sinNombre.error === 'El nombre no puede ir vacío.',
+      `validación: mensaje en español con el campo (got "${sinNombre.error}")`
+    )
+    const precioNeg = (await (
+      await asAdmin('/api/productos', 'POST', { name: 'X', price: -1, categoryId: null })
+    ).json()) as { error: string }
+    assert(
+      precioNeg.error === 'El precio debe ser mayor o igual a 0.',
+      `validación: precio negativo explicado (got "${precioNeg.error}")`
+    )
+
+    // Nombres de producto: dos activos no pueden llamarse igual (sin importar mayúsculas).
+    const dupNombre = await asAdmin('/api/productos', 'POST', {
+      name: '  producto   DE prueba ',
+      price: 10,
+      categoryId: null
+    })
+    assert(
+      dupNombre.status === 409,
+      `productos: nombre repetido (mayúsculas/espacios) -> 409 (status ${dupNombre.status})`
+    )
+
     await asAdmin('/api/config', 'PUT', { cash_drawer: '0' })
     const sinCajon = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
     assert(

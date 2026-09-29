@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Eye, Printer } from 'lucide-react'
+import { toast } from 'sonner'
 import type { PaymentMethod, SaleListItem, UserListItem } from '@shared/types'
-import { listUsuarios, listVentas } from '@/api/admin'
+import { getConfig, listUsuarios, listVentas, reimprimirTicket } from '@/api/admin'
+import { ApiRequestError } from '@/api/client'
 import { VentaDetalleModal } from '@/components/admin/VentaDetalleModal'
 import { dateInputToUnix, dateTime, money, paymentLabel } from '@/lib/format'
 
@@ -18,6 +21,9 @@ export default function Ventas(): React.JSX.Element {
   const [userId, setUserIdRaw] = useState<number | ''>('')
   const [method, setMethodRaw] = useState<PaymentMethod | ''>('')
   const [detailId, setDetailId] = useState<number | null>(null)
+  // Sin impresora activada no se ofrece reimprimir (mismo criterio que el servidor).
+  const [hasPrinter, setHasPrinter] = useState(false)
+  const [printingId, setPrintingId] = useState<number | null>(null)
 
   // Cualquier cambio de filtro vuelve a la página 1.
   const setFrom = (v: string): void => {
@@ -41,6 +47,15 @@ export default function Ventas(): React.JSX.Element {
     let cancelled = false
     listUsuarios()
       .then((u) => !cancelled && setUsers(u))
+      .catch(() => {})
+    getConfig()
+      .then(
+        (c) =>
+          !cancelled &&
+          setHasPrinter(
+            c.printer_enabled === '1' || (c.printer_enabled === '' && !!c.printer_interface.trim())
+          )
+      )
       .catch(() => {})
     return () => {
       cancelled = true
@@ -77,6 +92,18 @@ export default function Ventas(): React.JSX.Element {
   }, [filters])
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  async function reprint(row: SaleListItem): Promise<void> {
+    setPrintingId(row.id)
+    try {
+      await reimprimirTicket(row.id)
+      toast.success(`Ticket #${row.ticketNumber} reimpreso`)
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo reimprimir')
+    } finally {
+      setPrintingId(null)
+    }
+  }
 
   return (
     <div>
@@ -139,18 +166,19 @@ export default function Ventas(): React.JSX.Element {
               <th className="px-3 py-2">Método</th>
               <th className="px-3 py-2 text-right">Art.</th>
               <th className="px-3 py-2 text-right">Total</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   Cargando…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   Sin ventas para estos filtros.
                 </td>
               </tr>
@@ -170,6 +198,32 @@ export default function Ventas(): React.JSX.Element {
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{row.itemCount}</td>
                   <td className="px-3 py-2 text-right font-medium">{money(row.total)}</td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDetailId(row.id)
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
+                      >
+                        <Eye size={13} /> Ver
+                      </button>
+                      {hasPrinter && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void reprint(row)
+                          }}
+                          disabled={printingId != null}
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary disabled:opacity-50"
+                        >
+                          <Printer size={13} />
+                          {printingId === row.id ? 'Enviando…' : 'Reimprimir'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
