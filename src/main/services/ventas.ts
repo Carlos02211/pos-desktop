@@ -188,7 +188,8 @@ type NewSaleLine = Omit<SaleItemRow, 'id' | 'saleId' | 'addedAt'>
 /**
  * Valida las líneas del carrito contra el catálogo y calcula los importes en centavos.
  * El nombre y el precio de catálogo siempre salen de la BD; el cajero sólo puede aplicar un
- * descuento dentro del máximo configurado. La usan la venta nueva y "agregar a una venta".
+ * descuento dentro del máximo configurado, salvo en productos de precio libre ("Varios"),
+ * donde escribe el importe y una descripción opcional que se guarda en el nombre de la línea. La usan la venta nueva y "agregar a una venta".
  */
 async function buildLines(
   tx: DB,
@@ -223,6 +224,27 @@ async function buildLines(
         throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
       }
       quantity = line.quantity
+    }
+    // Precio libre ("Varios", servicios): el importe lo escribe el cajero y no es un
+    // descuento, así que no aplican el tope de catálogo ni el descuento máximo.
+    if (product.openPrice === 1) {
+      const priceCents =
+        line.price != null && Number.isFinite(line.price) ? toCents(line.price) : product.price
+      if (priceCents <= 0) {
+        throw new HttpError(400, `Escribe el importe de "${product.name}".`)
+      }
+      const note = line.note?.trim().replace(/\s+/g, ' ')
+      const subtotalCents = lineCents(priceCents, quantity)
+      totalCents += subtotalCents
+      return {
+        productId: product.id,
+        name: note ? `${product.name} - ${note}` : product.name,
+        price: priceCents,
+        originalPrice: null,
+        unit: product.unit,
+        quantity,
+        subtotal: subtotalCents
+      }
     }
     let priceCents = product.price
     if (line.price != null) {
@@ -562,7 +584,8 @@ export async function sampleSale(db: DB, userName: string): Promise<SaleWithItem
   const rows = await db
     .select()
     .from(products)
-    .where(eq(products.active, 1))
+    // Los de precio libre ("Varios") no tienen un precio que mostrar en el ejemplo.
+    .where(and(eq(products.active, 1), eq(products.openPrice, 0)))
     .orderBy(products.name)
     .limit(50)
   const byUnit = (unit: 'PIEZA' | 'KG'): typeof rows => rows.filter((r) => r.unit === unit)

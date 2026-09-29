@@ -8,6 +8,7 @@ import {
   Clock3,
   Lock,
   PackageOpen,
+  PencilLine,
   Receipt,
   Search,
   Trash2
@@ -27,6 +28,7 @@ import { AgregarCobroModal } from '@/components/AgregarCobroModal'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
+import { PrecioLibreModal } from '@/components/PrecioLibreModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
 import { VentasTurnoModal } from '@/components/VentasTurnoModal'
 import { useBarcodeScanner } from '@/lib/barcode-scanner'
@@ -50,10 +52,13 @@ export default function PanelVenta(): React.JSX.Element {
   const [hasDrawer, setHasDrawer] = useState(false)
   const [opening, setOpening] = useState(false)
   const [openedAt, setOpenedAt] = useState<number | null>(null)
+  /** Producto de precio libre al que se le está escribiendo el importe. */
+  const [libre, setLibre] = useState<ProductWithCategory | null>(null)
 
   // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
   const items = useCartStore((s) => s.items)
   const addItem = useCartStore((s) => s.addItem)
+  const addOpenItem = useCartStore((s) => s.addOpenItem)
   const setQty = useCartStore((s) => s.setQty)
   const setPrice = useCartStore((s) => s.setPrice)
   const removeItem = useCartStore((s) => s.removeItem)
@@ -115,6 +120,21 @@ export default function PanelVenta(): React.JSX.Element {
     )
   }, [products, activeCat, search])
 
+  /** Botón "Varios": el producto de precio libre llamado así, o el primero que haya. */
+  const varios = useMemo(() => {
+    const libres = products.filter((p) => p.openPrice === 1)
+    return libres.find((p) => p.name.trim().toLowerCase() === 'varios') ?? libres[0] ?? null
+  }, [products])
+
+  /** Tocar o escanear: los de precio libre piden el importe; los demás van directo al carrito. */
+  const select = useCallback(
+    (product: ProductWithCategory): void => {
+      if (product.openPrice === 1) setLibre(product)
+      else addItem(product)
+    },
+    [addItem]
+  )
+
   const byBarcode = useMemo(
     () => new Map(products.flatMap((p) => (p.barcode ? [[p.barcode, p] as const] : []))),
     [products]
@@ -132,14 +152,28 @@ export default function PanelVenta(): React.JSX.Element {
         })
         return false
       }
-      addItem(product)
+      select(product)
       return true
     },
-    [byBarcode, addItem]
+    [byBarcode, select]
   )
 
+  const modalOpen = cobroOpen || movimientoOpen || ventasOpen || libre !== null
+
   // Con un modal abierto el lector no agrega nada detrás (el cobro ya está en curso).
-  useBarcodeScanner(scan, load === 'ready' && !cobroOpen && !movimientoOpen && !ventasOpen)
+  useBarcodeScanner(scan, load === 'ready' && !modalOpen)
+
+  // F2 = cobrar "Varios" sin soltar el teclado.
+  useEffect(() => {
+    if (load !== 'ready' || !varios || modalOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'F2') return
+      e.preventDefault()
+      setLibre(varios)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [load, varios, modalOpen])
 
   /** Enter en el buscador: si es un código (lector o tecleado a mano), agrega ese producto. */
   function onSearchEnter(): void {
@@ -273,7 +307,7 @@ export default function PanelVenta(): React.JSX.Element {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
               {visible.map((p) => (
-                <ProductoBtn key={p.id} product={p} onSelect={addItem} />
+                <ProductoBtn key={p.id} product={p} onSelect={select} />
               ))}
             </div>
           )}
@@ -284,6 +318,14 @@ export default function PanelVenta(): React.JSX.Element {
       <div className="flex min-h-0 flex-col bg-card">
         <div className="border-b border-border p-3">
           <div className="grid grid-cols-[repeat(auto-fit,minmax(60px,1fr))] gap-1.5">
+            {varios && (
+              <ToolButton
+                icon={PencilLine}
+                label="Varios"
+                title={`Cobrar un importe libre (F2) con "${varios.name}"`}
+                onClick={() => setLibre(varios)}
+              />
+            )}
             <ToolButton icon={Receipt} label="Ventas" onClick={() => setVentasOpen(true)} />
             <ToolButton
               icon={BookUser}
@@ -341,7 +383,7 @@ export default function PanelVenta(): React.JSX.Element {
           ) : (
             items.map((it) => (
               <CarritoItem
-                key={it.productId}
+                key={it.key}
                 item={it}
                 onQty={setQty}
                 onPrice={setPrice}
@@ -397,6 +439,16 @@ export default function PanelVenta(): React.JSX.Element {
         />
       )}
       {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
+      {libre && (
+        <PrecioLibreModal
+          product={libre}
+          onClose={() => setLibre(null)}
+          onAdd={(price, note) => {
+            addOpenItem(libre, price, note)
+            setLibre(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -438,17 +490,20 @@ function ToolButton({
   label,
   onClick,
   disabled,
-  danger
+  danger,
+  title
 }: {
   icon: LucideIcon
   label: string
   onClick: () => void
   disabled?: boolean
   danger?: boolean
+  title?: string
 }): React.JSX.Element {
   return (
     <button
       onClick={onClick}
+      title={title}
       disabled={disabled}
       className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-xs font-medium whitespace-nowrap shadow-sm transition active:scale-[0.97] disabled:opacity-50 ${
         danger

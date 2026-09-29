@@ -32,8 +32,9 @@ const saleLinesSchema = z
       productId: z.number().int().positive(),
       // Entera para productos PIEZA, decimal (kg) para productos KG — validado en el servicio,
       // que es quien conoce la unidad del producto.
-      quantity: z.number().positive().max(999),
-      price: z.number().positive().max(1_000_000).optional()
+      quantity: z.number().positive().max(9_999),
+      price: z.number().positive().max(1_000_000).optional(),
+      note: z.string().trim().max(60).optional()
     })
   )
   .min(1)

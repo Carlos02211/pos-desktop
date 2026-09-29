@@ -44,6 +44,8 @@ export const products = pgTable(
     categoryId: integer('category_id').references(() => categories.id),
     imagePath: text('image_path'),
     barcode: text('barcode'),
+    // 1 = precio libre ("Varios", servicios): el cajero escribe el importe al cobrar.
+    openPrice: integer('open_price').notNull().default(0),
     active: integer('active').notNull().default(1),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now)

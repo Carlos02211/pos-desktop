@@ -33,6 +33,8 @@ const FIELD_LABELS: Record<string, string> = {
   active: 'El estado',
   phone: 'El teléfono',
   notes: 'Las notas',
+  note: 'La descripción',
+  openPrice: 'El precio libre',
   key: 'La clave de licencia',
   from: 'La fecha inicial',
   to: 'La fecha final',

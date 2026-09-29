@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { PaymentMethod, ProductUnit, ProductWithCategory } from '@shared/types'
+import { randomId } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth.store'
 
 export interface CartItem {
+  /** Id del renglón: el productId, salvo en precio libre, donde cada cobro es su propio renglón. */
+  key: string
   productId: number
   name: string
   price: number
@@ -12,7 +15,13 @@ export interface CartItem {
   /** PIEZA = cantidad entera. KG = cantidad en kg, editable en gramos. */
   unit: ProductUnit
   quantity: number
+  /** Precio libre ("Varios"): el importe lo escribe el cajero, sin tope de catálogo. */
+  openPrice?: boolean
+  /** Descripción del cobro de precio libre ("Engargolado"); sale en el ticket. */
+  note?: string
 }
+
+type CartProduct = Pick<ProductWithCategory, 'id' | 'name' | 'price' | 'unit'>
 
 /** Venta ya cobrada a la que se le agregan productos olvidados (mismo folio). */
 export interface AppendTarget {
@@ -28,10 +37,12 @@ interface CartState {
   /** Si no es null, "Cobrar" agrega el carrito a esa venta en vez de crear una nueva. */
   appendTo: AppendTarget | null
   setAppendTo: (target: AppendTarget | null) => void
-  addItem: (product: Pick<ProductWithCategory, 'id' | 'name' | 'price' | 'unit'>) => void
-  setQty: (productId: number, quantity: number) => void
-  setPrice: (productId: number, price: number) => void
-  removeItem: (productId: number) => void
+  addItem: (product: CartProduct) => void
+  /** Cobro de precio libre: siempre es un renglón nuevo, con su importe y descripción. */
+  addOpenItem: (product: CartProduct, price: number, note: string) => void
+  setQty: (key: string, quantity: number) => void
+  setPrice: (key: string, price: number) => void
+  removeItem: (key: string) => void
   clear: () => void
 }
 
@@ -48,11 +59,12 @@ export const useCartStore = create<CartState>()(
 
       addItem: (product) =>
         set((state) => {
-          const existing = state.items.find((i) => i.productId === product.id)
+          const key = String(product.id)
+          const existing = state.items.find((i) => i.key === key)
           if (existing) {
             return {
               items: state.items.map((i) =>
-                i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i
+                i.key === key ? { ...i, quantity: i.quantity + 1 } : i
               )
             }
           }
@@ -60,6 +72,7 @@ export const useCartStore = create<CartState>()(
             items: [
               ...state.items,
               {
+                key,
                 productId: product.id,
                 name: product.name,
                 price: product.price,
@@ -71,29 +84,53 @@ export const useCartStore = create<CartState>()(
           }
         }),
 
-      setQty: (productId, quantity) =>
+      addOpenItem: (product, price, note) =>
+        set((state) => ({
+          items: [
+            ...state.items,
+            {
+              key: `${product.id}:${randomId()}`,
+              productId: product.id,
+              name: note ? `${product.name} - ${note}` : product.name,
+              price,
+              originalPrice: price,
+              unit: product.unit,
+              quantity: 1,
+              openPrice: true,
+              note: note || undefined
+            }
+          ]
+        })),
+
+      setQty: (key, quantity) =>
         set((state) => ({
           items:
             quantity <= 0
-              ? state.items.filter((i) => i.productId !== productId)
-              : state.items.map((i) => (i.productId === productId ? { ...i, quantity } : i))
+              ? state.items.filter((i) => i.key !== key)
+              : state.items.map((i) => (i.key === key ? { ...i, quantity } : i))
         })),
 
-      setPrice: (productId, price) =>
+      setPrice: (key, price) =>
         set((state) => ({
-          items: state.items.map((i) =>
-            i.productId === productId && price > 0 ? { ...i, price } : i
-          )
+          items: state.items.map((i) => (i.key === key && price > 0 ? { ...i, price } : i))
         })),
 
-      removeItem: (productId) =>
-        set((state) => ({ items: state.items.filter((i) => i.productId !== productId) })),
+      removeItem: (key) => set((state) => ({ items: state.items.filter((i) => i.key !== key) })),
 
       clear: () => set({ items: [], appendTo: null })
     }),
     {
       name: 'pos-cart',
       storage: createJSONStorage(() => sessionStorage),
+      // v1: cada renglón lleva `key` (antes se identificaba por productId).
+      version: 1,
+      migrate: (persisted, version) => {
+        const state = persisted as Pick<CartState, 'items' | 'appendTo'>
+        if (version < 1) {
+          state.items = state.items.map((i) => ({ ...i, key: String(i.productId) }))
+        }
+        return state as CartState
+      },
       partialize: (state) => ({ items: state.items, appendTo: state.appendTo })
     }
   )

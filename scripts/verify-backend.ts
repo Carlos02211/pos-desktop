@@ -279,7 +279,14 @@ async function main(): Promise<void> {
     const asCajero = call(cajeroToken.token)
     const asAdmin = call(session.token)
 
-    const prods = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    const catalogo = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    // La migración deja listo "Varios" (precio libre); aparte, el producto de prueba del seed.
+    const varios = catalogo.find((p) => p.openPrice === 1)
+    assert(
+      varios?.name === 'Varios' && varios.price === 0,
+      `catálogo: "Varios" de precio libre creado por la migración (${JSON.stringify(varios)})`
+    )
+    const prods = catalogo.filter((p) => p.openPrice === 0)
     assert(prods.length === 1, `catálogo: 1 producto activo (encontrados: ${prods.length})`)
     assert(
       prods[0].categoryName === 'General' && prods[0].price === 25,
@@ -1866,6 +1873,94 @@ async function main(): Promise<void> {
     assert(
       (await asCajero(`/api/catalogos/codigo/${catItems[0].barcode}`)).status === 403,
       'buscar datos por código: sólo el admin'
+    )
+
+    // ---- Precio libre ("Varios", servicios de papelería) ----
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '10' })
+    const ventaVarios = await asCajero('/api/ventas', 'POST', {
+      items: [
+        { productId: varios!.id, quantity: 2, price: 35.5, note: '  Engargolado   azul ' },
+        { productId: varios!.id, quantity: 1, price: 3 },
+        { productId: producto.id, quantity: 1500 }
+      ],
+      paymentMethod: 'CASH',
+      amountPaid: 40000
+    })
+    assert(ventaVarios.status === 201, `venta con "Varios" -> 201 (${ventaVarios.status})`)
+    const saleVarios = (await ventaVarios.json()) as CreateSaleResponse
+    assert(
+      saleVarios.items.length === 3 &&
+        saleVarios.items[0].name === 'Varios - Engargolado azul' &&
+        saleVarios.items[0].subtotal === 71 &&
+        saleVarios.items[0].originalPrice === null &&
+        saleVarios.items[1].name === 'Varios' &&
+        saleVarios.items[2].quantity === 1500 &&
+        saleVarios.total === 71 + 3 + 1500 * 25,
+      `"Varios": importe libre sin tope de descuento, descripción en el renglón, 1500 piezas (${JSON.stringify(saleVarios.items)})`
+    )
+    const variosSinImporte = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: varios!.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 10
+    })
+    assert(
+      variosSinImporte.status === 400 &&
+        ((await variosSinImporte.json()) as { error: string }).error.includes('importe'),
+      `"Varios" sin importe -> 400 (${variosSinImporte.status})`
+    )
+    const notaLarga = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: varios!.id, quantity: 1, price: 5, note: 'x'.repeat(61) }],
+      paymentMethod: 'CASH',
+      amountPaid: 10
+    })
+    assert(
+      notaLarga.status === 400,
+      `descripción de más de 60 caracteres -> 400 (${notaLarga.status})`
+    )
+    const notaEnNormal = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, note: 'no aplica' }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleNotaEnNormal = (await notaEnNormal.json()) as CreateSaleResponse
+    assert(
+      notaEnNormal.status === 201 && saleNotaEnNormal.items[0].name === producto.name,
+      'la descripción se ignora en productos de precio fijo'
+    )
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '100' })
+
+    const servicioRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Impresión especial',
+      price: 0,
+      categoryId: null,
+      openPrice: true
+    })
+    const servicio = (await servicioRes.json()) as ProductWithCategory
+    assert(
+      servicioRes.status === 201 && servicio.openPrice === 1,
+      `alta de producto con precio libre (${servicioRes.status})`
+    )
+    const servicioEditado = (await (
+      await asAdmin(`/api/productos/${servicio.id}`, 'PUT', {
+        name: 'Impresión especial',
+        price: 10,
+        categoryId: null
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      servicioEditado.openPrice === 1 && servicioEditado.price === 10,
+      'editar sin mandar openPrice lo conserva (precio sugerido $10)'
+    )
+    const servicioSugerido = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: servicio.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 10
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      servicioSugerido.total === 10,
+      `precio libre sin importe usa el sugerido (${JSON.stringify(servicioSugerido)})`
     )
 
     console.log(

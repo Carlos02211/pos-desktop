@@ -20,6 +20,7 @@ const selection = {
   categoryId: products.categoryId,
   imagePath: products.imagePath,
   barcode: products.barcode,
+  openPrice: products.openPrice,
   active: products.active,
   createdAt: products.createdAt,
   updatedAt: products.updatedAt,
@@ -128,6 +129,7 @@ export async function createProduct(db: DB, input: ProductInput): Promise<Produc
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       barcode,
+      openPrice: input.openPrice ? 1 : 0,
       active: input.active === false ? 0 : 1,
       createdAt: now,
       updatedAt: now
@@ -155,6 +157,7 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
       unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
       categoryId: input.categoryId,
       ...(barcode === undefined ? {} : { barcode }),
+      ...(input.openPrice === undefined ? {} : { openPrice: input.openPrice ? 1 : 0 }),
       active: input.active === false ? 0 : 1,
       updatedAt: Math.floor(Date.now() / 1000)
     })

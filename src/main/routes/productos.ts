@@ -32,6 +32,7 @@ const productSchema = z.object({
     .regex(/^[\x21-\x7E]*$/, 'El código de barras no puede llevar espacios ni acentos.')
     .nullable()
     .optional(),
+  openPrice: z.boolean().optional(),
   active: z.boolean().optional()
 })
 const idParam = z.object({ id: z.coerce.number().int().positive() })
