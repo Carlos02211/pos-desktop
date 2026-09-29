@@ -32,6 +32,8 @@ import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
   AddToSaleResponse,
+  InventoryItem,
+  StockMovement,
   TurnSale,
   BackupRunResponse,
   BackupStatus,
@@ -1961,6 +1963,169 @@ async function main(): Promise<void> {
     assert(
       servicioSugerido.total === 10,
       `precio libre sin importe usa el sugerido (${JSON.stringify(servicioSugerido)})`
+    )
+
+    // ---- Inventario ----
+    const altaInv = async (body: Record<string, unknown>): Promise<ProductWithCategory> =>
+      (await (
+        await asAdmin('/api/productos', 'POST', { categoryId: null, ...body })
+      ).json()) as ProductWithCategory
+    const cuaderno = await altaInv({
+      name: 'Cuaderno profesional',
+      price: 30,
+      trackStock: true,
+      initialStock: 10,
+      minStock: 3
+    })
+    assert(
+      cuaderno.trackStock === 1 && cuaderno.stock === 10 && cuaderno.minStock === 3,
+      `alta con inventario: existencia inicial 10, mínimo 3 (${JSON.stringify(cuaderno)})`
+    )
+    const queso = await altaInv({
+      name: 'Queso Oaxaca',
+      price: 160,
+      unit: 'KG',
+      trackStock: true,
+      initialStock: 2.5
+    })
+    const inventario = async (): Promise<InventoryItem[]> =>
+      (await (await asAdmin('/api/inventario')).json()) as InventoryItem[]
+    const itemDe = async (id: number): Promise<InventoryItem | undefined> =>
+      (await inventario()).find((i) => i.id === id)
+
+    const ventaInv = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [
+          { productId: cuaderno.id, quantity: 4 },
+          { productId: queso.id, quantity: 0.75 },
+          { productId: producto.id, quantity: 1 }
+        ],
+        paymentMethod: 'CASH',
+        amountPaid: 1000
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      (await itemDe(cuaderno.id))?.stock === 6 && (await itemDe(queso.id))?.stock === 1.75,
+      'venta descuenta existencia: cuaderno 10→6, queso 2.5→1.75 kg'
+    )
+    assert(
+      (await itemDe(producto.id)) === undefined,
+      'producto sin inventario no aparece en Inventario'
+    )
+    const agregado = await asCajero(`/api/ventas/${ventaInv.id}/agregar`, 'POST', {
+      items: [{ productId: cuaderno.id, quantity: 4 }],
+      amountPaid: 120
+    })
+    const cuadernoBajo = await itemDe(cuaderno.id)
+    assert(
+      agregado.status === 200 && cuadernoBajo?.stock === 2 && cuadernoBajo.status === 'LOW',
+      `agregar a una venta también descuenta: 6→2, "por agotarse" (${agregado.status}, ${JSON.stringify(cuadernoBajo)})`
+    )
+    await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: cuaderno.id, quantity: 3 }],
+      paymentMethod: 'CARD'
+    })
+    const inv1 = await inventario()
+    assert(
+      inv1[0].id === cuaderno.id && inv1[0].stock === -1 && inv1[0].status === 'OUT',
+      `sin existencia la venta NO se bloquea: queda en -1, "agotado" y primero en la lista (${JSON.stringify(inv1[0])})`
+    )
+    const dashInv = (await (await asAdmin('/api/dashboard')).json()) as { lowStockCount: number }
+    assert(dashInv.lowStockCount === 1, `dashboard: 1 por agotarse (${dashInv.lowStockCount})`)
+
+    const entrada = await asAdmin(`/api/inventario/${cuaderno.id}/entrada`, 'POST', {
+      quantity: 12,
+      reason: 'Proveedor Norma'
+    })
+    const trasEntrada = (await entrada.json()) as InventoryItem
+    assert(
+      entrada.status === 200 && trasEntrada.stock === 11 && trasEntrada.status === 'OK',
+      `entrada de 12: -1→11 (${entrada.status}, ${JSON.stringify(trasEntrada)})`
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${cuaderno.id}/entrada`, 'POST', { quantity: 1.5 }))
+        .status === 400,
+      'entrada con fracción en producto por pieza -> 400'
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${producto.id}/entrada`, 'POST', { quantity: 1 })).status ===
+        409,
+      'entrada a producto sin inventario -> 409'
+    )
+    const entradaKg = (await (
+      await asAdmin(`/api/inventario/${queso.id}/entrada`, 'POST', { quantity: 0.1 })
+    ).json()) as InventoryItem
+    assert(entradaKg.stock === 1.85, `entrada en kg sin decimales raros (${entradaKg.stock})`)
+
+    const ajuste = (await (
+      await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: 9 })
+    ).json()) as InventoryItem
+    assert(ajuste.stock === 9, `ajuste por conteo: 11→9 (${ajuste.stock})`)
+    await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: 9 })
+    const movsInv = (await (
+      await asAdmin(`/api/inventario/${cuaderno.id}/movimientos`)
+    ).json()) as StockMovement[]
+    assert(
+      movsInv.map((m) => `${m.type}:${m.quantity}:${m.stockAfter}`).join(' ') ===
+        'ADJUST:-2:9 ENTRY:12:11 SALE:-3:-1 SALE:-4:2 SALE:-4:6 ADJUST:10:10',
+      `historial completo y sin movimiento en un conteo igual (${movsInv.map((m) => `${m.type}:${m.quantity}:${m.stockAfter}`).join(' ')})`
+    )
+    assert(
+      movsInv[0].reason === 'Conteo físico' &&
+        movsInv[1].reason === 'Proveedor Norma' &&
+        movsInv[4].ticketNumber === ventaInv.ticketNumber &&
+        movsInv[5].reason === 'Existencia inicial' &&
+        movsInv[0].userName === 'admin' &&
+        movsInv[2].userName === 'cajero',
+      `movimientos con motivo, folio y usuario (${JSON.stringify(movsInv.slice(0, 5))})`
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: -1 })).status ===
+        400,
+      'conteo negativo -> 400'
+    )
+
+    const activar = (await (
+      await asAdmin('/api/inventario/activar', 'POST', { productIds: [producto.id, cuaderno.id] })
+    ).json()) as { enabled: number }
+    assert(
+      activar.enabled === 1,
+      `activar inventario en lote: sólo los que no lo llevaban (${activar.enabled})`
+    )
+    assert(
+      (await itemDe(producto.id))?.status === 'OUT',
+      'producto activado arranca en 0 (agotado) hasta contarlo'
+    )
+    const sinInv = (await (
+      await asAdmin(`/api/productos/${producto.id}`, 'PUT', {
+        name: producto.name,
+        price: 25,
+        categoryId: producto.categoryId,
+        trackStock: false
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      sinInv.trackStock === 0 && (await itemDe(producto.id)) === undefined,
+      'quitar inventario desde el producto lo saca de la lista'
+    )
+    const editarSinTocar = (await (
+      await asAdmin(`/api/productos/${cuaderno.id}`, 'PUT', {
+        name: cuaderno.name,
+        price: 32,
+        categoryId: null
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      editarSinTocar.trackStock === 1 &&
+        editarSinTocar.stock === 9 &&
+        editarSinTocar.minStock === 3,
+      'editar el producto sin mandar inventario no toca existencia ni mínimo'
+    )
+    assert(
+      (await asCajero('/api/inventario')).status === 403 &&
+        (await asCajero(`/api/inventario/${cuaderno.id}/entrada`, 'POST', { quantity: 1 }))
+          .status === 403,
+      'inventario: sólo el administrador'
     )
 
     console.log(

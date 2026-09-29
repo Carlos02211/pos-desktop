@@ -25,6 +25,7 @@ import { HttpError } from '../lib/http-error'
 import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
 import { getConfigMap } from './config'
+import { discountSaleStock } from './inventario'
 
 export interface SaleResult extends SaleWithItems {
   creditAccountId?: number
@@ -150,6 +151,7 @@ export async function createSale(
       .insert(saleItems)
       .values(lines.map((line) => ({ saleId: sale.id, ...line })))
       .returning()
+    await discountSaleStock(tx, userId, sale.id, lines)
 
     let creditAccountId: number | undefined
     if (input.paymentMethod === 'CREDIT') {
@@ -470,6 +472,7 @@ export async function addToSale(
 
     const addedAt = Math.floor(Date.now() / 1000)
     await tx.insert(saleItems).values(lines.map((line) => ({ saleId: sale.id, addedAt, ...line })))
+    await discountSaleStock(tx, actor.id, sale.id, lines)
 
     const full = await getSaleWithItems(tx, sale.id)
     return {

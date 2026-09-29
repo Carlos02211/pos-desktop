@@ -31,7 +31,11 @@ import type {
   CatalogItem,
   ImportProductsRequest,
   ImportProductsResult,
-  ParsedImportSheet
+  ParsedImportSheet,
+  InventoryItem,
+  StockAdjustInput,
+  StockEntryInput,
+  StockMovement
 } from '@shared/types'
 import { api, ApiRequestError } from './client'
 
@@ -69,6 +73,34 @@ export function actualizarProducto(id: number, input: ProductInput): Promise<Pro
 
 export function desactivarProducto(id: number): Promise<void> {
   return api.delete<void>(`/api/productos/${id}`)
+}
+
+/* ---- Inventario ---- */
+
+export function getInventario(): Promise<InventoryItem[]> {
+  return api.get<InventoryItem[]>('/api/inventario')
+}
+
+export function getMovimientosInventario(productId: number): Promise<StockMovement[]> {
+  return api.get<StockMovement[]>(`/api/inventario/${productId}/movimientos`)
+}
+
+export function registrarEntrada(
+  productId: number,
+  input: StockEntryInput
+): Promise<InventoryItem> {
+  return api.post<InventoryItem>(`/api/inventario/${productId}/entrada`, input)
+}
+
+export function ajustarExistencia(
+  productId: number,
+  input: StockAdjustInput
+): Promise<InventoryItem> {
+  return api.post<InventoryItem>(`/api/inventario/${productId}/ajuste`, input)
+}
+
+export function activarInventario(productIds: number[]): Promise<{ enabled: number }> {
+  return api.post<{ enabled: number }>('/api/inventario/activar', { productIds })
 }
 
 /* ---- Importación de productos ---- */
