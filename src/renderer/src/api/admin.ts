@@ -31,7 +31,7 @@ import type {
   CatalogItem,
   ImportProductsRequest,
   ImportProductsResult,
-  ParsedImportRow
+  ParsedImportSheet
 } from '@shared/types'
 import { api, ApiRequestError } from './client'
 
@@ -74,10 +74,10 @@ export function desactivarProducto(id: number): Promise<void> {
 /* ---- Importación de productos ---- */
 
 /** Lee un Excel/CSV en el servidor y devuelve los renglones interpretados (no guarda). */
-export function leerArchivoImportacion(file: File): Promise<{ rows: ParsedImportRow[] }> {
+export function leerArchivoImportacion(file: File): Promise<ParsedImportSheet> {
   const form = new FormData()
   form.append('file', file)
-  return api.post<{ rows: ParsedImportRow[] }>('/api/productos/importar/leer', form)
+  return api.post<ParsedImportSheet>('/api/productos/importar/leer', form)
 }
 
 export function importarProductos(input: ImportProductsRequest): Promise<ImportProductsResult> {

@@ -63,7 +63,7 @@ import type {
   CatalogInfo,
   CatalogItem,
   ImportProductsResult,
-  ParsedImportRow
+  ParsedImportSheet
 } from '../src/shared/types'
 
 // `verify:backend`     → SQLite en un directorio temporal.
@@ -1710,7 +1710,7 @@ async function main(): Promise<void> {
         headers: { authorization: `Bearer ${session.token}` },
         body: xlsxForm
       })
-    ).json()) as { rows: ParsedImportRow[] }
+    ).json()) as ParsedImportSheet
     assert(
       leidas.rows.length === 2 &&
         leidas.rows[0].item?.barcode === '7501055300075' &&
@@ -1723,7 +1723,8 @@ async function main(): Promise<void> {
       'file',
       new Blob([
         '\uFEFFProducto;Precio de venta;Departamento;Código de barras\r\n' +
-          'Sabritas 45 g;"$1,020.50";Botanas;7501011111111\r\n;;;\r\nSin precio;;;\r\n'
+          'Sabritas 45 g;"$1,020.50";Botanas;7501011111111\r\n;;;\r\nSin precio;;;\r\n' +
+          'Precio raro;abc;;\r\n'
       ]),
       'lista.csv'
     )
@@ -1733,14 +1734,15 @@ async function main(): Promise<void> {
         headers: { authorization: `Bearer ${session.token}` },
         body: csvForm
       })
-    ).json()) as { rows: ParsedImportRow[] }
+    ).json()) as ParsedImportSheet
     assert(
       csv.rows.length === 2 &&
         csv.rows[0].item?.price === 1020.5 &&
         csv.rows[0].item?.category === 'Botanas' &&
-        csv.rows[1].error === 'Falta el precio o no es un número.' &&
-        csv.rows[1].row === 4,
-      `importar: CSV con ";", BOM, "$1,020.50", renglón vacío y error con su renglón (${JSON.stringify(csv.rows)})`
+        csv.withoutPrice === 1 &&
+        csv.rows[1].error === 'El precio no es un número válido.' &&
+        csv.rows[1].row === 5,
+      `importar: CSV con ";", BOM, "$1,020.50", vacío, sin precio (se ignora) y precio inválido (${JSON.stringify(csv)})`
     )
 
     const lista = [
@@ -1813,6 +1815,40 @@ async function main(): Promise<void> {
     assert(
       (await asAdmin('/api/catalogos/no-existe')).status === 404,
       'catálogo inexistente -> 404'
+    )
+
+    // Catálogo en Excel (precio vacío) → al subirlo tal cual no entra nada y se cuentan
+    // todos como "sin precio"; con precio en un renglón, entra sólo ése.
+    const catXlsx = await asAdmin('/api/catalogos/abarrotes-mx/excel')
+    assert(catXlsx.status === 200, `catálogo en Excel -> 200 (${catXlsx.status})`)
+    const catBytes = await catXlsx.arrayBuffer()
+    const subirXlsx = async (bytes: ArrayBuffer): Promise<ParsedImportSheet> => {
+      const f = new FormData()
+      f.append('file', new Blob([bytes]), 'catalogo.xlsx')
+      return (await (
+        await fetch(`${base}/api/productos/importar/leer`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${session.token}` },
+          body: f
+        })
+      ).json()) as ParsedImportSheet
+    }
+    const catLeido = await subirXlsx(catBytes)
+    assert(
+      catLeido.rows.length === 0 && catLeido.withoutPrice === abarrotes!.count,
+      `catálogo en Excel sin precios: 0 productos, ${abarrotes!.count} sin precio (${catLeido.rows.length}/${catLeido.withoutPrice}, ${catBytes.byteLength} bytes)`
+    )
+    const ExcelJS = (await import('exceljs')).default
+    const wbCat = new ExcelJS.Workbook()
+    await wbCat.xlsx.load(catBytes)
+    wbCat.worksheets[0].getCell('B3').value = 23.5
+    const conPrecio = await subirXlsx((await wbCat.xlsx.writeBuffer()) as ArrayBuffer)
+    assert(
+      conPrecio.rows.length === 1 &&
+        conPrecio.rows[0].item?.price === 23.5 &&
+        conPrecio.rows[0].item?.barcode === catItems[1].barcode &&
+        conPrecio.withoutPrice === abarrotes!.count - 1,
+      `catálogo en Excel con un precio: entra sólo ése, con su código (${JSON.stringify(conPrecio.rows)})`
     )
 
     // Alta por código escaneado: datos del catálogo base (sin internet).

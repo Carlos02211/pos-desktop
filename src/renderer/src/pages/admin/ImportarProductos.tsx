@@ -40,7 +40,8 @@ interface Row {
   search: string
 }
 
-type Source = { kind: 'excel'; fileName: string } | { kind: 'catalog'; info: CatalogInfo }
+type Source =
+  { kind: 'excel'; fileName: string; withoutPrice: number } | { kind: 'catalog'; info: CatalogInfo }
 
 const PAGE = 100
 
@@ -94,9 +95,13 @@ export default function ImportarProductos(): React.JSX.Element {
   async function onFile(file: File): Promise<void> {
     setLoading(true)
     try {
-      const { rows: parsed } = await leerArchivoImportacion(file)
+      const { rows: parsed, withoutPrice } = await leerArchivoImportacion(file)
       if (parsed.length === 0) {
-        toast.error('El archivo no tiene productos debajo de los encabezados.')
+        toast.error(
+          withoutPrice > 0
+            ? `Ningún producto del archivo tiene precio (${withoutPrice.toLocaleString('es-MX')} sin precio). Llena la columna Precio de lo que vendes.`
+            : 'El archivo no tiene productos debajo de los encabezados.'
+        )
         return
       }
       setRows(
@@ -117,7 +122,7 @@ export default function ImportarProductos(): React.JSX.Element {
           }
         })
       )
-      setSource({ kind: 'excel', fileName: file.name })
+      setSource({ kind: 'excel', fileName: file.name, withoutPrice })
       resetFilters()
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo leer el archivo')
@@ -182,6 +187,15 @@ export default function ImportarProductos(): React.JSX.Element {
   }, [rows, search, catFilter, onlySelected])
 
   const selected = rows.filter((r) => r.selected)
+  // "Marcar todos": los que coinciden con la búsqueda/categoría (no sólo los 100 que se ven).
+  const selectable = filtered.filter((r) => !r.error)
+  const allMarked = selectable.length > 0 && selectable.every((r) => r.selected)
+  const someMarked = !allMarked && selectable.some((r) => r.selected)
+
+  function markAll(on: boolean): void {
+    const keys = new Set(selectable.map((r) => r.key))
+    setRows((rs) => rs.map((r) => (keys.has(r.key) ? { ...r, selected: on } : r)))
+  }
   const missingPrice = selected.filter((r) => parsePrice(r.price) == null).length
 
   async function startImport(): Promise<void> {
@@ -294,14 +308,32 @@ export default function ImportarProductos(): React.JSX.Element {
             <p className="mb-4 text-xs text-muted-foreground">
               {c.count.toLocaleString('es-MX')} productos · {c.source}
             </p>
-            <button
-              type="button"
-              onClick={() => void onCatalog(c)}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50"
-            >
-              <PackageSearch className="h-4 w-4" /> Elegir productos del catálogo
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void onCatalog(c)}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50"
+              >
+                <PackageSearch className="h-4 w-4" /> Elegir aquí
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void downloadFile(`/api/catalogos/${c.id}/excel`, {}).catch(() =>
+                    toast.error('No se pudo descargar el catálogo')
+                  )
+                }
+                title="Pon los precios en Excel y súbelo con “Subir archivo…”"
+                className={actionButtonClass}
+              >
+                <Download className="h-4 w-4" /> Descargar en Excel
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Para muchos productos es más rápido en Excel: pon el precio de lo que vendes y súbelo
+              en “Desde Excel”. Lo que quede sin precio no se importa.
+            </p>
           </section>
         ))}
       </div>
@@ -321,6 +353,15 @@ export default function ImportarProductos(): React.JSX.Element {
             {source.kind === 'catalog'
               ? 'Busca lo que vendes, márcalo y ponle precio. El nombre y la categoría se pueden cambiar.'
               : 'Revisa los productos del archivo. Quita la marca de los que no quieras importar.'}
+            {source.kind === 'excel' && source.withoutPrice > 0 && (
+              <>
+                {' '}
+                <strong>
+                  {source.withoutPrice.toLocaleString('es-MX')} renglón(es) sin precio no se
+                  importan.
+                </strong>
+              </>
+            )}
           </p>
 
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -351,13 +392,36 @@ export default function ImportarProductos(): React.JSX.Element {
               />
               Sólo los marcados ({selected.length})
             </label>
+            {selectable.length > 0 && (
+              <button
+                type="button"
+                onClick={() => markAll(!allMarked)}
+                className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {allMarked ? 'Desmarcar' : 'Marcar'} los {selectable.length.toLocaleString('es-MX')}{' '}
+                que coinciden
+              </button>
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="bg-secondary/50 text-left text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="w-10 px-3 py-2"></th>
+                  <th className="w-10 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={allMarked}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someMarked
+                      }}
+                      onChange={(e) => markAll(e.target.checked)}
+                      disabled={selectable.length === 0}
+                      aria-label="Marcar todos los que coinciden con la búsqueda"
+                      title="Marcar / desmarcar todos los que coinciden con la búsqueda"
+                      className="h-4 w-4"
+                    />
+                  </th>
                   <th className="px-3 py-2">Producto</th>
                   <th className="w-56 px-3 py-2">Categoría</th>
                   <th className="w-28 px-3 py-2">Unidad</th>

@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getCatalog, listCatalogs, lookupBarcode } from '../services/catalogos'
 import {
+  buildCatalogWorkbook,
   buildImportTemplate,
   importProducts,
   MAX_IMPORT_ROWS,
@@ -50,7 +51,7 @@ export async function importarRoutes(app: FastifyInstance): Promise<void> {
       const buffer = await data.toBuffer()
       if (data.file.truncated)
         throw new HttpError(413, 'El archivo supera el tamaño máximo (3 MB).')
-      return { rows: await parseProductSheet(buffer) }
+      return await parseProductSheet(buffer)
     }
   )
 
@@ -77,6 +78,19 @@ export async function importarRoutes(app: FastifyInstance): Promise<void> {
       const found = await lookupBarcode(codigo)
       if (!found) return reply.code(404).send({ error: 'No se encontraron datos para ese código.' })
       return found
+    }
+  )
+
+  app.get(
+    '/api/catalogos/:id/excel',
+    { preHandler: requireRole('ADMIN') },
+    async (request, reply) => {
+      const { id } = parse(catalogParam, request.params)
+      const buffer = await buildCatalogWorkbook(id)
+      return reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="catalogo-${id}.xlsx"`)
+        .send(buffer)
     }
   )
 

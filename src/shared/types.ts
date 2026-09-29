@@ -116,6 +116,13 @@ export interface ImportProductsResult {
   newCategories: string[]
 }
 
+/** Respuesta de leer un Excel/CSV de productos. */
+export interface ParsedImportSheet {
+  rows: ParsedImportRow[]
+  /** Renglones con nombre pero sin precio: no se importan (catálogo usado como lista). */
+  withoutPrice: number
+}
+
 /** Renglón leído de un Excel/CSV; `error` si no se pudo interpretar. */
 export interface ParsedImportRow {
   /** Número de renglón en la hoja (para que el admin lo encuentre). */
