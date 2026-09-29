@@ -13,9 +13,12 @@ import type { AppendTarget } from '@/stores/cart.store'
  * reimprimir el ticket. El cobrador sólo reimprime su último ticket; el admin, cualquiera.
  */
 export function VentasTurnoModal({
+  cartBusy,
   onClose,
   onAppend
 }: {
+  /** Hay una venta nueva a medio armar: agregarla a otra venta la cobraría al cliente equivocado. */
+  cartBusy: boolean
   onClose: () => void
   onAppend: (target: AppendTarget) => void
 }): React.JSX.Element {
@@ -54,6 +57,12 @@ export function VentasTurnoModal({
 
       {sales && sales.length > 0 && (
         <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+          {cartBusy && (
+            <p className="rounded-lg bg-pos-warning/15 px-3 py-2 text-xs">
+              El carrito tiene productos de otra venta. Cóbrala o vacía el carrito antes de agregar
+              productos a una venta anterior.
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             ¿El cliente olvidó algo? Usa <strong>Agregar productos</strong>: se suma a la misma
             venta, se cobra con el mismo método y sale un ticket actualizado.
@@ -78,6 +87,7 @@ export function VentasTurnoModal({
               )}
               <div className="mt-2 flex gap-1.5">
                 <button
+                  disabled={cartBusy}
                   onClick={() =>
                     onAppend({
                       saleId: s.id,
@@ -87,7 +97,7 @@ export function VentasTurnoModal({
                       customerName: s.customerName
                     })
                   }
-                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition hover:opacity-90"
+                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Agregar productos
                 </button>

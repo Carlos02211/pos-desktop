@@ -42,7 +42,9 @@ export async function generateReportExcel(
 
   resumen.addRow(['Top productos', 'Cantidad', 'Ingreso']).font = { bold: true }
   for (const p of report.topProducts) {
-    resumen.addRow([p.name, p.quantity, p.revenue]).getCell(3).numFmt = money
+    resumen
+      .addRow([p.name, p.unit === 'KG' ? `${p.quantity} kg` : p.quantity, p.revenue])
+      .getCell(3).numFmt = money
   }
 
   /* --- Hoja Detalle --- */

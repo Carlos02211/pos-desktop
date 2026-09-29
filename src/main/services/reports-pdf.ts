@@ -39,6 +39,9 @@ export function generateReportPdf(
 ): Buffer {
   const currency = config.currency_symbol || '$'
   const money = (n: number): string => `${currency}${n.toFixed(2)}`
+  // Por peso: gramos debajo de 1 kg, kilos arriba (igual que el ticket); piezas tal cual.
+  const qtyLabel = (q: number, unit: 'PIEZA' | 'KG'): string =>
+    unit !== 'KG' ? String(q) : q < 1 ? `${Math.round(q * 1000)} g` : `${q} kg`
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const margin = 40
@@ -86,7 +89,7 @@ export function generateReportPdf(
     autoTable(doc, {
       startY: y,
       head: [['Top productos', 'Cantidad', 'Ingreso']],
-      body: report.topProducts.map((p) => [p.name, String(p.quantity), money(p.revenue)]),
+      body: report.topProducts.map((p) => [p.name, qtyLabel(p.quantity, p.unit), money(p.revenue)]),
       theme: 'striped',
       headStyles: { fillColor: [15, 52, 96] }
     })

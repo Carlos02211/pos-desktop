@@ -123,6 +123,7 @@ export default function Ventas(): React.JSX.Element {
             <option value="CASH">Efectivo</option>
             <option value="CARD">Tarjeta</option>
             <option value="TRANSFER">Transferencia</option>
+            <option value="CREDIT">Fiado</option>
           </select>
         </Field>
       </div>

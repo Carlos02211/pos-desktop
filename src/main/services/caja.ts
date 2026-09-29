@@ -147,6 +147,7 @@ function toSummary(session: CashSessionRow, t: SessionTotals): CashSessionSummar
     totalTransfer: fromCents(t.totalTransfer),
     totalCredit: fromCents(t.totalCredit),
     abonosCash: fromCents(t.abonosCash),
+    creditDownCash: fromCents(t.creditDownCash),
     cashIn: fromCents(t.cashIn),
     cashOut: fromCents(t.cashOut),
     expectedCash: fromCents(expectedCashCentsFor(session.openingAmount, t))

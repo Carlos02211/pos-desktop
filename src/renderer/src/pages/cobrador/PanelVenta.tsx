@@ -348,7 +348,11 @@ export default function PanelVenta(): React.JSX.Element {
           <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
         ))}
       {ventasOpen && (
-        <VentasTurnoModal onClose={() => setVentasOpen(false)} onAppend={startAppend} />
+        <VentasTurnoModal
+          cartBusy={items.length > 0 && !appendTo}
+          onClose={() => setVentasOpen(false)}
+          onAppend={startAppend}
+        />
       )}
       {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
     </div>

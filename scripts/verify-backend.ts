@@ -723,7 +723,9 @@ async function main(): Promise<void> {
       `reporte diario: cuenta las ventas del día (got ${reporte.totalTransactions})`
     )
     assert(
-      reporte.topProducts.some((p) => p.name === 'Producto de prueba' && p.quantity >= 3),
+      reporte.topProducts.some(
+        (p) => p.name === 'Producto de prueba' && p.unit === 'PIEZA' && p.quantity >= 3
+      ),
       'reporte diario: top de productos con cantidades'
     )
     assert(
@@ -1419,6 +1421,15 @@ async function main(): Promise<void> {
 
     // ---- Agregar productos olvidados a una venta ya cobrada (mismo folio) ----
     const resumenAntes = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    // El cierre muestra cada renglón: su suma debe dar el efectivo esperado (antes faltaban
+    // los enganches de fiado y el desglose no cuadraba con el total).
+    const r = resumenAntes
+    const sumaRenglones =
+      r.session.openingAmount + r.totalCash + r.creditDownCash + r.abonosCash + r.cashIn - r.cashOut
+    assert(
+      r.creditDownCash > 0 && Math.round(sumaRenglones * 100) === Math.round(r.expectedCash * 100),
+      `cierre: los renglones (incl. enganches ${r.creditDownCash}) suman el esperado ${r.expectedCash}`
+    )
     const baseSale = (await (
       await asCajero('/api/ventas', 'POST', {
         items: [{ productId: producto.id, quantity: 1 }],

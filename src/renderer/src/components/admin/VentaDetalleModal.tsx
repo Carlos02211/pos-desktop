@@ -115,6 +115,20 @@ export function VentaDetalleModal({
                 </div>
               </>
             )}
+            {sale.paymentMethod === 'CREDIT' && (
+              <>
+                {(sale.amountPaid ?? 0) > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Enganche</span>
+                    <span>{money(sale.amountPaid ?? 0)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Quedó a deber</span>
+                  <span>{money(sale.total - (sale.amountPaid ?? 0))}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {hasPrinter && (

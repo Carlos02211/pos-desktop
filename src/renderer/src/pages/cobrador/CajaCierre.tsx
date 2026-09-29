@@ -92,6 +92,9 @@ export default function CajaCierre(): React.JSX.Element {
           {s.totalCredit > 0 && (
             <Line label="Fiado otorgado (no es efectivo)" value={money(s.totalCredit)} />
           )}
+          {s.creditDownCash > 0 && (
+            <Line label="Enganches de fiado (efectivo)" value={money(s.creditDownCash)} />
+          )}
           {s.abonosCash > 0 && (
             <Line label="Abonos en efectivo recibidos" value={money(s.abonosCash)} />
           )}

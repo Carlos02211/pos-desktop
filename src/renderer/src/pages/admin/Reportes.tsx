@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import type { ReportType, SalesReport } from '@shared/types'
 import { getReporte, type ReportParams } from '@/api/admin'
 import { downloadFile } from '@/lib/download'
-import { localDateISO, localMonthISO, money } from '@/lib/format'
+import { formatQty, localDateISO, localMonthISO, money } from '@/lib/format'
 
 const TABS: { type: ReportType; label: string }[] = [
   { type: 'diario', label: 'Diario' },
@@ -201,7 +201,7 @@ export default function Reportes(): React.JSX.Element {
                   report.topProducts.map((p) => (
                     <tr key={p.productId} className="border-t border-border">
                       <td className="px-4 py-2">{p.name}</td>
-                      <td className="px-4 py-2 text-right">{p.quantity}</td>
+                      <td className="px-4 py-2 text-right">{formatQty(p.quantity, p.unit)}</td>
                       <td className="px-4 py-2 text-right font-medium">{money(p.revenue)}</td>
                     </tr>
                   ))

@@ -409,6 +409,8 @@ export interface PaymentBreakdown {
 export interface TopProduct {
   productId: number
   name: string
+  /** Piezas (PIEZA) o kilos (KG): define cómo mostrar `quantity`. */
+  unit: ProductUnit
   quantity: number
   revenue: number
 }
@@ -494,6 +496,8 @@ export interface CashSessionSummary {
   totalCredit: number
   /** Abonos a cuentas anteriores recibidos en el turno (en efectivo). */
   abonosCash: number
+  /** Enganches en efectivo de las ventas fiadas del turno. */
+  creditDownCash: number
   /** Ingresos manuales de efectivo a la caja durante el turno. */
   cashIn: number
   /** Retiros manuales de efectivo de la caja durante el turno (gastos, depósitos). */
