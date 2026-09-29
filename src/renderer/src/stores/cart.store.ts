@@ -111,6 +111,7 @@ export function cartTotal(items: CartItem[]): number {
   return Math.round((raw + Number.EPSILON) * 100) / 100
 }
 
+/** Artículos: las piezas por su cantidad; cada producto por peso cuenta como 1 (no 0.35). */
 export function cartCount(items: CartItem[]): number {
-  return items.reduce((sum, i) => sum + i.quantity, 0)
+  return items.reduce((sum, i) => sum + (i.unit === 'KG' ? 1 : i.quantity), 0)
 }

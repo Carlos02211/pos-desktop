@@ -1,3 +1,4 @@
+import { saleItemCountSql } from './ventas'
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type {
   PaymentBreakdown,
@@ -178,7 +179,7 @@ export async function salesInPeriod(db: DB, from: number, to: number): Promise<R
         createdAt: sales.createdAt,
         userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
         paymentMethod: sales.paymentMethod,
-        itemCount: sql<number>`(select coalesce(count(*),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
+        itemCount: saleItemCountSql,
         total: sales.total
       })
       .from(sales)

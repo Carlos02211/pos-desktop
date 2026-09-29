@@ -1214,6 +1214,22 @@ async function main(): Promise<void> {
         salePapa.items[0].subtotal === 4.2,
       `venta por peso: 0.35 kg × $12 = $4.20 (got ${JSON.stringify(salePapa.items[0])})`
     )
+    const mixta = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [
+          { productId: papa.id, quantity: 0.35 },
+          { productId: producto.id, quantity: 2 }
+        ],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const filaMixta = (
+      (await (await asAdmin('/api/ventas?pageSize=100')).json()) as SalesPage
+    ).rows.find((r) => r.id === mixta.id)
+    assert(
+      filaMixta?.itemCount === 3,
+      `artículos: 2 piezas + 350 g = 3 artículos, no 2.35 (got ${filaMixta?.itemCount})`
+    )
 
     const ventaPapaEntera = await asCajero('/api/ventas', 'POST', {
       items: [{ productId: producto.id, quantity: 1.5 }],

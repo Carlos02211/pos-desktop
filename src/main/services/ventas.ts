@@ -256,6 +256,12 @@ async function buildLines(
   return { lines, totalCents }
 }
 
+/**
+ * Artículos de una venta: las piezas cuentan por su cantidad y cada producto por peso (kg)
+ * cuenta como 1 (0.350 kg de aguacate es "un artículo", no 0.35). Misma regla que el carrito.
+ */
+export const saleItemCountSql = sql<number>`(select coalesce(sum(case when ${saleItems.unit} = 'KG' then 1 else ${saleItems.quantity} end), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+
 const MAX_PAGE_SIZE = 100
 
 /** Historial de ventas paginado con filtros (panel de administración). */
@@ -287,7 +293,7 @@ export async function listSales(db: DB, query: SalesQuery): Promise<SalesPage> {
         change: sales.change,
         customerName: customers.name,
         createdAt: sales.createdAt,
-        itemCount: sql<number>`(select coalesce(count(*), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+        itemCount: saleItemCountSql
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
@@ -471,7 +477,7 @@ export async function listTurnSales(db: DB, actor: SaleActor): Promise<TurnSale[
       change: sales.change,
       customerName: customers.name,
       createdAt: sales.createdAt,
-      itemCount: sql<number>`(select coalesce(count(*), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+      itemCount: saleItemCountSql
     })
     .from(sales)
     .innerJoin(users, eq(users.id, sales.userId))

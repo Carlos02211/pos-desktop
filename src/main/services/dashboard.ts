@@ -1,7 +1,8 @@
+import { saleItemCountSql } from './ventas'
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { DashboardData, OpenSessionInfo, SaleListItem } from '../../shared/types'
 import type { DB } from '../db'
-import { cashSessions, customers, saleItems, sales, users } from '../db/schema'
+import { cashSessions, customers, sales, users } from '../db/schema'
 import { fromCents } from '../lib/money'
 import { businessOffsetMinutes, dayStartUnix, nowParts } from '../lib/timezone'
 import { getConfigMap } from './config'
@@ -55,7 +56,7 @@ export async function getDashboard(db: DB): Promise<DashboardData> {
         change: sales.change,
         customerName: customers.name,
         createdAt: sales.createdAt,
-        itemCount: sql<number>`(select coalesce(count(*),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+        itemCount: saleItemCountSql
       })
       .from(sales)
       .innerJoin(users, eq(users.id, sales.userId))
