@@ -321,10 +321,19 @@ export function openCashDrawerInBackground(
  * tiempo de impresión). Negocio, folio y turno de caja, fecha/hora, cobrador, productos,
  * total y cómo se pagó.
  */
+export interface TicketOptions {
+  /** Abrir el cajón si entra efectivo (venta o productos agregados, no reimpresión). */
+  openDrawer?: boolean
+  /** Reimpresión: el ticket dice que es copia y cuándo se imprimió (unix s). */
+  reprintAt?: number
+  /** Se agregaron productos a la venta: este ticket reemplaza al que ya se entregó. */
+  updated?: boolean
+}
+
 export async function printTicket(
   sale: SaleWithItems,
   config: ConfigMap,
-  { openDrawer = false }: { openDrawer?: boolean } = {}
+  { openDrawer = false, reprintAt, updated = false }: TicketOptions = {}
 ): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
@@ -349,6 +358,18 @@ export async function printTicket(
     printer.bold(false)
     if (config.business_address) printer.println(config.business_address)
     if (config.business_phone) printer.println(`Tel: ${config.business_phone}`)
+    // Una copia no debe pasar por el original (devoluciones, garantías dos veces).
+    if (reprintAt != null) {
+      printer.bold(true)
+      printer.println('*** REIMPRESIÓN ***')
+      printer.bold(false)
+      printer.println(`Reimpreso: ${ticketDate(reprintAt, config)}`)
+    } else if (updated) {
+      printer.bold(true)
+      printer.println('TICKET ACTUALIZADO')
+      printer.bold(false)
+      printer.println('Reemplaza al ticket anterior')
+    }
     printer.drawLine()
 
     printer.alignLeft()

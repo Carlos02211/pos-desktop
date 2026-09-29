@@ -5,7 +5,7 @@ import type { SaleWithItems } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { getConfig, getVentaDetalle, reimprimirTicket } from '@/api/admin'
 import { Modal } from '@/components/Modal'
-import { dateTime, formatQty, money, paymentLabel } from '@/lib/format'
+import { dateTime, formatQty, money, paymentLabel, timeOnly } from '@/lib/format'
 
 export function VentaDetalleModal({
   saleId,
@@ -79,6 +79,11 @@ export function VentaDetalleModal({
                       {it.originalPrice != null && (
                         <span className="ml-1.5 text-xs font-medium text-pos-success">
                           precio editado ({money(it.originalPrice)} → {money(it.price)})
+                        </span>
+                      )}
+                      {it.addedAt != null && (
+                        <span className="ml-1.5 text-xs font-medium text-pos-warning">
+                          agregado {timeOnly(it.addedAt)}
                         </span>
                       )}
                     </td>

@@ -1,14 +1,25 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type {
+  AddToSaleInput,
   CreateSaleInput,
+  Role,
   SaleItem,
   SaleWithItems,
   SalesPage,
-  SalesQuery
+  SalesQuery,
+  TurnSale
 } from '../../shared/types'
 import type { DB } from '../db'
 import type { SaleItemRow, SaleRow } from '../db/schema'
-import { creditAccounts, customers, products, saleItems, sales, users } from '../db/schema'
+import {
+  cashSessions,
+  creditAccounts,
+  customers,
+  products,
+  saleItems,
+  sales,
+  users
+} from '../db/schema'
 import { lockOpenSession, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { fromCents, lineCents, round3, toCents } from '../lib/money'
@@ -90,68 +101,7 @@ export async function createSale(
       customerName = customer.name
     }
 
-    // Descuento máximo por línea que el cobrador puede aplicar (config del negocio).
-    const maxDiscountPct = clampPct(Number((await getConfigMap(tx))['max_line_discount_pct']))
-
-    const ids = [...new Set(input.items.map((i) => i.productId))]
-    const rows = await tx.select().from(products).where(inArray(products.id, ids))
-    const byId = new Map(rows.map((r) => [r.id, r]))
-
-    let totalCents = 0
-    const lines = input.items.map((line) => {
-      const product = byId.get(line.productId)
-      if (!product || product.active !== 1) {
-        throw new HttpError(400, `Producto no disponible (id ${line.productId}).`)
-      }
-      let quantity: number
-      if (product.unit === 'KG') {
-        if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
-          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
-        }
-        quantity = round3(line.quantity) // precisión de 1 gramo
-      } else {
-        if (!Number.isInteger(line.quantity) || line.quantity < 1) {
-          throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
-        }
-        quantity = line.quantity
-      }
-      let priceCents = product.price
-      if (line.price != null) {
-        if (!Number.isFinite(line.price) || line.price <= 0) {
-          throw new HttpError(400, `Precio inválido para "${product.name}".`)
-        }
-        const editedCents = toCents(line.price)
-        // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
-        // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
-        if (editedCents > product.price) {
-          throw new HttpError(
-            400,
-            `El precio de "${product.name}" no puede superar el de catálogo.`
-          )
-        }
-        const minAllowedCents = Math.ceil((product.price * (100 - maxDiscountPct)) / 100)
-        if (editedCents < minAllowedCents) {
-          throw new HttpError(
-            400,
-            maxDiscountPct === 0
-              ? `No está permitido editar el precio de "${product.name}".`
-              : `El descuento en "${product.name}" supera el máximo permitido (${maxDiscountPct}%).`
-          )
-        }
-        priceCents = editedCents
-      }
-      const subtotalCents = lineCents(priceCents, quantity)
-      totalCents += subtotalCents
-      return {
-        productId: product.id,
-        name: product.name,
-        price: priceCents,
-        originalPrice: priceCents < product.price ? product.price : null,
-        unit: product.unit,
-        quantity,
-        subtotal: subtotalCents
-      }
-    })
+    const { lines, totalCents } = await buildLines(tx, input.items)
 
     let amountPaidCents: number | null = null
     let changeCents: number | null = null
@@ -233,6 +183,79 @@ export async function createSale(
   })
 }
 
+type NewSaleLine = Omit<SaleItemRow, 'id' | 'saleId' | 'addedAt'>
+
+/**
+ * Valida las líneas del carrito contra el catálogo y calcula los importes en centavos.
+ * El nombre y el precio de catálogo siempre salen de la BD; el cajero sólo puede aplicar un
+ * descuento dentro del máximo configurado. La usan la venta nueva y "agregar a una venta".
+ */
+async function buildLines(
+  tx: DB,
+  items: CreateSaleInput['items']
+): Promise<{ lines: NewSaleLine[]; totalCents: number }> {
+  // Descuento máximo por línea que el cobrador puede aplicar (config del negocio).
+  const maxDiscountPct = clampPct(Number((await getConfigMap(tx))['max_line_discount_pct']))
+
+  const ids = [...new Set(items.map((i) => i.productId))]
+  const rows = await tx.select().from(products).where(inArray(products.id, ids))
+  const byId = new Map(rows.map((r) => [r.id, r]))
+
+  let totalCents = 0
+  const lines = items.map((line): NewSaleLine => {
+    const product = byId.get(line.productId)
+    if (!product || product.active !== 1) {
+      throw new HttpError(400, `Producto no disponible (id ${line.productId}).`)
+    }
+    let quantity: number
+    if (product.unit === 'KG') {
+      if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+        throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+      }
+      quantity = round3(line.quantity) // precisión de 1 gramo
+    } else {
+      if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+        throw new HttpError(400, `Cantidad inválida para "${product.name}".`)
+      }
+      quantity = line.quantity
+    }
+    let priceCents = product.price
+    if (line.price != null) {
+      if (!Number.isFinite(line.price) || line.price <= 0) {
+        throw new HttpError(400, `Precio inválido para "${product.name}".`)
+      }
+      const editedCents = toCents(line.price)
+      // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
+      // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
+      if (editedCents > product.price) {
+        throw new HttpError(400, `El precio de "${product.name}" no puede superar el de catálogo.`)
+      }
+      const minAllowedCents = Math.ceil((product.price * (100 - maxDiscountPct)) / 100)
+      if (editedCents < minAllowedCents) {
+        throw new HttpError(
+          400,
+          maxDiscountPct === 0
+            ? `No está permitido editar el precio de "${product.name}".`
+            : `El descuento en "${product.name}" supera el máximo permitido (${maxDiscountPct}%).`
+        )
+      }
+      priceCents = editedCents
+    }
+    const subtotalCents = lineCents(priceCents, quantity)
+    totalCents += subtotalCents
+    return {
+      productId: product.id,
+      name: product.name,
+      price: priceCents,
+      originalPrice: priceCents < product.price ? product.price : null,
+      unit: product.unit,
+      quantity,
+      subtotal: subtotalCents
+    }
+  })
+  return { lines, totalCents }
+}
+
 const MAX_PAGE_SIZE = 100
 
 /** Historial de ventas paginado con filtros (panel de administración). */
@@ -311,5 +334,194 @@ export async function getSaleWithItems(db: DB, saleId: number): Promise<SaleWith
     items: items.map(itemMoneyToApi),
     userName: user?.username ?? '',
     customerName
+  }
+}
+
+/** Quien hace la operación: el cobrador sólo actúa sobre su propia caja; el admin, sobre cualquiera. */
+export interface SaleActor {
+  id: number
+  role: Role
+}
+
+export interface AddToSaleResult extends SaleResult {
+  addedTotal: number
+  addedChange: number | null
+  /** Si la venta es fiada: saldo de la cuenta después de sumar lo agregado. */
+  credit?: { accountId: number; customerId: number; balance: number }
+}
+
+const CLOSED_SESSION_MSG = 'Esa venta es de una caja ya cerrada: registra una venta nueva.'
+
+/**
+ * Productos que el cliente olvidó: se suman a una venta ya cobrada del turno ABIERTO, con el
+ * mismo folio, y se cobran con el mismo método de pago. Sólo se agrega (nunca se quita), así
+ * que no puede sacar dinero de la caja. Los cortes, el dashboard y los reportes suman
+ * `sales.total` por método, así que cuadran sin cambios.
+ *
+ *  - CASH: `amountPaid` es lo recibido por lo agregado; se acumula en la venta con su cambio.
+ *  - CREDIT: lo agregado se suma a la deuda de la cuenta (se reabre si ya estaba pagada).
+ *  - CARD / TRANSFER: se cobra lo agregado por el mismo medio.
+ */
+export async function addToSale(
+  db: DB,
+  actor: SaleActor,
+  saleId: number,
+  input: AddToSaleInput
+): Promise<AddToSaleResult> {
+  if (input.items.length === 0) {
+    throw new HttpError(400, 'No hay productos para agregar.')
+  }
+
+  return withTx(db, async (tx) => {
+    const [found] = await tx.select().from(sales).where(eq(sales.id, saleId)).limit(1)
+    if (!found) throw new HttpError(404, 'Venta no encontrada.')
+    const [session] = await tx
+      .select()
+      .from(cashSessions)
+      .where(eq(cashSessions.id, found.cashSessionId))
+      .limit(1)
+    if (!session || session.status !== 'OPEN') throw new HttpError(409, CLOSED_SESSION_MSG)
+    if (actor.role !== 'ADMIN' && session.userId !== actor.id) {
+      throw new HttpError(403, 'Sólo puedes completar ventas de tu propia caja.')
+    }
+    // Serializa con el cierre y con otras ventas de la caja; relee la venta ya bloqueada.
+    if (!(await lockOpenSession(tx, session.id))) throw new HttpError(409, CLOSED_SESSION_MSG)
+    const [sale] = await tx.select().from(sales).where(eq(sales.id, saleId)).limit(1)
+
+    const { lines, totalCents: addedCents } = await buildLines(tx, input.items)
+
+    let amountPaidCents = sale.amountPaid
+    let changeCents = sale.change
+    let addedChangeCents: number | null = null
+    if (sale.paymentMethod === 'CASH') {
+      const paidCents = input.amountPaid == null ? -1 : toCents(input.amountPaid)
+      if (paidCents < addedCents) {
+        throw new HttpError(400, 'El monto recibido es menor a lo que se agrega.')
+      }
+      addedChangeCents = paidCents - addedCents
+      amountPaidCents = (sale.amountPaid ?? sale.total) + paidCents
+      changeCents = (sale.change ?? 0) + addedChangeCents
+    }
+
+    let credit: AddToSaleResult['credit']
+    if (sale.paymentMethod === 'CREDIT') {
+      const [account] = await tx
+        .select()
+        .from(creditAccounts)
+        .where(eq(creditAccounts.saleId, sale.id))
+        .limit(1)
+      if (!account) throw new HttpError(409, 'La venta fiada no tiene cuenta por cobrar.')
+      const newTotal = account.total + addedCents
+      await tx
+        .update(creditAccounts)
+        .set({ total: newTotal, status: 'OPEN', closedAt: null })
+        .where(eq(creditAccounts.id, account.id))
+      credit = {
+        accountId: account.id,
+        customerId: account.customerId,
+        balance: fromCents(newTotal - account.paid)
+      }
+    }
+
+    await tx
+      .update(sales)
+      .set({ total: sale.total + addedCents, amountPaid: amountPaidCents, change: changeCents })
+      .where(eq(sales.id, sale.id))
+
+    const addedAt = Math.floor(Date.now() / 1000)
+    await tx.insert(saleItems).values(lines.map((line) => ({ saleId: sale.id, addedAt, ...line })))
+
+    const full = await getSaleWithItems(tx, sale.id)
+    return {
+      ...full,
+      creditAccountId: credit?.accountId,
+      addedTotal: fromCents(addedCents),
+      addedChange: addedChangeCents == null ? null : fromCents(addedChangeCents),
+      credit
+    }
+  })
+}
+
+/**
+ * Ventas del turno abierto, de la más nueva a la más vieja. El cobrador ve las de su caja; el
+ * admin, las de todas las cajas abiertas. `canReprint`: el cobrador sólo reimprime la última.
+ */
+export async function listTurnSales(db: DB, actor: SaleActor): Promise<TurnSale[]> {
+  const open = await db
+    .select({ id: cashSessions.id })
+    .from(cashSessions)
+    .where(
+      actor.role === 'ADMIN'
+        ? eq(cashSessions.status, 'OPEN')
+        : and(eq(cashSessions.status, 'OPEN'), eq(cashSessions.userId, actor.id))
+    )
+  if (open.length === 0) return []
+  const sessionIds = open.map((s) => s.id)
+
+  const rows = await db
+    .select({
+      id: sales.id,
+      ticketNumber: sales.ticketNumber,
+      cashSessionId: sales.cashSessionId,
+      userId: sales.userId,
+      userName: users.username,
+      total: sales.total,
+      paymentMethod: sales.paymentMethod,
+      amountPaid: sales.amountPaid,
+      change: sales.change,
+      customerName: customers.name,
+      createdAt: sales.createdAt,
+      itemCount: sql<number>`(select coalesce(count(*), 0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+    })
+    .from(sales)
+    .innerJoin(users, eq(users.id, sales.userId))
+    .leftJoin(customers, eq(customers.id, sales.customerId))
+    .where(inArray(sales.cashSessionId, sessionIds))
+    .orderBy(desc(sales.createdAt), desc(sales.id))
+    .limit(200)
+
+  // Folio más alto de cada caja = su última venta.
+  const lastBySession = new Map<number, number>()
+  for (const r of rows) {
+    lastBySession.set(
+      r.cashSessionId,
+      Math.max(lastBySession.get(r.cashSessionId) ?? 0, r.ticketNumber)
+    )
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    total: fromCents(Number(r.total)),
+    amountPaid: r.amountPaid == null ? null : fromCents(Number(r.amountPaid)),
+    change: r.change == null ? null : fromCents(Number(r.change)),
+    itemCount: Number(r.itemCount),
+    canReprint: actor.role === 'ADMIN' || r.ticketNumber === lastBySession.get(r.cashSessionId)
+  }))
+}
+
+/**
+ * El admin reimprime cualquier ticket. El cobrador, sólo el ÚLTIMO de su caja abierta (se
+ * acabó el papel, se atoró el ticket): así no puede sacar copias de ventas viejas.
+ */
+export async function assertCanReprint(db: DB, actor: SaleActor, saleId: number): Promise<void> {
+  if (actor.role === 'ADMIN') return
+  const [sale] = await db.select().from(sales).where(eq(sales.id, saleId)).limit(1)
+  if (!sale) throw new HttpError(404, 'Venta no encontrada.')
+  const session = await getActiveSession(db, actor.id)
+  const [last] = session
+    ? await db
+        .select({ max: sql<number>`coalesce(max(${sales.ticketNumber}), 0)` })
+        .from(sales)
+        .where(eq(sales.cashSessionId, session.id))
+    : []
+  if (
+    !session ||
+    sale.cashSessionId !== session.id ||
+    sale.ticketNumber !== Number(last?.max ?? 0)
+  ) {
+    throw new HttpError(
+      403,
+      'Sólo puedes reimprimir el último ticket de tu caja. Los anteriores, pídelos al administrador.'
+    )
   }
 }

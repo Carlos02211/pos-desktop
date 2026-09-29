@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import type { Category, CreateSaleResponse, ProductWithCategory } from '@shared/types'
+import type {
+  AddToSaleResponse,
+  Category,
+  CreateSaleResponse,
+  ProductWithCategory
+} from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
 import { abrirCajon, cajonActivo, getSesionActiva } from '@/api/caja'
 import { ApiRequestError } from '@/api/client'
+import { AgregarCobroModal } from '@/components/AgregarCobroModal'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
+import { VentasTurnoModal } from '@/components/VentasTurnoModal'
 import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { money } from '@/lib/format'
 import { socket } from '@/lib/socket'
-import { cartCount, cartTotal, useCartStore } from '@/stores/cart.store'
+import { type AppendTarget, cartCount, cartTotal, useCartStore } from '@/stores/cart.store'
 
 type Load = 'loading' | 'no-caja' | 'ready' | 'error'
 
@@ -25,6 +32,7 @@ export default function PanelVenta(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [cobroOpen, setCobroOpen] = useState(false)
   const [movimientoOpen, setMovimientoOpen] = useState(false)
+  const [ventasOpen, setVentasOpen] = useState(false)
   const [hasDrawer, setHasDrawer] = useState(false)
   const [opening, setOpening] = useState(false)
 
@@ -35,6 +43,8 @@ export default function PanelVenta(): React.JSX.Element {
   const setPrice = useCartStore((s) => s.setPrice)
   const removeItem = useCartStore((s) => s.removeItem)
   const clear = useCartStore((s) => s.clear)
+  const appendTo = useCartStore((s) => s.appendTo)
+  const setAppendTo = useCartStore((s) => s.setAppendTo)
   const total = useMemo(() => cartTotal(items), [items])
 
   const loadCatalog = useCallback(async () => {
@@ -109,7 +119,7 @@ export default function PanelVenta(): React.JSX.Element {
   )
 
   // Con un modal abierto el lector no agrega nada detrás (el cobro ya está en curso).
-  useBarcodeScanner(scan, load === 'ready' && !cobroOpen && !movimientoOpen)
+  useBarcodeScanner(scan, load === 'ready' && !cobroOpen && !movimientoOpen && !ventasOpen)
 
   /** Enter en el buscador: si es un código (lector o tecleado a mano), agrega ese producto. */
   function onSearchEnter(): void {
@@ -145,6 +155,24 @@ export default function PanelVenta(): React.JSX.Element {
     if (!sale.print.printed && !sale.print.skipped) {
       toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
     }
+  }
+
+  function onAddDone(sale: AddToSaleResponse): void {
+    clear()
+    setCobroOpen(false)
+    toast.success(
+      `Se agregaron ${money(sale.addedTotal)} a la venta #${sale.ticketNumber} · nuevo total ${money(sale.total)}` +
+        (sale.addedChange ? ` · cambio ${money(sale.addedChange)}` : '')
+    )
+    if (!sale.print.printed && !sale.print.skipped) {
+      toast.warning(`Ticket no impreso: ${sale.print.error ?? 'impresora no disponible'}`)
+    }
+  }
+
+  function startAppend(target: AppendTarget): void {
+    setAppendTo(target)
+    setVentasOpen(false)
+    toast.info(`Agrega lo que falta y toca "Agregar a #${target.ticketNumber}".`)
   }
 
   if (load === 'loading') {
@@ -212,9 +240,9 @@ export default function PanelVenta(): React.JSX.Element {
 
       {/* Carrito */}
       <div className="flex min-h-0 flex-col bg-card">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm font-semibold">
-          <span>Carrito · {cartCount(items)} art.</span>
-          <div className="flex gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5 text-sm font-semibold">
+          <span className="whitespace-nowrap">Carrito · {cartCount(items)} art.</span>
+          <div className="flex flex-wrap gap-1.5">
             {hasDrawer && (
               <button
                 onClick={() => void openDrawer()}
@@ -225,25 +253,46 @@ export default function PanelVenta(): React.JSX.Element {
               </button>
             )}
             <button
+              onClick={() => setVentasOpen(true)}
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
+            >
+              Ventas
+            </button>
+            <button
               onClick={() => navigate('/cobrador/cuentas')}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
             >
               Cuentas
             </button>
             <button
               onClick={() => setMovimientoOpen(true)}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
             >
               Efectivo
             </button>
             <button
               onClick={() => navigate('/cobrador/cierre')}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary"
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
             >
               Cerrar caja
             </button>
           </div>
         </div>
+
+        {appendTo && (
+          <div className="flex items-center justify-between gap-2 border-b border-border bg-pos-warning/15 px-4 py-2 text-xs">
+            <span>
+              Agregando a la venta <strong>#{appendTo.ticketNumber}</strong> (
+              {money(appendTo.total)}): se cobra sólo lo nuevo.
+            </span>
+            <button
+              onClick={() => setAppendTo(null)}
+              className="shrink-0 rounded-md border border-border px-2 py-0.5 font-medium transition hover:bg-secondary"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {items.length === 0 ? (
@@ -274,7 +323,7 @@ export default function PanelVenta(): React.JSX.Element {
               disabled={items.length === 0}
               className="rounded-lg bg-pos-success px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              Cobrar
+              {appendTo ? `Agregar a #${appendTo.ticketNumber}` : 'Cobrar'}
             </button>
             <button
               onClick={clear}
@@ -287,8 +336,19 @@ export default function PanelVenta(): React.JSX.Element {
         </div>
       </div>
 
-      {cobroOpen && (
-        <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
+      {cobroOpen &&
+        (appendTo ? (
+          <AgregarCobroModal
+            target={appendTo}
+            added={total}
+            onClose={() => setCobroOpen(false)}
+            onDone={onAddDone}
+          />
+        ) : (
+          <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
+        ))}
+      {ventasOpen && (
+        <VentasTurnoModal onClose={() => setVentasOpen(false)} onAppend={startAppend} />
       )}
       {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
     </div>

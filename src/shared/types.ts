@@ -83,6 +83,8 @@ export interface SaleItem {
   unit: ProductUnit
   quantity: number
   subtotal: number
+  /** Unix (s) en que se agregó a una venta ya cobrada; null = parte de la venta original. */
+  addedAt: number | null
 }
 
 /** Producto con el nombre de su categoría resuelto (respuesta de `GET /api/productos`). */
@@ -226,6 +228,30 @@ export interface CreateSaleResponse extends SaleWithItems {
   creditAccountId?: number
   /** true si el servidor devolvió una venta ya existente (reintento deduplicado). */
   duplicate?: boolean
+}
+
+/**
+ * Cuerpo de `POST /api/ventas/:id/agregar`: productos que el cliente olvidó, sumados a una
+ * venta ya cobrada del turno abierto (mismo folio). Se pagan con el método de la venta.
+ */
+export interface AddToSaleInput {
+  items: CartLineInput[]
+  /** CASH: efectivo recibido por lo agregado (>= lo agregado). Otros métodos: no se manda. */
+  amountPaid?: number
+  clientRequestId?: string
+}
+
+export interface AddToSaleResponse extends CreateSaleResponse {
+  /** Importe de lo que se agregó (lo que se cobró ahora). */
+  addedTotal: number
+  /** Cambio de este cobro (sólo CASH). */
+  addedChange: number | null
+}
+
+/** Venta del turno abierto (`GET /api/ventas/turno`), para completar o reimprimir. */
+export interface TurnSale extends SaleListItem {
+  /** El cobrador sólo puede reimprimir la última venta de su caja; el admin, cualquiera. */
+  canReprint: boolean
 }
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */

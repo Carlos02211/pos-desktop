@@ -30,6 +30,8 @@ import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
+  AddToSaleResponse,
+  TurnSale,
   BackupRunResponse,
   BackupStatus,
   BrandingResponse,
@@ -1343,7 +1345,13 @@ async function main(): Promise<void> {
     )
 
     await asAdmin(`/api/ventas/${ticketCash.id}/reimprimir`, 'POST')
-    assert(!(await lastJob()).includes(KICK), 'reimpresión: no abre el cajón')
+    const reprintJob = await lastJob()
+    assert(!reprintJob.includes(KICK), 'reimpresión: no abre el cajón')
+    assert(
+      reprintJob.toString('latin1').includes('*** REIMPRESI\xe0N ***') &&
+        reprintJob.toString('latin1').includes('Reimpreso: '),
+      'reimpresión: el ticket dice que es copia y cuándo se reimprimió'
+    )
 
     const fiadoTicket = (await (
       await asCajero('/api/ventas', 'POST', {
@@ -1392,6 +1400,176 @@ async function main(): Promise<void> {
       })
     ).json()) as DrawerResult
     assert(pruebaCajon.opened && (await lastJob()).includes(KICK), 'Configuración: "Probar cajón"')
+
+    // ---- Agregar productos olvidados a una venta ya cobrada (mismo folio) ----
+    const resumenAntes = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    const baseSale = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 30
+      })
+    ).json()) as CreateSaleResponse
+    const agregar = (saleId: number, body: unknown, as = asCajero): Promise<Response> =>
+      as(`/api/ventas/${saleId}/agregar`, 'POST', body)
+
+    const corto = await agregar(baseSale.id, {
+      items: [{ productId: papa.id, quantity: 0.5 }],
+      amountPaid: 1
+    })
+    assert(corto.status === 400, `agregar: efectivo insuficiente -> 400 (status ${corto.status})`)
+    const vacio = await agregar(baseSale.id, { items: [] })
+    assert(vacio.status === 400, `agregar: sin productos -> 400 (status ${vacio.status})`)
+
+    const addReq = {
+      items: [{ productId: papa.id, quantity: 0.5 }],
+      amountPaid: 10,
+      clientRequestId: 'agregar-prueba-0001'
+    }
+    const addRes = await agregar(baseSale.id, addReq)
+    const added = (await addRes.json()) as AddToSaleResponse
+    const addJob = await lastJob()
+    assert(
+      addRes.status === 200 &&
+        added.id === baseSale.id &&
+        added.ticketNumber === baseSale.ticketNumber &&
+        added.total === 31 &&
+        added.addedTotal === 6 &&
+        added.addedChange === 4 &&
+        added.amountPaid === 40 &&
+        added.change === 9,
+      `agregar (efectivo): mismo folio, total 25+6=31, recibido 40, cambio 5+4=9 (got ${added.total}/${added.amountPaid}/${added.change})`
+    )
+    assert(
+      added.items.length === 2 &&
+        added.items.find((i) => i.productId === producto.id)?.addedAt === null &&
+        (added.items.find((i) => i.productId === papa.id)?.addedAt ?? 0) > 0,
+      'agregar: las líneas nuevas quedan marcadas con la hora en que se agregaron'
+    )
+    const addText = addJob.toString('latin1')
+    assert(
+      added.print.printed &&
+        addJob.includes(KICK) &&
+        addText.includes('TICKET ACTUALIZADO') &&
+        addText.includes(`Folio: ${baseSale.ticketNumber}`) &&
+        addText.includes('500g x Papa'),
+      'agregar (efectivo): sale un ticket actualizado con todo y abre el cajón'
+    )
+    const dupAdd = await agregar(baseSale.id, addReq)
+    const dupBody = (await dupAdd.json()) as AddToSaleResponse
+    assert(
+      dupAdd.status === 200 && dupBody.duplicate === true && dupBody.total === 31,
+      `agregar: un doble clic no agrega dos veces (total ${dupBody.total})`
+    )
+    const resumenDespues = (await (
+      await asCajero('/api/caja/resumen')
+    ).json()) as CashSessionSummary
+    assert(
+      resumenDespues.salesCount === resumenAntes.salesCount + 1 &&
+        Math.round((resumenDespues.totalCash - resumenAntes.totalCash) * 100) === 3100 &&
+        Math.round((resumenDespues.expectedCash - resumenAntes.expectedCash) * 100) === 3100,
+      `agregar: cuenta como UNA venta y el efectivo esperado sube 31 (ventas +${resumenDespues.salesCount - resumenAntes.salesCount})`
+    )
+
+    const cardBase = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const cardAdd = (await (
+      await agregar(cardBase.id, { items: [{ productId: producto.id, quantity: 2 }] })
+    ).json()) as AddToSaleResponse
+    assert(
+      cardAdd.total === 75 &&
+        cardAdd.paymentMethod === 'CARD' &&
+        cardAdd.amountPaid === null &&
+        !(await lastJob()).includes(KICK),
+      `agregar (tarjeta): mismo método, total 25+50=75, no abre el cajón (got ${cardAdd.total})`
+    )
+
+    const deudaDe = async (): Promise<number> =>
+      ((await (await asCajero('/api/clientes')).json()) as CustomerWithBalance[]).find(
+        (c) => c.id === juan.id
+      )!.balance
+    const deudaAntes = await deudaDe()
+    const fiadoAdd = await agregar(fiadoTicket.id, {
+      items: [{ productId: producto.id, quantity: 1 }]
+    })
+    assert(
+      fiadoAdd.status === 200 &&
+        Math.round(((await deudaDe()) - deudaAntes) * 100) === 2500 &&
+        !(await lastJob()).includes(KICK),
+      `agregar (fiado): lo agregado se suma a lo que debe el cliente (status ${fiadoAdd.status})`
+    )
+
+    const cerrada = await agregar(sale1.id, { items: [{ productId: producto.id, quantity: 1 }] })
+    assert(
+      cerrada.status === 409,
+      `agregar a una venta de una caja cerrada -> 409 (status ${cerrada.status})`
+    )
+    const porAdmin = await agregar(
+      cardBase.id,
+      { items: [{ productId: producto.id, quantity: 1 }] },
+      asAdmin
+    )
+    assert(
+      porAdmin.status === 200,
+      `agregar: el admin puede en cualquier caja abierta (${porAdmin.status})`
+    )
+
+    // Otro cobrador: no toca ventas ajenas ni reimprime tickets de otra caja.
+    await asAdmin('/api/usuarios', 'POST', {
+      username: 'cajero3',
+      password: 'secreto123',
+      role: 'COBRADOR'
+    })
+    const cajero3 = (await (await login('cajero3', 'secreto123')).json()) as LoginResponse
+    const asCajero3 = call(cajero3.token)
+    await asCajero3('/api/caja/apertura', 'POST', { openingAmount: 100 })
+    const ajena = await agregar(
+      baseSale.id,
+      { items: [{ productId: producto.id, quantity: 1 }], amountPaid: 25 },
+      asCajero3
+    )
+    assert(ajena.status === 403, `agregar a una venta de otra caja -> 403 (status ${ajena.status})`)
+    const turno3 = (await (await asCajero3('/api/ventas/turno')).json()) as TurnSale[]
+    assert(
+      turno3.length === 0,
+      `ventas del turno: cada cobrador ve sólo su caja (${turno3.length})`
+    )
+
+    // Ventas del turno + reimpresión del cobrador (sólo la última de su caja).
+    const turno = (await (await asCajero('/api/ventas/turno')).json()) as TurnSale[]
+    const ultima = turno[0]
+    assert(
+      turno.length > 3 &&
+        turno.every((t) => t.cashSessionId === baseSale.cashSessionId) &&
+        turno.filter((t) => t.canReprint).length === 1 &&
+        ultima.canReprint,
+      `ventas del turno: de la más nueva a la más vieja, sólo la última reimprimible (${turno.length})`
+    )
+    const turnoAdmin = (await (await asAdmin('/api/ventas/turno')).json()) as TurnSale[]
+    assert(
+      turnoAdmin.length >= turno.length && turnoAdmin.every((t) => t.canReprint),
+      'ventas del turno (admin): todas las cajas abiertas, puede reimprimir cualquiera'
+    )
+    const vieja = await asCajero(`/api/ventas/${baseSale.id}/reimprimir`, 'POST')
+    assert(
+      vieja.status === 403,
+      `cobrador: reimprimir un ticket viejo -> 403 (status ${vieja.status})`
+    )
+    const ajenaReimp = await asCajero3(`/api/ventas/${ultima.id}/reimprimir`, 'POST')
+    assert(
+      ajenaReimp.status === 403,
+      `cobrador: reimprimir el ticket de otra caja -> 403 (status ${ajenaReimp.status})`
+    )
+    const propia = await asCajero(`/api/ventas/${ultima.id}/reimprimir`, 'POST')
+    assert(
+      propia.status === 200 && (await lastJob()).toString('latin1').includes('REIMPRESI'),
+      `cobrador: reimprime su último ticket, marcado como copia (status ${propia.status})`
+    )
+    await asCajero3('/api/caja/cierre', 'POST', { closingAmount: 100 })
 
     await asAdmin('/api/config', 'PUT', { cash_drawer: '0' })
     const sinCajon = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult

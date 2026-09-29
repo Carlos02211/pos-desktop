@@ -49,7 +49,8 @@ export function dateInputToUnix(value: string, endOfDay = false): number | undef
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
   CARD: 'Tarjeta',
-  TRANSFER: 'Transferencia'
+  TRANSFER: 'Transferencia',
+  CREDIT: 'Fiado'
 }
 export function paymentLabel(method: string): string {
   return METHOD_LABEL[method] ?? method

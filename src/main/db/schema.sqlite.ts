@@ -132,7 +132,9 @@ export const saleItems = sqliteTable(
       .notNull()
       .default('PIEZA'),
     quantity: real('quantity').notNull(),
-    subtotal: integer('subtotal').notNull()
+    subtotal: integer('subtotal').notNull(),
+    // Cuándo se agregó la línea a una venta ya cobrada (cliente que olvidó algo); null = venta original.
+    addedAt: integer('added_at')
   },
   (t) => [
     index('sale_items_sale_idx').on(t.saleId),
