@@ -58,7 +58,11 @@ import type {
   SalesPage,
   SalesReport,
   SaleWithItems,
-  UserListItem
+  UserListItem,
+  CatalogInfo,
+  CatalogItem,
+  ImportProductsResult,
+  ParsedImportRow
 } from '../src/shared/types'
 
 // `verify:backend`     → SQLite en un directorio temporal.
@@ -1688,6 +1692,127 @@ async function main(): Promise<void> {
     )
     await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
     cajonPrinter.close()
+
+    // ---- Importación de productos (Excel / catálogo base) ----
+    const plantilla = await asAdmin('/api/productos/plantilla')
+    assert(
+      plantilla.status === 200 &&
+        (plantilla.headers.get('content-type') ?? '').includes('spreadsheetml'),
+      `importar: plantilla .xlsx (status ${plantilla.status})`
+    )
+    assert((await asCajero('/api/productos/plantilla')).status === 403, 'importar: sólo el admin')
+    const xlsxForm = new FormData()
+    xlsxForm.append('file', new Blob([await plantilla.arrayBuffer()]), 'plantilla.xlsx')
+    const leidas = (await (
+      await fetch(`${base}/api/productos/importar/leer`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}` },
+        body: xlsxForm
+      })
+    ).json()) as { rows: ParsedImportRow[] }
+    assert(
+      leidas.rows.length === 2 &&
+        leidas.rows[0].item?.barcode === '7501055300075' &&
+        leidas.rows[0].item?.price === 20 &&
+        leidas.rows[1].item?.unit === 'KG',
+      `importar: lee la plantilla (código como texto, precio, Kg) (${JSON.stringify(leidas.rows)})`
+    )
+    const csvForm = new FormData()
+    csvForm.append(
+      'file',
+      new Blob([
+        '\uFEFFProducto;Precio de venta;Departamento;Código de barras\r\n' +
+          'Sabritas 45 g;"$1,020.50";Botanas;7501011111111\r\n;;;\r\nSin precio;;;\r\n'
+      ]),
+      'lista.csv'
+    )
+    const csv = (await (
+      await fetch(`${base}/api/productos/importar/leer`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}` },
+        body: csvForm
+      })
+    ).json()) as { rows: ParsedImportRow[] }
+    assert(
+      csv.rows.length === 2 &&
+        csv.rows[0].item?.price === 1020.5 &&
+        csv.rows[0].item?.category === 'Botanas' &&
+        csv.rows[1].error === 'Falta el precio o no es un número.' &&
+        csv.rows[1].row === 4,
+      `importar: CSV con ";", BOM, "$1,020.50", renglón vacío y error con su renglón (${JSON.stringify(csv.rows)})`
+    )
+
+    const lista = [
+      {
+        name: 'Galletas Marías 170 g',
+        price: 18,
+        unit: 'PIEZA',
+        category: 'Galletas Import',
+        barcode: '7500000000001'
+      },
+      {
+        name: 'Frijol a granel',
+        price: 38.5,
+        unit: 'KG',
+        category: 'galletas import',
+        barcode: null
+      },
+      { name: 'producto de prueba', price: 5, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Galletas Marías 170 g', price: 18, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Otro', price: 1, unit: 'PIEZA', category: null, barcode: '7500000000001' },
+      { name: '', price: 1, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Precio malo', price: -3, unit: 'PIEZA', category: null, barcode: null }
+    ]
+    const prodsAntes = ((await (await asAdmin('/api/productos?all=1')).json()) as unknown[]).length
+    const simulado = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista, dryRun: true })
+    ).json()) as ImportProductsResult
+    assert(
+      simulado.created === 2 &&
+        simulado.skipped.map((x) => x.index).join() === '2,3,4,5,6' &&
+        simulado.newCategories.join() === 'Galletas Import',
+      `importar (vista previa): 2 entran, 5 se explican, categoría sin duplicar por mayúsculas (${JSON.stringify(simulado)})`
+    )
+    assert(
+      ((await (await asAdmin('/api/productos?all=1')).json()) as unknown[]).length === prodsAntes,
+      'importar (vista previa): no guarda nada'
+    )
+    const importado = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista })
+    ).json()) as ImportProductsResult
+    const trasImportar = (await (
+      await asAdmin('/api/productos?all=1')
+    ).json()) as ProductWithCategory[]
+    const frijol = trasImportar.find((p) => p.name === 'Frijol a granel')
+    assert(
+      importado.created === 2 &&
+        trasImportar.length === prodsAntes + 2 &&
+        frijol?.unit === 'KG' &&
+        frijol.price === 38.5 &&
+        frijol.categoryName === 'Galletas Import',
+      `importar: guarda 2, con unidad, precio y la misma categoría nueva (${JSON.stringify(frijol)})`
+    )
+    const repetido = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista.slice(0, 2) })
+    ).json()) as ImportProductsResult
+    assert(
+      repetido.created === 0 && repetido.skipped.length === 2,
+      'importar: volver a importar la misma lista no duplica nada'
+    )
+
+    const catalogos = (await (await asAdmin('/api/catalogos')).json()) as CatalogInfo[]
+    const abarrotes = catalogos.find((c) => c.id === 'abarrotes-mx')
+    assert(!!abarrotes && abarrotes.count > 1000, `catálogo de abarrotes (${abarrotes?.count})`)
+    const catItems = (await (await asAdmin('/api/catalogos/abarrotes-mx')).json()) as CatalogItem[]
+    assert(
+      catItems.length === abarrotes!.count &&
+        catItems.every((c) => c.barcode?.startsWith('750') && c.name.length >= 3),
+      'catálogo: todos con código mexicano y nombre'
+    )
+    assert(
+      (await asAdmin('/api/catalogos/no-existe')).status === 404,
+      'catálogo inexistente -> 404'
+    )
 
     console.log(
       `\n✅ Backend verificado (${PG ? 'PostgreSQL' : 'SQLite'}) — Sprints 0–8 + cuentas por cobrar OK`

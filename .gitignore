@@ -20,3 +20,6 @@ yarn.lock
 
 # Configuración local del servidor de Fase 2
 deploy/.env
+
+# Descargas de scripts/build-catalogo-abarrotes.ts
+.cache/

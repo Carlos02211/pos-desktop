@@ -25,7 +25,12 @@ import type {
   SalesQuery,
   SystemPrintersResponse,
   UpdateUserInput,
-  UserListItem
+  UserListItem,
+  CatalogInfo,
+  CatalogItem,
+  ImportProductsRequest,
+  ImportProductsResult,
+  ParsedImportRow
 } from '@shared/types'
 import { api } from './client'
 
@@ -63,6 +68,27 @@ export function actualizarProducto(id: number, input: ProductInput): Promise<Pro
 
 export function desactivarProducto(id: number): Promise<void> {
   return api.delete<void>(`/api/productos/${id}`)
+}
+
+/* ---- Importación de productos ---- */
+
+/** Lee un Excel/CSV en el servidor y devuelve los renglones interpretados (no guarda). */
+export function leerArchivoImportacion(file: File): Promise<{ rows: ParsedImportRow[] }> {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post<{ rows: ParsedImportRow[] }>('/api/productos/importar/leer', form)
+}
+
+export function importarProductos(input: ImportProductsRequest): Promise<ImportProductsResult> {
+  return api.post<ImportProductsResult>('/api/productos/importar', input)
+}
+
+export function listCatalogos(): Promise<CatalogInfo[]> {
+  return api.get<CatalogInfo[]>('/api/catalogos')
+}
+
+export function getCatalogo(id: string): Promise<CatalogItem[]> {
+  return api.get<CatalogItem[]>(`/api/catalogos/${id}`)
 }
 
 export function subirImagenProducto(id: number, file: File): Promise<{ path: string }> {

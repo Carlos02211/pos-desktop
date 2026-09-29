@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { Plus, Upload } from 'lucide-react'
 import type { Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { desactivarProducto, listCategoriasAdmin, listProductosAdmin } from '@/api/admin'
@@ -58,12 +60,20 @@ export default function Productos(): React.JSX.Element {
     <div>
       <header className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-bold">Productos</h1>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
-        >
-          Nuevo producto
-        </button>
+        <div className="flex gap-2">
+          <Link
+            to="/admin/productos/importar"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-secondary"
+          >
+            <Upload size={15} /> Importar
+          </Link>
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+          >
+            <Plus size={15} /> Nuevo producto
+          </button>
+        </div>
       </header>
 
       <div className="mb-3 flex gap-2">

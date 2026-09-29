@@ -18,6 +18,7 @@ import { useLicenseStore } from '@/stores/license.store'
 // Las páginas de administración se cargan bajo demanda (recharts/ExcelJS pesan).
 const Dashboard = lazy(() => import('@/pages/admin/Dashboard'))
 const Productos = lazy(() => import('@/pages/admin/Productos'))
+const ImportarProductos = lazy(() => import('@/pages/admin/ImportarProductos'))
 const Categorias = lazy(() => import('@/pages/admin/Categorias'))
 const Usuarios = lazy(() => import('@/pages/admin/Usuarios'))
 const Ventas = lazy(() => import('@/pages/admin/Ventas'))
@@ -97,6 +98,7 @@ function App(): React.JSX.Element {
           >
             <Route index element={<Dashboard />} />
             <Route path="productos" element={<Productos />} />
+            <Route path="productos/importar" element={<ImportarProductos />} />
             <Route path="categorias" element={<Categorias />} />
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="ventas" element={<Ventas />} />

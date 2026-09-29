@@ -92,6 +92,56 @@ export interface ProductWithCategory extends Product {
   categoryName: string | null
 }
 
+/** Un renglón a importar (de Excel o de un catálogo base). Precio en pesos. */
+export interface ImportProductItem {
+  name: string
+  price: number
+  unit: ProductUnit
+  /** Nombre de la categoría; si no existe se crea. null = sin categoría. */
+  category: string | null
+  barcode: string | null
+}
+
+export interface ImportProductsRequest {
+  items: ImportProductItem[]
+  /** true = sólo revisa (no guarda nada): para la vista previa. */
+  dryRun?: boolean
+}
+
+export interface ImportProductsResult {
+  created: number
+  /** Renglones que no se importan, con el motivo (`index` = posición en `items`). */
+  skipped: { index: number; name: string; reason: string }[]
+  /** Categorías nuevas que se crearon (o se crearían, en dryRun). */
+  newCategories: string[]
+}
+
+/** Renglón leído de un Excel/CSV; `error` si no se pudo interpretar. */
+export interface ParsedImportRow {
+  /** Número de renglón en la hoja (para que el admin lo encuentre). */
+  row: number
+  item: ImportProductItem | null
+  error?: string
+}
+
+/** Catálogo base (lista de productos sugeridos para dar de alta). */
+export interface CatalogInfo {
+  id: string
+  name: string
+  description: string
+  source: string
+  count: number
+}
+
+export interface CatalogItem {
+  barcode: string | null
+  name: string
+  brand: string | null
+  size: string | null
+  category: string
+  unit: ProductUnit
+}
+
 /** Categoría con el número de productos asociados (para la tabla de administración). */
 export interface CategoryWithCount extends Category {
   productCount: number
