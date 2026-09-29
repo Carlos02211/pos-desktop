@@ -205,7 +205,12 @@ async function buildLines(
   const lines = items.map((line): NewSaleLine => {
     const product = byId.get(line.productId)
     if (!product || product.active !== 1) {
-      throw new HttpError(400, `Producto no disponible (id ${line.productId}).`)
+      throw new HttpError(
+        400,
+        product
+          ? `"${product.name}" ya no está a la venta (lo desactivaron). Quítalo del carrito.`
+          : `Un producto del carrito ya no existe (id ${line.productId}). Quítalo del carrito.`
+      )
     }
     let quantity: number
     if (product.unit === 'KG') {

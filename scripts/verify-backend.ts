@@ -1596,7 +1596,19 @@ async function main(): Promise<void> {
       propia.status === 200 && (await lastJob()).toString('latin1').includes('REIMPRESI'),
       `cobrador: reimprime su último ticket, marcado como copia (status ${propia.status})`
     )
+    const cajero3Id = cajero3.user.id
+    const conCaja = await asAdmin(`/api/usuarios/${cajero3Id}`, 'DELETE')
+    assert(
+      conCaja.status === 409,
+      `usuarios: no se desactiva a quien tiene la caja abierta (status ${conCaja.status})`
+    )
     await asCajero3('/api/caja/cierre', 'POST', { closingAmount: 100 })
+    await asAdmin(`/api/usuarios/${cajero3Id}`, 'DELETE')
+    const tokenViejo = await asCajero3('/api/ventas/turno')
+    assert(
+      tokenViejo.status === 401,
+      `usuario desactivado: su sesión abierta deja de servir de inmediato (status ${tokenViejo.status})`
+    )
 
     await asAdmin('/api/config', 'PUT', { cash_drawer: '0' })
     const sinCajon = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
