@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { CreateUserInput, UpdateUserInput, UserListItem } from '../../shared/types'
 import type { DB } from '../db'
-import { users } from '../db/schema'
+import { cashSessions, users } from '../db/schema'
 import { HttpError } from '../lib/http-error'
 
 const BCRYPT_ROUNDS = 12
@@ -70,6 +70,7 @@ export async function updateUser(
     changes.username = username
   }
   if (input.role !== undefined) changes.role = input.role
+  if (input.active === false && current.active === 1) await assertNoOpenSession(db, id)
   if (input.active !== undefined) changes.active = input.active ? 1 : 0
   if (input.password) {
     if (input.password.length < 6) {
@@ -83,9 +84,29 @@ export async function updateUser(
 }
 
 /** Baja = desactivación. No se puede desactivar la propia cuenta. */
+/**
+ * Un cobrador con la caja abierta no se desactiva: nadie más puede cerrar su caja y ese
+ * efectivo quedaría fuera de todos los cortes. Primero cierra (o se le cambia la contraseña,
+ * se entra con su usuario y se cierra).
+ */
+async function assertNoOpenSession(db: DB, userId: number): Promise<void> {
+  const [open] = await db
+    .select({ id: cashSessions.id })
+    .from(cashSessions)
+    .where(and(eq(cashSessions.userId, userId), eq(cashSessions.status, 'OPEN')))
+    .limit(1)
+  if (open) {
+    throw new HttpError(
+      409,
+      'Este usuario tiene una caja abierta. Que la cierre antes de desactivarlo.'
+    )
+  }
+}
+
 export async function deactivateUser(db: DB, id: number, actingUserId: number): Promise<void> {
   if (id === actingUserId) throw new HttpError(400, 'No puedes desactivar tu propia cuenta.')
   const [current] = await db.select().from(users).where(eq(users.id, id)).limit(1)
   if (!current) throw new HttpError(404, 'Usuario no encontrado.')
+  await assertNoOpenSession(db, id)
   await db.update(users).set({ active: 0 }).where(eq(users.id, id))
 }

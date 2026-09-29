@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import type { ReportType, SalesReport } from '@shared/types'
 import { getReporte, type ReportParams } from '@/api/admin'
 import { downloadFile } from '@/lib/download'
-import { localDateISO, localMonthISO, money } from '@/lib/format'
+import { formatQty, localDateISO, localMonthISO, money } from '@/lib/format'
 
 const TABS: { type: ReportType; label: string }[] = [
   { type: 'diario', label: 'Diario' },
@@ -16,7 +16,8 @@ const TABS: { type: ReportType; label: string }[] = [
 export default function Reportes(): React.JSX.Element {
   const [tab, setTab] = useState<ReportType>('diario')
   const [fecha, setFecha] = useState(localDateISO())
-  const [inicio, setInicio] = useState(localDateISO())
+  // Por defecto, los últimos 7 días (hoy incluido): así aparecen ayer y los días anteriores.
+  const [inicio, setInicio] = useState(() => localDateISO(addDays(new Date(), -6)))
   const [mes, setMes] = useState(localMonthISO())
   const [report, setReport] = useState<SalesReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -104,15 +105,24 @@ export default function Reportes(): React.JSX.Element {
           />
         )}
         {tab === 'semanal' && (
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Semana desde
-            <input
-              type="date"
-              value={inicio}
-              onChange={(e) => setInicio(e.target.value)}
-              className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
-            />
-          </label>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <label className="flex items-center gap-2">
+              Desde el
+              <input
+                type="date"
+                value={inicio}
+                onChange={(e) => setInicio(e.target.value)}
+                className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+              />
+            </label>
+            <span>hasta el {shortDate(addDays(parseISODate(inicio), 6))}</span>
+            <button
+              onClick={() => setInicio(localDateISO(addDays(new Date(), -6)))}
+              className="rounded-lg border border-border px-2 py-1.5 text-xs font-medium text-foreground transition hover:bg-secondary"
+            >
+              Últimos 7 días
+            </button>
+          </div>
         )}
         {tab === 'mensual' && (
           <input
@@ -201,7 +211,7 @@ export default function Reportes(): React.JSX.Element {
                   report.topProducts.map((p) => (
                     <tr key={p.productId} className="border-t border-border">
                       <td className="px-4 py-2">{p.name}</td>
-                      <td className="px-4 py-2 text-right">{p.quantity}</td>
+                      <td className="px-4 py-2 text-right">{formatQty(p.quantity, p.unit)}</td>
                       <td className="px-4 py-2 text-right font-medium">{money(p.revenue)}</td>
                     </tr>
                   ))
@@ -222,4 +232,20 @@ function Stat({ label, value }: { label: string; value: string }): React.JSX.Ele
       <p className="mt-1 text-lg font-bold">{value}</p>
     </div>
   )
+}
+
+function addDays(d: Date, days: number): Date {
+  const out = new Date(d)
+  out.setDate(out.getDate() + days)
+  return out
+}
+
+/** "2026-09-23" → fecha local (sin el corrimiento UTC de `new Date('2026-09-23')`). */
+function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  return y && m && d ? new Date(y, m - 1, d) : new Date()
+}
+
+function shortDate(d: Date): string {
+  return d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })
 }

@@ -79,8 +79,8 @@ export default function Login(): React.JSX.Element {
       title="Iniciar sesión"
       subtitle={
         businessName
-          ? `Entrá a ${businessName} con tu usuario.`
-          : 'Entrá con tu usuario para empezar el turno.'
+          ? `Entra a ${businessName} con tu usuario.`
+          : 'Entra con tu usuario para empezar el turno.'
       }
       footer="SpArTaN Tech · Punto de venta"
     >

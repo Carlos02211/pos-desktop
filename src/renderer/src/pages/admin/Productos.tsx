@@ -40,7 +40,7 @@ export default function Productos(): React.JSX.Element {
     return rows.filter(
       (r) =>
         (catFilter === null || r.categoryId === catFilter) &&
-        (term === '' || r.name.toLowerCase().includes(term))
+        (term === '' || r.name.toLowerCase().includes(term) || r.barcode?.includes(term))
     )
   }, [rows, search, catFilter])
 
@@ -70,7 +70,7 @@ export default function Productos(): React.JSX.Element {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar…"
+          placeholder="Buscar por nombre o código…"
           className="w-64 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
         />
         <select
@@ -127,7 +127,14 @@ export default function Productos(): React.JSX.Element {
                           row.name.charAt(0).toUpperCase()
                         )}
                       </div>
-                      <span className="font-medium">{row.name}</span>
+                      <div className="min-w-0">
+                        <div className="font-medium">{row.name}</div>
+                        {row.barcode && (
+                          <div className="font-mono text-[11px] text-muted-foreground">
+                            {row.barcode}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{row.categoryName ?? '—'}</td>

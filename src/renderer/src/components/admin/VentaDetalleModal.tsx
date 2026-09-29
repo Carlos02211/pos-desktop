@@ -5,7 +5,7 @@ import type { SaleWithItems } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { getConfig, getVentaDetalle, reimprimirTicket } from '@/api/admin'
 import { Modal } from '@/components/Modal'
-import { dateTime, formatQty, money, paymentLabel } from '@/lib/format'
+import { dateTime, formatQty, money, paymentLabel, timeOnly } from '@/lib/format'
 
 export function VentaDetalleModal({
   saleId,
@@ -81,6 +81,11 @@ export function VentaDetalleModal({
                           precio editado ({money(it.originalPrice)} → {money(it.price)})
                         </span>
                       )}
+                      {it.addedAt != null && (
+                        <span className="ml-1.5 text-xs font-medium text-pos-warning">
+                          agregado {timeOnly(it.addedAt)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right">{money(it.subtotal)}</td>
                   </tr>
@@ -107,6 +112,20 @@ export function VentaDetalleModal({
                 <div className="flex justify-between text-muted-foreground">
                   <span>Cambio</span>
                   <span>{money(sale.change ?? 0)}</span>
+                </div>
+              </>
+            )}
+            {sale.paymentMethod === 'CREDIT' && (
+              <>
+                {(sale.amountPaid ?? 0) > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Enganche</span>
+                    <span>{money(sale.amountPaid ?? 0)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Quedó a deber</span>
+                  <span>{money(sale.total - (sale.amountPaid ?? 0))}</span>
                 </div>
               </>
             )}

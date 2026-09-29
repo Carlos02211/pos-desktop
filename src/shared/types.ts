@@ -38,6 +38,8 @@ export interface Product {
   unit: ProductUnit
   categoryId: number | null
   imagePath: string | null
+  /** Código de barras (EAN/UPC o interno); null si el producto no tiene. */
+  barcode: string | null
   active: number
   createdAt: number
   updatedAt: number
@@ -81,6 +83,8 @@ export interface SaleItem {
   unit: ProductUnit
   quantity: number
   subtotal: number
+  /** Unix (s) en que se agregó a una venta ya cobrada; null = parte de la venta original. */
+  addedAt: number | null
 }
 
 /** Producto con el nombre de su categoría resuelto (respuesta de `GET /api/productos`). */
@@ -106,6 +110,8 @@ export interface ProductInput {
   /** Default 'PIEZA' si se omite. */
   unit?: ProductUnit
   categoryId: number | null
+  /** Omitido = no se toca; null o '' = se quita el código. */
+  barcode?: string | null
   active?: boolean
 }
 
@@ -148,11 +154,26 @@ export interface SaleWithItems extends Sale {
   customerName: string | null
 }
 
+/** Un renglón del ticket (48 columnas). La impresora y la vista previa usan los mismos. */
+export interface TicketLine {
+  text: string
+  align: 'left' | 'center'
+  bold: boolean
+}
+
 /** Resultado de intentar imprimir un ticket. Nunca hace fallar la venta. */
 export interface PrintResult {
   printed: boolean
   error?: string
   /** El negocio no usa impresora (desactivada en Configuración): no es un error. */
+  skipped?: boolean
+}
+
+/** Resultado de abrir el cajón de dinero (va conectado a la impresora). */
+export interface DrawerResult {
+  opened: boolean
+  error?: string
+  /** El negocio no tiene cajón configurado: no es un error. */
   skipped?: boolean
 }
 
@@ -214,6 +235,30 @@ export interface CreateSaleResponse extends SaleWithItems {
   creditAccountId?: number
   /** true si el servidor devolvió una venta ya existente (reintento deduplicado). */
   duplicate?: boolean
+}
+
+/**
+ * Cuerpo de `POST /api/ventas/:id/agregar`: productos que el cliente olvidó, sumados a una
+ * venta ya cobrada del turno abierto (mismo folio). Se pagan con el método de la venta.
+ */
+export interface AddToSaleInput {
+  items: CartLineInput[]
+  /** CASH: efectivo recibido por lo agregado (>= lo agregado). Otros métodos: no se manda. */
+  amountPaid?: number
+  clientRequestId?: string
+}
+
+export interface AddToSaleResponse extends CreateSaleResponse {
+  /** Importe de lo que se agregó (lo que se cobró ahora). */
+  addedTotal: number
+  /** Cambio de este cobro (sólo CASH). */
+  addedChange: number | null
+}
+
+/** Venta del turno abierto (`GET /api/ventas/turno`), para completar o reimprimir. */
+export interface TurnSale extends SaleListItem {
+  /** El cobrador sólo puede reimprimir la última venta de su caja; el admin, cualquiera. */
+  canReprint: boolean
 }
 
 /* ---- Módulo de cuentas por cobrar ("fiado") ---- */
@@ -339,6 +384,8 @@ export interface SalesQuery {
 export interface SalesPage {
   rows: SaleListItem[]
   total: number
+  /** Suma en pesos de TODAS las ventas que cumplen los filtros (no sólo esta página). */
+  sumTotal: number
   page: number
   pageSize: number
 }
@@ -371,6 +418,8 @@ export interface PaymentBreakdown {
 export interface TopProduct {
   productId: number
   name: string
+  /** Piezas (PIEZA) o kilos (KG): define cómo mostrar `quantity`. */
+  unit: ProductUnit
   quantity: number
   revenue: number
 }
@@ -411,6 +460,8 @@ export interface ConfigResponse {
   /** '1' usa impresora, '0' no. Vacío (instalaciones previas) = según printer_interface. */
   printer_enabled: string
   printer_interface: string
+  /** '1' = hay cajón de dinero en el puerto RJ11 de la impresora: se abre al recibir efectivo. */
+  cash_drawer: string
   backup_dir: string
 }
 
@@ -454,6 +505,8 @@ export interface CashSessionSummary {
   totalCredit: number
   /** Abonos a cuentas anteriores recibidos en el turno (en efectivo). */
   abonosCash: number
+  /** Enganches en efectivo de las ventas fiadas del turno. */
+  creditDownCash: number
   /** Ingresos manuales de efectivo a la caja durante el turno. */
   cashIn: number
   /** Retiros manuales de efectivo de la caja durante el turno (gastos, depósitos). */
@@ -519,6 +572,10 @@ export interface PingResponse {
   /** Motor de base de datos activo. */
   engine: 'sqlite' | 'postgres'
   version: string
+  /** Commit con el que se compiló el servidor ("desarrollo" si corre sin compilar). */
+  commit: string
+  /** Fecha de compilación (ISO), o null sin compilar. */
+  builtAt: string | null
 }
 
 /** Envoltura de error homogénea para todos los endpoints. */

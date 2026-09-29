@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Eye, FileText, Printer } from 'lucide-react'
+import { toast } from 'sonner'
 import type { PaymentMethod, SaleListItem, UserListItem } from '@shared/types'
-import { listUsuarios, listVentas } from '@/api/admin'
+import { getConfig, listUsuarios, listVentas, reimprimirTicket } from '@/api/admin'
+import { ApiRequestError } from '@/api/client'
 import { VentaDetalleModal } from '@/components/admin/VentaDetalleModal'
+import { TicketPreviewModal } from '@/components/TicketPreviewModal'
 import { dateInputToUnix, dateTime, money, paymentLabel } from '@/lib/format'
 
 const PAGE_SIZE = 50
@@ -9,6 +13,7 @@ const PAGE_SIZE = 50
 export default function Ventas(): React.JSX.Element {
   const [rows, setRows] = useState<SaleListItem[]>([])
   const [total, setTotal] = useState(0)
+  const [sumTotal, setSumTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<UserListItem[]>([])
@@ -18,6 +23,10 @@ export default function Ventas(): React.JSX.Element {
   const [userId, setUserIdRaw] = useState<number | ''>('')
   const [method, setMethodRaw] = useState<PaymentMethod | ''>('')
   const [detailId, setDetailId] = useState<number | null>(null)
+  // Sin impresora activada no se ofrece reimprimir (mismo criterio que el servidor).
+  const [hasPrinter, setHasPrinter] = useState(false)
+  const [printingId, setPrintingId] = useState<number | null>(null)
+  const [ticketRow, setTicketRow] = useState<SaleListItem | null>(null)
 
   // Cualquier cambio de filtro vuelve a la página 1.
   const setFrom = (v: string): void => {
@@ -41,6 +50,15 @@ export default function Ventas(): React.JSX.Element {
     let cancelled = false
     listUsuarios()
       .then((u) => !cancelled && setUsers(u))
+      .catch(() => {})
+    getConfig()
+      .then(
+        (c) =>
+          !cancelled &&
+          setHasPrinter(
+            c.printer_enabled === '1' || (c.printer_enabled === '' && !!c.printer_interface.trim())
+          )
+      )
       .catch(() => {})
     return () => {
       cancelled = true
@@ -67,6 +85,7 @@ export default function Ventas(): React.JSX.Element {
         if (cancelled) return
         setRows(res.rows)
         setTotal(res.total)
+        setSumTotal(res.sumTotal)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -77,6 +96,18 @@ export default function Ventas(): React.JSX.Element {
   }, [filters])
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  async function reprint(row: SaleListItem): Promise<void> {
+    setPrintingId(row.id)
+    try {
+      await reimprimirTicket(row.id)
+      toast.success(`Ticket #${row.ticketNumber} reimpreso`)
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo reimprimir')
+    } finally {
+      setPrintingId(null)
+    }
+  }
 
   return (
     <div>
@@ -123,8 +154,15 @@ export default function Ventas(): React.JSX.Element {
             <option value="CASH">Efectivo</option>
             <option value="CARD">Tarjeta</option>
             <option value="TRANSFER">Transferencia</option>
+            <option value="CREDIT">Fiado</option>
           </select>
         </Field>
+        <div className="ml-auto rounded-lg border border-border bg-card px-4 py-2 text-right">
+          <div className="text-xs font-medium text-muted-foreground">
+            Total de {total} {total === 1 ? 'venta' : 'ventas'}
+          </div>
+          <div className="text-xl font-bold tabular-nums">{money(sumTotal)}</div>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
@@ -136,20 +174,21 @@ export default function Ventas(): React.JSX.Element {
               <th className="px-3 py-2">Cobrador</th>
               <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Método</th>
-              <th className="px-3 py-2 text-right">Art.</th>
+              <th className="px-3 py-2 text-right">Productos</th>
               <th className="px-3 py-2 text-right">Total</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   Cargando…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   Sin ventas para estos filtros.
                 </td>
               </tr>
@@ -169,6 +208,42 @@ export default function Ventas(): React.JSX.Element {
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{row.itemCount}</td>
                   <td className="px-3 py-2 text-right font-medium">{money(row.total)}</td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDetailId(row.id)
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
+                      >
+                        <Eye size={13} /> Ver
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setTicketRow(row)
+                        }}
+                        title="Ver el ticket y guardarlo en PDF"
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
+                      >
+                        <FileText size={13} /> Ticket
+                      </button>
+                      {hasPrinter && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void reprint(row)
+                          }}
+                          disabled={printingId != null}
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary disabled:opacity-50"
+                        >
+                          <Printer size={13} />
+                          {printingId === row.id ? 'Enviando…' : 'Reimprimir'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
@@ -177,7 +252,9 @@ export default function Ventas(): React.JSX.Element {
       </div>
 
       <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-        <span>{total} ventas</span>
+        <span>
+          {total} {total === 1 ? 'venta' : 'ventas'}
+        </span>
         <div className="flex items-center gap-2">
           <button
             disabled={page <= 1}
@@ -199,6 +276,13 @@ export default function Ventas(): React.JSX.Element {
         </div>
       </div>
 
+      {ticketRow && (
+        <TicketPreviewModal
+          saleId={ticketRow.id}
+          title={`Ticket #${ticketRow.ticketNumber}`}
+          onClose={() => setTicketRow(null)}
+        />
+      )}
       {detailId !== null && (
         <VentaDetalleModal saleId={detailId} onClose={() => setDetailId(null)} />
       )}

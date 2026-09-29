@@ -23,10 +23,10 @@ _Solo puedes tener una caja abierta a la vez._
 5. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
    - **Efectivo**: escribe (o toca un botón de monto) lo que te dio el cliente. La app calcula el **cambio**.
    - **Tarjeta** o **Transferencia**: no piden monto.
-   - **Fiado**: el cliente paga después. Tenés que elegir o escribir un cliente (obligatorio).
-   - En cualquier método podés escribir el **nombre del cliente** (campo "Cliente") aunque no
-     sea fiado — es opcional, sirve para llevar registro de quién compró. Empezá a escribir y
-     te va a sugerir nombres ya guardados; si escribís uno nuevo, se agrega solo al confirmar.
+   - **Fiado**: el cliente paga después. Tienes que elegir o escribir un cliente (obligatorio).
+   - En cualquier método puedes escribir el **nombre del cliente** (campo "Cliente") aunque no
+     sea fiado — es opcional, sirve para llevar registro de quién compró. Empieza a escribir y
+     te va a sugerir nombres ya guardados; si escribes uno nuevo, se agrega solo al confirmar.
 6. Toca **Confirmar venta**. El ticket se imprime solo.
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._

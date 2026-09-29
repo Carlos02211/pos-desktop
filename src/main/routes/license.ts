@@ -20,7 +20,7 @@ export async function licenseRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/licencia/activar', async (request, reply) => {
     if (activateThrottle.isBlocked(request.ip)) {
-      return reply.code(429).send({ error: 'Demasiados intentos. Probá de nuevo en un minuto.' })
+      return reply.code(429).send({ error: 'Demasiados intentos. Intenta de nuevo en un minuto.' })
     }
 
     const { key } = parse(activateSchema, request.body)

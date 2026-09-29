@@ -26,6 +26,7 @@ socket.on('connect_error', (err) => {
   if (err.message === 'unauthorized') useAuthStore.getState().clear()
 })
 socket.on('venta:nueva', bump)
+socket.on('venta:actualizada', bump)
 socket.on('caja:apertura', bump)
 socket.on('caja:cierre', bump)
 socket.on('cuenta:abono', bump)

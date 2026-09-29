@@ -4,6 +4,8 @@ import { getDb } from '../db'
 import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
+import type { DrawerResult } from '../../shared/types'
+import { HttpError } from '../lib/http-error'
 import { resolveBackupJob, runBackup } from '../services/backup'
 import {
   addCashMovement,
@@ -16,6 +18,8 @@ import {
   openSession,
   sessionToApi
 } from '../services/caja'
+import { getConfigMap } from '../services/config'
+import { cashDrawerEnabled, openCashDrawer, openCashDrawerInBackground } from '../services/printer'
 
 const openSchema = z.object({
   openingAmount: z.number().nonnegative().max(1_000_000)
@@ -57,6 +61,10 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = parse(movementSchema, request.body)
       const movement = await addCashMovement(getDb(), request.authUser!.id, body)
+      // Retiro o ingreso: hay que meter o sacar billetes. Best-effort, como el ticket.
+      openCashDrawerInBackground(await getConfigMap(getDb()), (err) =>
+        request.log.warn({ err }, 'cajón no abrió (movimiento)')
+      )
       return reply.code(201).send(movement)
     }
   )
@@ -84,6 +92,29 @@ export async function cajaRoutes(app: FastifyInstance): Promise<void> {
         openingAmount
       })
       return reply.code(201).send(sessionToApi(session))
+    }
+  )
+
+  // ¿Mostrar el botón "Abrir cajón" en el panel del cobrador?
+  app.get('/api/caja/cajon', { preHandler: requireRole('COBRADOR') }, async () => ({
+    enabled: cashDrawerEnabled(await getConfigMap(getDb()))
+  }))
+
+  // Apertura a mano (dar cambio sin venta, revisar el fondo). Sólo con caja abierta y queda
+  // en el log con quién la pidió: un cajón que se abre sin venta es lo primero que se revisa
+  // cuando no cuadra el corte.
+  app.post(
+    '/api/caja/cajon',
+    { preHandler: requireRole('COBRADOR') },
+    async (request): Promise<DrawerResult> => {
+      const user = request.authUser!
+      const db = getDb()
+      if (user.role !== 'ADMIN' && !(await getActiveSession(db, user.id))) {
+        throw new HttpError(409, 'Abre caja para usar el cajón.')
+      }
+      const result = await openCashDrawer(await getConfigMap(db))
+      request.log.info({ userId: user.id, opened: result.opened }, 'cajón abierto a mano')
+      return result
     }
   )
 

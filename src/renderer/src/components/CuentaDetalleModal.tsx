@@ -128,6 +128,11 @@ export function CuentaDetalleModal({
                   Liquidar ({money(detail.balance)})
                 </button>
               </div>
+              {Number.isFinite(amount) && amount > detail.balance && (
+                <p className="text-xs text-pos-danger">
+                  El abono no puede ser mayor al saldo ({money(detail.balance)}).
+                </p>
+              )}
               <button
                 onClick={() => void abonar()}
                 disabled={!valid || saving}

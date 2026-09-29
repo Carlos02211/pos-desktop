@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CheckCircle2, FolderOpen, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, DatabaseBackup, FolderOpen, Loader2 } from 'lucide-react'
 import type { BackupStatus } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { getRespaldos, probarCarpeta, respaldarAhora, updateConfig } from '@/api/admin'
 import { CarpetaPickerModal } from '@/components/admin/CarpetaPickerModal'
+import { cn } from '@/lib/utils'
+import { SettingsCard, actionButtonClass } from '@/components/admin/SettingsCard'
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -78,13 +80,12 @@ export function RespaldosSection(): React.JSX.Element {
   const failed = status?.lastAttempt && !status.lastAttempt.ok ? status.lastAttempt : null
 
   return (
-    <section className="rounded-xl border border-border p-4">
-      <h2 className="font-semibold">Respaldos</h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Se respalda solo al cerrar cada caja y una vez al día. Se guardan los últimos 30.
-      </p>
-
-      <div className="mt-3">
+    <SettingsCard
+      icon={DatabaseBackup}
+      title="Respaldos"
+      description="Se respalda solo al cerrar cada caja y una vez al día. Se guardan los últimos 30. Los cambios de esta sección se guardan al instante."
+    >
+      <div>
         <span className="mb-1 block text-sm font-medium">Carpeta</span>
         <div className="flex items-center gap-2">
           <code
@@ -98,7 +99,7 @@ export function RespaldosSection(): React.JSX.Element {
           <button
             type="button"
             onClick={() => setPicking(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary"
+            className={cn(actionButtonClass, 'shrink-0')}
           >
             <FolderOpen className="h-4 w-4" /> Cambiar…
           </button>
@@ -118,16 +119,20 @@ export function RespaldosSection(): React.JSX.Element {
       </div>
 
       {status?.unsupported ? (
-        <p className="mt-3 text-sm text-muted-foreground">{status.unsupported}</p>
+        <p className="text-sm text-muted-foreground">{status.unsupported}</p>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => void runNow()}
             disabled={running || !status}
-            className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            className={actionButtonClass}
           >
-            {running && <Loader2 className="h-4 w-4 animate-spin" />}
+            {running ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <DatabaseBackup className="h-4 w-4" />
+            )}
             {running ? 'Respaldando…' : 'Respaldar ahora'}
           </button>
           <span className="flex items-center gap-1.5 text-sm">
@@ -144,7 +149,7 @@ export function RespaldosSection(): React.JSX.Element {
       )}
 
       {(error || failed) && (
-        <p className="mt-3 flex gap-2 rounded-lg bg-destructive/10 p-2 text-sm text-destructive">
+        <p className="flex gap-2 rounded-lg bg-destructive/10 p-2 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="break-words">
             {error || `El último respaldo (${fmtDate(failed!.at)}) falló: ${failed!.error}`}
@@ -159,6 +164,6 @@ export function RespaldosSection(): React.JSX.Element {
           onClose={() => setPicking(false)}
         />
       )}
-    </section>
+    </SettingsCard>
   )
 }

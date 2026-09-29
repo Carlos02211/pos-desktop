@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Minus, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
 import type { CartItem } from '@/stores/cart.store'
 import { money } from '@/lib/format'
 
@@ -33,7 +34,12 @@ export function CarritoItem({
 
   function commitPrice(): void {
     const value = Number(priceDraft)
-    if (Number.isFinite(value) && value > 0) {
+    // Sólo se permite descuento: el servidor rechaza un precio mayor al de catálogo, así que
+    // se avisa aquí en vez de dejarlo en verde (como si fuera descuento) hasta cobrar.
+    if (Number.isFinite(value) && value > item.originalPrice) {
+      toast.error(`El precio no puede ser mayor al de catálogo (${money(item.originalPrice)}).`)
+      setPriceDraft(String(item.price))
+    } else if (Number.isFinite(value) && value > 0) {
       onPrice(item.productId, Math.round((value + Number.EPSILON) * 100) / 100)
     } else {
       setPriceDraft(String(item.price))

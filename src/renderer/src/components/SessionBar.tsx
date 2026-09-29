@@ -3,6 +3,7 @@ import { LogOut, Store } from 'lucide-react'
 import { logout as logoutRequest } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBrandingStore } from '@/stores/branding.store'
+import { Clock } from '@/components/Clock'
 
 /** Barra superior: logo y nombre del negocio, usuario en sesión y cerrar sesión. */
 export function SessionBar(): React.JSX.Element {
@@ -23,7 +24,7 @@ export function SessionBar(): React.JSX.Element {
   }
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-card px-4 py-2 text-sm">
+    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border bg-card px-4 py-2 text-sm">
       <span className="flex min-w-0 items-center gap-2.5">
         {logoUrl ? (
           <img
@@ -38,8 +39,9 @@ export function SessionBar(): React.JSX.Element {
         )}
         <span className="truncate text-base font-semibold">{businessName || 'Punto de venta'}</span>
       </span>
-      <div className="flex items-center gap-3">
-        <span className="text-muted-foreground">
+      <Clock />
+      <div className="flex items-center justify-end gap-3">
+        <span className="truncate text-muted-foreground">
           {user?.username} · {user?.role === 'ADMIN' ? 'Administrador' : 'Cobrador'}
         </span>
         <button

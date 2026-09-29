@@ -24,6 +24,14 @@ const productSchema = z.object({
   price: z.number().nonnegative().max(1_000_000),
   unit: z.enum(['PIEZA', 'KG']).optional(),
   categoryId: z.number().int().positive().nullable(),
+  // Lo que teclea el lector: sin espacios ni caracteres de control (un QR con texto libre no aplica).
+  barcode: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^[\x21-\x7E]*$/, 'El código de barras no puede llevar espacios ni acentos.')
+    .nullable()
+    .optional(),
   active: z.boolean().optional()
 })
 const idParam = z.object({ id: z.coerce.number().int().positive() })

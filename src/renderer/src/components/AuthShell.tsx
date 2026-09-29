@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { DatabaseBackup, Loader2, Radio, WifiOff } from 'lucide-react'
+import { DatabaseBackup, Download, Loader2, Radio, WifiOff } from 'lucide-react'
 import logo from '@/assets/logo-spartan.webp'
 import { PointerGlow } from '@/components/PointerGlow'
+import { useInstallStore } from '@/stores/install.store'
 import { cn } from '@/lib/utils'
 
 /**
@@ -36,6 +37,22 @@ function Clock(): React.JSX.Element {
       </p>
       <p className="mt-1 text-sm text-slate-400">{fechaLarga(now)}</p>
     </div>
+  )
+}
+
+/** Botón "Instalar como app": sólo aparece cuando el navegador lo permite. */
+function InstallAppButton(): React.JSX.Element | null {
+  const canInstall = useInstallStore((s) => s.prompt !== null)
+  const install = useInstallStore((s) => s.install)
+  if (!canInstall) return null
+  return (
+    <button
+      type="button"
+      onClick={() => void install()}
+      className="mx-auto mt-4 flex items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
+    >
+      <Download className="h-3.5 w-3.5" /> Instalar como app en este equipo
+    </button>
   )
 }
 
@@ -107,6 +124,7 @@ export function AuthShell({
             {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
             <div className="mt-6">{children}</div>
           </div>
+          <InstallAppButton />
           {footer && <div className="mt-5 text-center text-xs text-slate-500">{footer}</div>}
         </main>
       </div>

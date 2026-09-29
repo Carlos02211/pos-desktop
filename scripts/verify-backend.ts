@@ -26,10 +26,13 @@ import { count, eq } from 'drizzle-orm'
 import { closeDb, initDb } from '../src/main/db'
 import { config, users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
+import { formatMoney } from '../src/shared/money-format'
 import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
+  AddToSaleResponse,
+  TurnSale,
   BackupRunResponse,
   BackupStatus,
   BrandingResponse,
@@ -47,6 +50,7 @@ import type {
   CreditAccountDetail,
   CreditAccountListItem,
   CustomerWithBalance,
+  DrawerResult,
   LicenseStatusResponse,
   LoginResponse,
   PingResponse,
@@ -487,6 +491,60 @@ async function main(): Promise<void> {
       'producto: PUT actualiza nombre, precio y categoría'
     )
 
+    // Código de barras: único, se conserva si el PUT no lo manda, '' lo quita.
+    const conCodigo = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id,
+      barcode: ' 7501055300075 '
+    })
+    assert(
+      ((await conCodigo.json()) as ProductWithCategory).barcode === '7501055300075',
+      'código de barras: PUT lo guarda sin espacios de los extremos'
+    )
+    const duplicado = await asAdmin('/api/productos', 'POST', {
+      name: 'Otro refresco',
+      price: 10,
+      categoryId: null,
+      barcode: '7501055300075'
+    })
+    const dupMsg = ((await duplicado.json()) as { error?: string }).error ?? ''
+    assert(
+      duplicado.status === 409 && dupMsg.includes('Refresco 600ml'),
+      `código de barras repetido -> 409 con el producto dueño (${duplicado.status}: ${dupMsg})`
+    )
+    const conEspacio = await asAdmin('/api/productos', 'POST', {
+      name: 'Z',
+      price: 1,
+      categoryId: null,
+      barcode: '750 105'
+    })
+    assert(conEspacio.status === 400, `código con espacio interno -> 400 (${conEspacio.status})`)
+    const sinCampo = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id
+    })
+    assert(
+      ((await sinCampo.json()) as ProductWithCategory).barcode === '7501055300075',
+      'código de barras: un PUT sin el campo lo conserva'
+    )
+    const cobradorVe = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(
+      cobradorVe.find((p) => p.id === refresco.id)?.barcode === '7501055300075',
+      'código de barras: el cobrador lo recibe en GET /api/productos'
+    )
+    const quitado = await asAdmin(`/api/productos/${refresco.id}`, 'PUT', {
+      name: 'Refresco 600ml',
+      price: 20,
+      categoryId: bebidas.id,
+      barcode: ''
+    })
+    assert(
+      ((await quitado.json()) as ProductWithCategory).barcode === null,
+      "código de barras: '' lo quita (queda null)"
+    )
+
     // Subida de imagen (multipart).
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -600,6 +658,7 @@ async function main(): Promise<void> {
     // Historial de ventas — hay 2 ventas (efectivo 50 folio1, tarjeta 25 folio2), ambas del cajero.
     const ventasPage = (await (await asAdmin('/api/ventas')).json()) as SalesPage
     assert(ventasPage.total === 2, `ventas: total 2 (got ${ventasPage.total})`)
+    assert(ventasPage.sumTotal === 75, `ventas: suma de totales $75 (got ${ventasPage.sumTotal})`)
     assert(
       ventasPage.rows[0].ticketNumber === 2 && ventasPage.rows[0].itemCount === 1,
       'ventas: orden por fecha desc y itemCount calculado'
@@ -666,7 +725,9 @@ async function main(): Promise<void> {
       `reporte diario: cuenta las ventas del día (got ${reporte.totalTransactions})`
     )
     assert(
-      reporte.topProducts.some((p) => p.name === 'Producto de prueba' && p.quantity >= 3),
+      reporte.topProducts.some(
+        (p) => p.name === 'Producto de prueba' && p.unit === 'PIEZA' && p.quantity >= 3
+      ),
       'reporte diario: top de productos con cantidades'
     )
     assert(
@@ -823,7 +884,8 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, 200))
     const bytes = Buffer.concat(received).toString('latin1')
     assert(
-      printed.printed && bytes.includes('PRUEBA DE IMPRESION'),
+      // Acentos en PC858 (Ó = 0xE0, á = 0xA0), no en latin1/UTF-8
+      printed.printed && bytes.includes('PRUEBA DE IMPRESI\xe0N') && bytes.includes('est\xa0 bien'),
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
 
@@ -835,9 +897,21 @@ async function main(): Promise<void> {
     received.length = 0
     const reprintOk = await asAdmin(`/api/ventas/${sale1.id}/reimprimir`, 'POST')
     await new Promise((r) => setTimeout(r, 200))
+    // Ningún renglón pasa de 48 columnas (80 mm): uno de 49 manda el último carácter abajo.
+    const ticketLines = Buffer.concat(received)
+      .toString('latin1')
+      // Quitar los comandos ESC/POS (ESC @, GS V n, ESC x n), que no ocupan columnas.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b@|\x1dV.|\x1b[\s\S]./g, '')
+      .split('\n')
+    const wide = ticketLines.filter((l) => l.length > 48)
+    assert(
+      wide.length === 0 && ticketLines.some((l) => l.startsWith('TOTAL')),
+      `ticket: todos los renglones caben en 48 columnas (${wide.length} más anchos)`
+    )
     assert(
       reprintOk.status === 200 &&
-        Buffer.concat(received).toString('latin1').includes(`Ticket #${sale1.ticketNumber}`),
+        Buffer.concat(received).toString('latin1').includes(`Folio: ${sale1.ticketNumber}`),
       `impresora activada: reimprimir llega a la impresora (status ${reprintOk.status})`
     )
     // Apagarla conserva la conexión (para volver a activarla tal cual).
@@ -1144,6 +1218,22 @@ async function main(): Promise<void> {
         salePapa.items[0].subtotal === 4.2,
       `venta por peso: 0.35 kg × $12 = $4.20 (got ${JSON.stringify(salePapa.items[0])})`
     )
+    const mixta = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [
+          { productId: papa.id, quantity: 0.35 },
+          { productId: producto.id, quantity: 2 }
+        ],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const filaMixta = (
+      (await (await asAdmin('/api/ventas?pageSize=100')).json()) as SalesPage
+    ).rows.find((r) => r.id === mixta.id)
+    assert(
+      filaMixta?.itemCount === 2,
+      `artículos: 2 piezas + 350 g = 2 productos, no 2.35 ni 3 (got ${filaMixta?.itemCount})`
+    )
 
     const ventaPapaEntera = await asCajero('/api/ventas', 'POST', {
       items: [{ productId: producto.id, quantity: 1.5 }],
@@ -1202,6 +1292,403 @@ async function main(): Promise<void> {
       'historial de ventas: expone customerName cuando la venta tiene cliente'
     )
 
+    // ---- Ticket (sólo texto) + cajón de dinero ----
+    // Impresora falsa: junta cada trabajo que llega. El cajón es `ESC p 0 25 250` en el pin 2.
+    const jobs: Buffer[] = []
+    const cajonPrinter = createServer((sock) => {
+      const parts: Buffer[] = []
+      sock.on('data', (d) => parts.push(d))
+      // La librería abre una conexión vacía para ver si la impresora responde: no cuenta.
+      sock.on('end', () => {
+        const job = Buffer.concat(parts)
+        if (job.length) jobs.push(job)
+      })
+    })
+    await new Promise<void>((r) => cajonPrinter.listen(0, '127.0.0.1', r))
+    const cajonPort = (cajonPrinter.address() as AddressInfo).port
+    const KICK = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
+    const lastJob = async (): Promise<Buffer> => {
+      await new Promise((r) => setTimeout(r, 250))
+      return jobs.at(-1) ?? Buffer.alloc(0)
+    }
+    await asAdmin('/api/config', 'PUT', {
+      printer_enabled: '1',
+      printer_interface: `tcp://127.0.0.1:${cajonPort}`,
+      cash_drawer: '1'
+    })
+    assert(
+      ((await (await asCajero('/api/caja/cajon')).json()) as { enabled: boolean }).enabled,
+      'cajón: el cobrador sabe que hay cajón (muestra el botón)'
+    )
+
+    const ticketCash = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 100
+      })
+    ).json()) as CreateSaleResponse
+    const cashJob = await lastJob()
+    const cashText = cashJob.toString('latin1')
+    assert(
+      ticketCash.print.printed && cashJob.includes(KICK),
+      'venta en efectivo: el ticket abre el cajón'
+    )
+    assert(
+      [
+        `Folio: ${ticketCash.ticketNumber}`,
+        `Turno de caja: ${ticketCash.cashSessionId}`,
+        'Cobrador: cajero',
+        'Efectivo',
+        'Recibido',
+        'Cambio'
+      ].every((t) => cashText.includes(t)) && !cashText.includes('CASH'),
+      'ticket: folio, turno de caja, cobrador y pago en español'
+    )
+    assert(
+      !cashJob.includes(Buffer.from([0x1d, 0x76, 0x30])),
+      'ticket: sin imagen (sólo texto, no gasta en logo)'
+    )
+
+    const ticketCard = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const cardJob = await lastJob()
+    assert(
+      ticketCard.print.printed &&
+        !cardJob.includes(KICK) &&
+        cardJob.toString('latin1').includes('Tarjeta'),
+      'venta con tarjeta: imprime pero NO abre el cajón'
+    )
+
+    await asAdmin(`/api/ventas/${ticketCash.id}/reimprimir`, 'POST')
+    const reprintJob = await lastJob()
+    assert(!reprintJob.includes(KICK), 'reimpresión: no abre el cajón')
+    assert(
+      reprintJob.toString('latin1').includes('*** REIMPRESI\xe0N ***') &&
+        reprintJob.toString('latin1').includes('Reimpreso: '),
+      'reimpresión: el ticket dice que es copia y cuándo se reimprimió'
+    )
+
+    const fiadoTicket = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 2 }],
+        paymentMethod: 'CREDIT',
+        customerId: juan.id,
+        amountPaid: 5
+      })
+    ).json()) as CreateSaleResponse
+    const fiadoText = (await lastJob()).toString('latin1')
+    assert(
+      jobs.at(-1)!.includes(KICK) &&
+        fiadoText.includes('Fiado') &&
+        fiadoText.includes('Enganche') &&
+        fiadoText.includes('Queda a deber') &&
+        fiadoText.includes('Cliente: Juan'),
+      'venta fiada con enganche: abre el cajón y el ticket dice cuánto queda a deber'
+    )
+
+    const nJobs = jobs.length
+    await asCajero(`/api/cuentas/${fiadoTicket.creditAccountId}/abono`, 'POST', {
+      amount: 1,
+      paymentMethod: 'TRANSFER'
+    })
+    await new Promise((r) => setTimeout(r, 250))
+    assert(jobs.length === nJobs, 'abono por transferencia: no abre el cajón')
+    const abonoCash = await asCajero(`/api/cuentas/${fiadoTicket.creditAccountId}/abono`, 'POST', {
+      amount: 1,
+      paymentMethod: 'CASH'
+    })
+    const abonoJob = await lastJob()
+    assert(
+      jobs.length === nJobs + 1 && abonoJob.includes(KICK),
+      `abono en efectivo: abre el cajón (status ${abonoCash.status}, trabajos ${jobs.length - nJobs})`
+    )
+
+    await asCajero('/api/caja/movimiento', 'POST', { type: 'IN', amount: 50, reason: 'Cambio' })
+    assert((await lastJob()).includes(KICK), 'ingreso de efectivo: abre el cajón')
+
+    const manual = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
+    assert(manual.opened && (await lastJob()).includes(KICK), 'botón "Cajón" del cobrador: lo abre')
+
+    const pruebaCajon = (await (
+      await asAdmin('/api/admin/impresora/cajon', 'POST', {
+        interface: `tcp://127.0.0.1:${cajonPort}`
+      })
+    ).json()) as DrawerResult
+    assert(pruebaCajon.opened && (await lastJob()).includes(KICK), 'Configuración: "Probar cajón"')
+
+    // ---- Agregar productos olvidados a una venta ya cobrada (mismo folio) ----
+    const resumenAntes = (await (await asCajero('/api/caja/resumen')).json()) as CashSessionSummary
+    // El cierre muestra cada renglón: su suma debe dar el efectivo esperado (antes faltaban
+    // los enganches de fiado y el desglose no cuadraba con el total).
+    const r = resumenAntes
+    const sumaRenglones =
+      r.session.openingAmount + r.totalCash + r.creditDownCash + r.abonosCash + r.cashIn - r.cashOut
+    assert(
+      r.creditDownCash > 0 && Math.round(sumaRenglones * 100) === Math.round(r.expectedCash * 100),
+      `cierre: los renglones (incl. enganches ${r.creditDownCash}) suman el esperado ${r.expectedCash}`
+    )
+    const baseSale = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 30
+      })
+    ).json()) as CreateSaleResponse
+    const agregar = (saleId: number, body: unknown, as = asCajero): Promise<Response> =>
+      as(`/api/ventas/${saleId}/agregar`, 'POST', body)
+
+    const corto = await agregar(baseSale.id, {
+      items: [{ productId: papa.id, quantity: 0.5 }],
+      amountPaid: 1
+    })
+    assert(corto.status === 400, `agregar: efectivo insuficiente -> 400 (status ${corto.status})`)
+    const vacio = await agregar(baseSale.id, { items: [] })
+    assert(vacio.status === 400, `agregar: sin productos -> 400 (status ${vacio.status})`)
+
+    const addReq = {
+      items: [{ productId: papa.id, quantity: 0.5 }],
+      amountPaid: 10,
+      clientRequestId: 'agregar-prueba-0001'
+    }
+    const addRes = await agregar(baseSale.id, addReq)
+    const added = (await addRes.json()) as AddToSaleResponse
+    const addJob = await lastJob()
+    assert(
+      addRes.status === 200 &&
+        added.id === baseSale.id &&
+        added.ticketNumber === baseSale.ticketNumber &&
+        added.total === 31 &&
+        added.addedTotal === 6 &&
+        added.addedChange === 4 &&
+        added.amountPaid === 40 &&
+        added.change === 9,
+      `agregar (efectivo): mismo folio, total 25+6=31, recibido 40, cambio 5+4=9 (got ${added.total}/${added.amountPaid}/${added.change})`
+    )
+    assert(
+      added.items.length === 2 &&
+        added.items.find((i) => i.productId === producto.id)?.addedAt === null &&
+        (added.items.find((i) => i.productId === papa.id)?.addedAt ?? 0) > 0,
+      'agregar: las líneas nuevas quedan marcadas con la hora en que se agregaron'
+    )
+    const addText = addJob.toString('latin1')
+    assert(
+      added.print.printed &&
+        addJob.includes(KICK) &&
+        addText.includes('TICKET ACTUALIZADO') &&
+        addText.includes(`Folio: ${baseSale.ticketNumber}`) &&
+        addText.includes('500g x Papa'),
+      'agregar (efectivo): sale un ticket actualizado con todo y abre el cajón'
+    )
+    const dupAdd = await agregar(baseSale.id, addReq)
+    const dupBody = (await dupAdd.json()) as AddToSaleResponse
+    assert(
+      dupAdd.status === 200 && dupBody.duplicate === true && dupBody.total === 31,
+      `agregar: un doble clic no agrega dos veces (total ${dupBody.total})`
+    )
+    const resumenDespues = (await (
+      await asCajero('/api/caja/resumen')
+    ).json()) as CashSessionSummary
+    assert(
+      resumenDespues.salesCount === resumenAntes.salesCount + 1 &&
+        Math.round((resumenDespues.totalCash - resumenAntes.totalCash) * 100) === 3100 &&
+        Math.round((resumenDespues.expectedCash - resumenAntes.expectedCash) * 100) === 3100,
+      `agregar: cuenta como UNA venta y el efectivo esperado sube 31 (ventas +${resumenDespues.salesCount - resumenAntes.salesCount})`
+    )
+
+    const cardBase = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: producto.id, quantity: 1 }],
+        paymentMethod: 'CARD'
+      })
+    ).json()) as CreateSaleResponse
+    const cardAdd = (await (
+      await agregar(cardBase.id, { items: [{ productId: producto.id, quantity: 2 }] })
+    ).json()) as AddToSaleResponse
+    assert(
+      cardAdd.total === 75 &&
+        cardAdd.paymentMethod === 'CARD' &&
+        cardAdd.amountPaid === null &&
+        !(await lastJob()).includes(KICK),
+      `agregar (tarjeta): mismo método, total 25+50=75, no abre el cajón (got ${cardAdd.total})`
+    )
+
+    const deudaDe = async (): Promise<number> =>
+      ((await (await asCajero('/api/clientes')).json()) as CustomerWithBalance[]).find(
+        (c) => c.id === juan.id
+      )!.balance
+    const deudaAntes = await deudaDe()
+    const fiadoAdd = await agregar(fiadoTicket.id, {
+      items: [{ productId: producto.id, quantity: 1 }]
+    })
+    assert(
+      fiadoAdd.status === 200 &&
+        Math.round(((await deudaDe()) - deudaAntes) * 100) === 2500 &&
+        !(await lastJob()).includes(KICK),
+      `agregar (fiado): lo agregado se suma a lo que debe el cliente (status ${fiadoAdd.status})`
+    )
+
+    const cerrada = await agregar(sale1.id, { items: [{ productId: producto.id, quantity: 1 }] })
+    assert(
+      cerrada.status === 409,
+      `agregar a una venta de una caja cerrada -> 409 (status ${cerrada.status})`
+    )
+    const porAdmin = await agregar(
+      cardBase.id,
+      { items: [{ productId: producto.id, quantity: 1 }] },
+      asAdmin
+    )
+    assert(
+      porAdmin.status === 200,
+      `agregar: el admin puede en cualquier caja abierta (${porAdmin.status})`
+    )
+
+    // Otro cobrador: no toca ventas ajenas ni reimprime tickets de otra caja.
+    await asAdmin('/api/usuarios', 'POST', {
+      username: 'cajero3',
+      password: 'secreto123',
+      role: 'COBRADOR'
+    })
+    const cajero3 = (await (await login('cajero3', 'secreto123')).json()) as LoginResponse
+    const asCajero3 = call(cajero3.token)
+    await asCajero3('/api/caja/apertura', 'POST', { openingAmount: 100 })
+    const ajena = await agregar(
+      baseSale.id,
+      { items: [{ productId: producto.id, quantity: 1 }], amountPaid: 25 },
+      asCajero3
+    )
+    assert(ajena.status === 403, `agregar a una venta de otra caja -> 403 (status ${ajena.status})`)
+    const turno3 = (await (await asCajero3('/api/ventas/turno')).json()) as TurnSale[]
+    assert(
+      turno3.length === 0,
+      `ventas del turno: cada cobrador ve sólo su caja (${turno3.length})`
+    )
+
+    // Ventas del turno + reimpresión del cobrador (sólo la última de su caja).
+    const turno = (await (await asCajero('/api/ventas/turno')).json()) as TurnSale[]
+    const ultima = turno[0]
+    assert(
+      turno.length > 3 &&
+        turno.every((t) => t.cashSessionId === baseSale.cashSessionId) &&
+        turno.filter((t) => t.canReprint).length === 1 &&
+        ultima.canReprint,
+      `ventas del turno: de la más nueva a la más vieja, sólo la última reimprimible (${turno.length})`
+    )
+    const turnoAdmin = (await (await asAdmin('/api/ventas/turno')).json()) as TurnSale[]
+    assert(
+      turnoAdmin.length >= turno.length && turnoAdmin.every((t) => t.canReprint),
+      'ventas del turno (admin): todas las cajas abiertas, puede reimprimir cualquiera'
+    )
+    const vieja = await asCajero(`/api/ventas/${baseSale.id}/reimprimir`, 'POST')
+    assert(
+      vieja.status === 403,
+      `cobrador: reimprimir un ticket viejo -> 403 (status ${vieja.status})`
+    )
+    const ajenaReimp = await asCajero3(`/api/ventas/${ultima.id}/reimprimir`, 'POST')
+    assert(
+      ajenaReimp.status === 403,
+      `cobrador: reimprimir el ticket de otra caja -> 403 (status ${ajenaReimp.status})`
+    )
+    const propia = await asCajero(`/api/ventas/${ultima.id}/reimprimir`, 'POST')
+    assert(
+      propia.status === 200 && (await lastJob()).toString('latin1').includes('REIMPRESI'),
+      `cobrador: reimprime su último ticket, marcado como copia (status ${propia.status})`
+    )
+    const cajero3Id = cajero3.user.id
+    const conCaja = await asAdmin(`/api/usuarios/${cajero3Id}`, 'DELETE')
+    assert(
+      conCaja.status === 409,
+      `usuarios: no se desactiva a quien tiene la caja abierta (status ${conCaja.status})`
+    )
+    await asCajero3('/api/caja/cierre', 'POST', { closingAmount: 100 })
+    await asAdmin(`/api/usuarios/${cajero3Id}`, 'DELETE')
+    const tokenViejo = await asCajero3('/api/ventas/turno')
+    assert(
+      tokenViejo.status === 401,
+      `usuario desactivado: su sesión abierta deja de servir de inmediato (status ${tokenViejo.status})`
+    )
+
+    // Reimpresión de un fiado: además de lo que quedó a deber, el saldo de hoy (tras abonos).
+    await asAdmin(`/api/ventas/${fiadoTicket.id}/reimprimir`, 'POST')
+    const fiadoCopia = (await lastJob()).toString('latin1')
+    assert(
+      fiadoCopia.includes('Queda a deber') && fiadoCopia.includes('Saldo actual'),
+      'reimpresión de fiado: muestra el saldo actual además de lo que quedó a deber'
+    )
+
+    // Vista previa del ticket (Imprimir → PDF): mismos renglones que la impresora.
+    type Preview = { lines: { text: string; align: string; bold: boolean }[] }
+    const previa = (await (await asAdmin(`/api/ventas/${fiadoTicket.id}/ticket`)).json()) as Preview
+    assert(
+      previa.lines.some((l) => l.text.includes('REIMPRESIÓN')) &&
+        previa.lines.some((l) => l.text.startsWith('TOTAL') && l.bold) &&
+        previa.lines.every((l) => l.text.length <= 48),
+      'vista previa: la venta sale como copia, con TOTAL en negritas y a 48 columnas'
+    )
+    const ejemplo = (await (await asAdmin('/api/admin/impresora/ticket-ejemplo')).json()) as Preview
+    assert(
+      ejemplo.lines.some((l) => l.text === 'TICKET DE EJEMPLO') &&
+        ejemplo.lines.some((l) => l.text.includes('Producto de prueba')) &&
+        ejemplo.lines.some((l) => l.text.startsWith('Cambio')) &&
+        ejemplo.lines.every((l) => l.text.length <= 48),
+      'ticket de ejemplo: con productos del catálogo, marcado como ejemplo, 48 columnas'
+    )
+    assert(
+      (await asCajero('/api/admin/impresora/ticket-ejemplo')).status === 403,
+      'ticket de ejemplo: sólo el admin'
+    )
+
+    // Importes con separador de miles, como se leen en México.
+    assert(
+      formatMoney(2578.75) === '$2,578.75' &&
+        formatMoney(1234567.5) === '$1,234,567.50' &&
+        formatMoney(999.99) === '$999.99' &&
+        formatMoney(-5.75) === '−$5.75' &&
+        formatMoney(-0.001) === '$0.00',
+      'importes: separador de miles y signo menos al frente'
+    )
+
+    // Mensajes de validación en español y con el campo, no el texto técnico de Zod.
+    const sinNombre = (await (
+      await asAdmin('/api/productos', 'POST', { name: '', price: 10, categoryId: null })
+    ).json()) as { error: string }
+    assert(
+      sinNombre.error === 'El nombre no puede ir vacío.',
+      `validación: mensaje en español con el campo (got "${sinNombre.error}")`
+    )
+    const precioNeg = (await (
+      await asAdmin('/api/productos', 'POST', { name: 'X', price: -1, categoryId: null })
+    ).json()) as { error: string }
+    assert(
+      precioNeg.error === 'El precio debe ser mayor o igual a 0.',
+      `validación: precio negativo explicado (got "${precioNeg.error}")`
+    )
+
+    // Nombres de producto: dos activos no pueden llamarse igual (sin importar mayúsculas).
+    const dupNombre = await asAdmin('/api/productos', 'POST', {
+      name: '  producto   DE prueba ',
+      price: 10,
+      categoryId: null
+    })
+    assert(
+      dupNombre.status === 409,
+      `productos: nombre repetido (mayúsculas/espacios) -> 409 (status ${dupNombre.status})`
+    )
+
+    await asAdmin('/api/config', 'PUT', { cash_drawer: '0' })
+    const sinCajon = (await (await asCajero('/api/caja/cajon', 'POST', {})).json()) as DrawerResult
+    assert(
+      sinCajon.skipped === true &&
+        !((await (await asCajero('/api/caja/cajon')).json()) as { enabled: boolean }).enabled,
+      'sin cajón configurado: el botón no aparece y no se manda nada'
+    )
+    await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
+    cajonPrinter.close()
+
     console.log(
       `\n✅ Backend verificado (${PG ? 'PostgreSQL' : 'SQLite'}) — Sprints 0–8 + cuentas por cobrar OK`
     )
@@ -1214,5 +1701,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error('\n❌ Verificación fallida\n', err)
-  process.exitCode = 1
+  // Salir ya: una impresora falsa que quedó abierta dejaría el proceso (y el CI) colgado.
+  process.exit(1)
 })

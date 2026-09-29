@@ -33,6 +33,23 @@ export async function lockRow(tx: DB, table: LockableTable, id: number): Promise
   return res.rows.length > 0
 }
 
+/**
+ * Bloquea la sesión de caja y confirma que SIGUE abierta.
+ *
+ * Quien espera el lock leyó la sesión como OPEN antes de esperar; si el que tenía el lock
+ * era un cierre, al soltarlo la sesión ya está CLOSED. Sin esta relectura, la venta (o el
+ * abono, o el movimiento) se guardaba en una caja cuyo corte ya se calculó.
+ * En SQLite no hay espera posible: la lectura previa, en la misma transacción, basta.
+ */
+export async function lockOpenSession(tx: DB, sessionId: number): Promise<boolean> {
+  if (DIALECT !== 'pg') return true
+  const runner = tx as unknown as { execute: (q: unknown) => Promise<{ rows: unknown[] }> }
+  const res = await runner.execute(
+    sql`select status from cash_sessions where id = ${sessionId} for update`
+  )
+  return (res.rows[0] as { status?: string } | undefined)?.status === 'OPEN'
+}
+
 export async function withTx<T>(db: DB, fn: (tx: DB) => Promise<T>): Promise<T> {
   if (DIALECT === 'pg') {
     return db.transaction((tx) => fn(tx as unknown as DB))

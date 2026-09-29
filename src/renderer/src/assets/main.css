@@ -23,13 +23,15 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.48 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  /* Bordes marcados a propósito: en monitores con poco contraste o mal calibrados, un
+     gris muy claro (0.92) desaparece y las tarjetas/tablas/campos se funden con el fondo. */
+  --border: oklch(0.76 0 0);
+  --input: oklch(0.68 0 0);
   --ring: oklch(0.3 0.06 264);
   --radius: 0.625rem;
 
@@ -64,8 +66,8 @@
   --accent-foreground: #e8f0fe;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: #2a3350;
-  --input: #2a3350;
+  --border: #3d4a70;
+  --input: #4a5886;
   --ring: #0f3460;
 }
 

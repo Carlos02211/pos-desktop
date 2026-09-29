@@ -33,20 +33,26 @@ export const categories = sqliteTable('categories', {
   active: integer('active').notNull().default(1)
 })
 
-export const products = sqliteTable('products', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  price: integer('price').notNull(),
-  // PIEZA = cantidad entera (default). KG = se vende por peso, cantidad en kg (admite decimales).
-  unit: text('unit', { enum: ['PIEZA', 'KG'] })
-    .notNull()
-    .default('PIEZA'),
-  categoryId: integer('category_id').references(() => categories.id),
-  imagePath: text('image_path'), // ruta relativa dentro de userData/uploads/productos/
-  active: integer('active').notNull().default(1),
-  createdAt: integer('created_at').notNull().default(now),
-  updatedAt: integer('updated_at').notNull().default(now)
-})
+export const products = sqliteTable(
+  'products',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    price: integer('price').notNull(),
+    // PIEZA = cantidad entera (default). KG = se vende por peso, cantidad en kg (admite decimales).
+    unit: text('unit', { enum: ['PIEZA', 'KG'] })
+      .notNull()
+      .default('PIEZA'),
+    categoryId: integer('category_id').references(() => categories.id),
+    imagePath: text('image_path'), // ruta relativa dentro de userData/uploads/productos/
+    // Código de barras (EAN/UPC o interno). Opcional; NULL no choca con el índice único.
+    barcode: text('barcode'),
+    active: integer('active').notNull().default(1),
+    createdAt: integer('created_at').notNull().default(now),
+    updatedAt: integer('updated_at').notNull().default(now)
+  },
+  (t) => [uniqueIndex('products_barcode_unique').on(t.barcode)]
+)
 
 export const cashSessions = sqliteTable(
   'cash_sessions',
@@ -126,7 +132,9 @@ export const saleItems = sqliteTable(
       .notNull()
       .default('PIEZA'),
     quantity: real('quantity').notNull(),
-    subtotal: integer('subtotal').notNull()
+    subtotal: integer('subtotal').notNull(),
+    // Cuándo se agregó la línea a una venta ya cobrada (cliente que olvidó algo); null = venta original.
+    addedAt: integer('added_at')
   },
   (t) => [
     index('sale_items_sale_idx').on(t.saleId),

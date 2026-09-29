@@ -10,10 +10,11 @@ import type {
 import type { CashMovementRow, CashSessionRow } from '../db/schema'
 import { cashMovements, cashSessions, creditPayments, sales, users } from '../db/schema'
 import type { DB } from '../db'
-import { withTx, lockRow } from '../db/tx'
+import { lockOpenSession, withTx } from '../db/tx'
 import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
 import { fromCents, toCents } from '../lib/money'
+import { formatMoney } from '../../shared/money-format'
 
 /** Importes de una sesión de caja (centavos) → pesos, para la API. */
 export function sessionToApi(row: CashSessionRow): CashSessionRow {
@@ -147,6 +148,7 @@ function toSummary(session: CashSessionRow, t: SessionTotals): CashSessionSummar
     totalTransfer: fromCents(t.totalTransfer),
     totalCredit: fromCents(t.totalCredit),
     abonosCash: fromCents(t.abonosCash),
+    creditDownCash: fromCents(t.creditDownCash),
     cashIn: fromCents(t.cashIn),
     cashOut: fromCents(t.cashOut),
     expectedCash: fromCents(expectedCashCentsFor(session.openingAmount, t))
@@ -171,8 +173,9 @@ export async function addCashMovement(
 
   return withTx(db, async (tx) => {
     const session = await getActiveSession(tx, userId)
-    if (!session) throw new HttpError(409, 'Abre caja para registrar un movimiento.')
-    await lockRow(tx, 'cash_sessions', session.id)
+    if (!session || !(await lockOpenSession(tx, session.id))) {
+      throw new HttpError(409, 'Abre caja para registrar un movimiento.')
+    }
 
     if (input.type === 'OUT') {
       const t = await totalsFor(tx, session.id)
@@ -180,7 +183,7 @@ export async function addCashMovement(
       if (amountCents > available) {
         throw new HttpError(
           400,
-          `No hay suficiente efectivo en caja (disponible ${fromCents(available).toFixed(2)}).`
+          `No hay suficiente efectivo en caja (disponible ${formatMoney(fromCents(available))}).`
         )
       }
     }
@@ -242,8 +245,11 @@ export async function closeSession(
     const session = await getActiveSession(tx, userId)
     if (!session) throw new HttpError(409, 'No tienes una caja abierta.')
     // Bloquea la sesión para que ninguna venta en vuelo se cuele entre el cálculo
-    // de totales y el cierre (dejaría el arqueo mal en Fase 2).
-    await lockRow(tx, 'cash_sessions', session.id)
+    // de totales y el cierre (dejaría el arqueo mal en Fase 2). Si otro cierre ganó el
+    // lock, la sesión ya no está abierta: no se pisa ese corte.
+    if (!(await lockOpenSession(tx, session.id))) {
+      throw new HttpError(409, 'Esta caja ya se cerró.')
+    }
 
     const t = await totalsFor(tx, session.id)
     const expectedCashCents = expectedCashCentsFor(session.openingAmount, t)

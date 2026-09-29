@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { PingResponse } from '../../shared/types'
 import { DIALECT, pingDb } from '../db'
+import { BUILD_COMMIT, BUILD_DATE } from '../lib/build-info'
 import { parse } from '../lib/validate'
 
 const querySchema = z.object({
@@ -31,7 +32,9 @@ export async function pingRoutes(app: FastifyInstance): Promise<void> {
       now: Math.floor(Date.now() / 1000),
       db: dbState,
       engine: DIALECT === 'pg' ? 'postgres' : 'sqlite',
-      version: app.posContext.version
+      version: app.posContext.version,
+      commit: BUILD_COMMIT,
+      builtAt: BUILD_DATE
     }
     if (echo) body.echo = echo
     return body

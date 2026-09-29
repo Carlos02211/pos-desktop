@@ -8,7 +8,7 @@
  * - Imprime la clave PÚBLICA: pegarla en `PRODUCTION_PUBLIC_KEY`
  *   (`src/main/services/license.ts`) y commitearla — no es secreta.
  *
- * Respaldá el .pem (gestor de contraseñas / USB cifrado). Si se pierde, no se pueden emitir
+ * Respalda el .pem (gestor de contraseñas / USB cifrado). Si se pierde, no se pueden emitir
  * licencias nuevas para los builds ya instalados. Si se filtra, hay que generar otro par,
  * publicar un build nuevo y re-licenciar a todos los clientes.
  */

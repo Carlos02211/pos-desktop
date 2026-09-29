@@ -6,7 +6,7 @@
 # Por defecto propone la configuración ACTUAL (la que dio el DHCP) como fija. Antes de
 # confirmar, asegurate de que esa IP no la vaya a repartir el router a otro equipo:
 #   - o reservala en el router para esta PC (reserva DHCP por MAC),
-#   - o elegí una IP FUERA del rango DHCP del router (-Ip <IP>).
+#   - o elige una IP FUERA del rango DHCP del router (-Ip <IP>).
 #   El rango depende del proveedor/router: ver la guía de instalación, B7.
 #
 # PowerShell COMO ADMINISTRADOR, en la consola de la PC (no por escritorio remoto: si algo
@@ -98,7 +98,7 @@ if ($reachable) {
   Write-Host "IP fija aplicada: $Ip — la puerta de enlace responde." -ForegroundColor Green
 } else {
   Write-Host "IP aplicada, pero la puerta de enlace $Gateway no responde al ping (algunos routers no contestan)." -ForegroundColor Yellow
-  Write-Host "Comprobá que haya red. Para deshacer:  .\ip-fija.ps1 -VolverADhcp" -ForegroundColor Yellow
+  Write-Host "Comprueba que haya red. Para deshacer:  .\ip-fija.ps1 -VolverADhcp" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "Las cajas entran por:  http://${Ip}:3000/   (https:// si ya corriste setup-https.ps1)"

@@ -1,0 +1,1 @@
+ALTER TABLE `sale_items` ADD `added_at` integer;

@@ -235,6 +235,20 @@ Se ejecuta con Electron en modo `ELECTRON_RUN_AS_NODE` para usar el mismo ABI na
 pnpm verify:backend:pg   # las mismas comprobaciones contra PostgreSQL (PGlite embebido)
 ```
 
+PGlite tiene una sola conexión, así que nunca hay dos transacciones a la vez. Las carreras
+entre cajas de Fase 2 se prueban contra un PostgreSQL real (crea y borra su propia base):
+
+```bash
+docker run -d --name pos-pgtest -e POSTGRES_USER=pos -e POSTGRES_PASSWORD=pos \
+  -e POSTGRES_DB=pos -p 127.0.0.1:55432:5432 postgres:16-alpine
+DATABASE_URL=postgres://pos:pos@127.0.0.1:55432/pos pnpm verify:multicaja
+```
+
+3 cajas venden en paralelo (folios sin huecos por caja, el dashboard recibe cada venta),
+aperturas y doble envío simultáneos, abonos concurrentes a la misma cuenta, ventas en el
+mismo instante del cierre (ninguna se cuela en un corte ya calculado) y códigos de barras
+repetidos.
+
 ## Empaquetado
 
 - **Licencias:** el par Ed25519 se generó UNA vez con `pnpm license:keygen`. La clave privada

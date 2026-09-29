@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { CheckCircle2, FileText, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
 import type { SystemPrintersResponse } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { imprimirPrueba, listImpresoras } from '@/api/admin'
+import { TicketPreviewModal } from '@/components/TicketPreviewModal'
+import { SettingsCard, actionButtonClass } from '@/components/admin/SettingsCard'
 import { cn } from '@/lib/utils'
 
 /**
@@ -53,12 +56,15 @@ export function ImpresoraSection({
   enabled,
   onEnabledChange,
   value,
-  onChange
+  onChange,
+  extra
 }: {
   enabled: boolean
   onEnabledChange: (enabled: boolean) => void
   value: string
   onChange: (value: string) => void
+  /** Opciones extra con la impresora activada (p. ej. el cajón), antes de la prueba. */
+  extra?: ReactNode
 }): React.JSX.Element {
   const parsed = parse(value)
   const [mode, setMode] = useState<Mode>(parsed.mode)
@@ -90,6 +96,8 @@ export function ImpresoraSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const [sampleOpen, setSampleOpen] = useState(false)
+
   function selectMode(m: Exclude<Mode, null>): void {
     setMode(m)
     setTest(null)
@@ -111,7 +119,7 @@ export function ImpresoraSection({
       const r = await imprimirPrueba(value)
       setTest(
         r.printed
-          ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisá papel y tapa.' }
+          ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisa el papel y la tapa.' }
           : { ok: false, msg: r.error ?? 'No se pudo imprimir.' }
       )
     } catch (err) {
@@ -125,15 +133,19 @@ export function ImpresoraSection({
   }
 
   return (
-    <section className="rounded-xl border border-border p-4">
-      <h2 className="flex items-center gap-2 font-semibold">
-        <Printer className="h-4 w-4" /> Impresora de tickets
-      </h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Los tickets salen por esta impresora sin importar desde qué caja o tableta se cobre.
-      </p>
+    <SettingsCard
+      icon={Printer}
+      title="Impresora de tickets"
+      description="Los tickets salen por esta impresora sin importar desde qué caja o tableta se cobre."
+    >
+      <button type="button" onClick={() => setSampleOpen(true)} className={actionButtonClass}>
+        <FileText className="h-4 w-4" /> Ver ticket de ejemplo (PDF)
+      </button>
+      {sampleOpen && (
+        <TicketPreviewModal title="Ticket de ejemplo" onClose={() => setSampleOpen(false)} />
+      )}
 
-      <div className="mt-3">
+      <div>
         <span className="mb-1 block text-sm font-medium">
           ¿El negocio usa impresora de tickets?
         </span>
@@ -164,16 +176,16 @@ export function ImpresoraSection({
       </div>
 
       {!enabled && (
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Las ventas se registran sin imprimir y sin avisos en la caja. Cuando tengan impresora,
-          elegí <strong>Sí</strong> y guardá
+          elige <strong>Sí</strong> y guarda
           {value.trim() ? ': la conexión que ya estaba configurada se conserva.' : '.'}
         </p>
       )}
 
       {enabled && (
-        <>
-          <span className="mt-4 mb-1 block text-sm font-medium">¿Cómo está conectada?</span>
+        <div>
+          <span className="mb-1 block text-sm font-medium">¿Cómo está conectada?</span>
           <div className="grid gap-2 sm:grid-cols-3">
             {MODES.map((m) => (
               <button
@@ -209,7 +221,7 @@ export function ImpresoraSection({
                   className={inputClass}
                   disabled={loadingList || !printers?.supported}
                 >
-                  <option value="">— Elegí una impresora —</option>
+                  <option value="">— Elige una impresora —</option>
                   {parsed.name && !printers?.printers.some((p) => p.name === parsed.name) && (
                     <option value={parsed.name}>{parsed.name} (no encontrada)</option>
                   )}
@@ -232,9 +244,9 @@ export function ImpresoraSection({
               </div>
               <span className="mt-1 block text-xs text-muted-foreground">
                 {printers && !printers.supported
-                  ? 'El servidor no corre en Windows: usá "Impresora de red" o "Avanzado".'
+                  ? 'El servidor no corre en Windows: usa "Impresora de red" o "Avanzado".'
                   : (printers?.error ??
-                    'Si no aparece: instalá el driver de la impresora en la PC servidor (el del fabricante, p. ej. Xprinter) y tocá actualizar.')}
+                    'Si no aparece: instala el driver de la impresora en la PC servidor (el del fabricante, p. ej. Xprinter) y toca actualizar.')}
               </span>
             </div>
           )}
@@ -261,7 +273,7 @@ export function ImpresoraSection({
                 />
               </label>
               <span className="col-span-2 text-xs text-muted-foreground">
-                Para ver su IP: con la impresora apagada, mantené presionado el botón FEED y
+                Para ver su IP: con la impresora apagada, mantén presionado el botón FEED y
                 encendela; imprime una hoja de autoprueba con la IP. Conviene fijarle esa IP en el
                 router. El puerto casi siempre es 9100.
               </span>
@@ -283,15 +295,21 @@ export function ImpresoraSection({
             </label>
           )}
 
+          {extra}
+
           {mode && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => void runTest()}
                 disabled={testing || !value.trim()}
-                className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                className={actionButtonClass}
               >
-                {testing && <Loader2 className="h-4 w-4 animate-spin" />}
+                {testing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Printer className="h-4 w-4" />
+                )}
                 {testing ? 'Imprimiendo…' : 'Imprimir hoja de prueba'}
               </button>
               {test && (
@@ -311,8 +329,8 @@ export function ImpresoraSection({
               )}
             </div>
           )}
-        </>
+        </div>
       )}
-    </section>
+    </SettingsCard>
   )
 }

@@ -9,7 +9,31 @@ import { HttpError } from '../lib/http-error'
  * (`$Recycle.Bin`, `.git`, …) se omiten.
  */
 
-const HIDDEN = new Set(['System Volume Information', 'Recovery', 'PerfLogs', 'Config.Msi'])
+/**
+ * Carpetas de Windows donde nunca conviene guardar respaldos (del sistema, de programas o
+ * plantillas de perfiles). Comparación sin distinguir mayúsculas.
+ */
+const HIDDEN = new Set(
+  [
+    'System Volume Information',
+    'Recovery',
+    'PerfLogs',
+    'Config.Msi',
+    'Windows',
+    'Windows.old',
+    'Program Files',
+    'Program Files (x86)',
+    'ProgramData',
+    'MSOCache',
+    'Boot',
+    'Default',
+    'Default User',
+    'All Users',
+    'AppData',
+    'Application Data',
+    'Local Settings'
+  ].map((n) => n.toLowerCase())
+)
 
 function roots(): FolderListing {
   if (process.platform === 'win32') {
@@ -34,7 +58,7 @@ export function listFolder(path?: string): FolderListing {
     throw new HttpError(400, 'No se puede abrir esa carpeta (no existe o no hay permiso).')
   }
   const dirs = entries
-    .filter((e) => e.isDirectory() && !/^[.$]/.test(e.name) && !HIDDEN.has(e.name))
+    .filter((e) => e.isDirectory() && !/^[.$]/.test(e.name) && !HIDDEN.has(e.name.toLowerCase()))
     .map((e) => ({ name: e.name, path: join(abs, e.name) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
   const up = dirname(abs)

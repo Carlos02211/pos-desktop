@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
 import type { AuthUser } from '../shared/types'
+import { currentUser } from './middleware/auth'
 import { verifyToken } from './lib/jwt'
 import type { EventPayloads } from './socket-events'
 
@@ -16,14 +17,15 @@ export function initSocket(
   })
 
   // Handshake autenticado: sin un JWT válido no se recibe ningún evento de negocio.
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token
     if (typeof token !== 'string' || token.length === 0) {
       next(new Error('unauthorized'))
       return
     }
     try {
-      const user = verifyToken(token)
+      const user = await currentUser(verifyToken(token))
+      if (!user) throw new Error('usuario desactivado')
       ;(socket.data as { user?: AuthUser }).user = user
       // Salas por rol — permite dirigir eventos sensibles sólo a ADMIN más adelante.
       socket.join(`role:${user.role}`)

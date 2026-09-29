@@ -32,19 +32,24 @@ export const categories = pgTable('categories', {
   active: integer('active').notNull().default(1)
 })
 
-export const products = pgTable('products', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-  name: text('name').notNull(),
-  price: integer('price').notNull(),
-  unit: text('unit', { enum: ['PIEZA', 'KG'] })
-    .notNull()
-    .default('PIEZA'),
-  categoryId: integer('category_id').references(() => categories.id),
-  imagePath: text('image_path'),
-  active: integer('active').notNull().default(1),
-  createdAt: integer('created_at').notNull().default(now),
-  updatedAt: integer('updated_at').notNull().default(now)
-})
+export const products = pgTable(
+  'products',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    name: text('name').notNull(),
+    price: integer('price').notNull(),
+    unit: text('unit', { enum: ['PIEZA', 'KG'] })
+      .notNull()
+      .default('PIEZA'),
+    categoryId: integer('category_id').references(() => categories.id),
+    imagePath: text('image_path'),
+    barcode: text('barcode'),
+    active: integer('active').notNull().default(1),
+    createdAt: integer('created_at').notNull().default(now),
+    updatedAt: integer('updated_at').notNull().default(now)
+  },
+  (t) => [uniqueIndex('products_barcode_unique').on(t.barcode)]
+)
 
 export const cashSessions = pgTable(
   'cash_sessions',
@@ -118,7 +123,9 @@ export const saleItems = pgTable(
       .notNull()
       .default('PIEZA'),
     quantity: doublePrecision('quantity').notNull(),
-    subtotal: integer('subtotal').notNull()
+    subtotal: integer('subtotal').notNull(),
+    // Cuándo se agregó la línea a una venta ya cobrada (cliente que olvidó algo); null = venta original.
+    addedAt: integer('added_at')
   },
   (t) => [
     index('sale_items_sale_idx').on(t.saleId),

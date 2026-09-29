@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable'
 import type { SalesReport } from '../../shared/types'
 import type { ConfigMap } from './config'
 import type { ReportSaleRow } from './reportes'
+import { formatMoney } from '../../shared/money-format'
 
 const TYPE_LABEL: Record<string, string> = {
   diario: 'Diario',
@@ -38,7 +39,10 @@ export function generateReportPdf(
   uploadsDir: string
 ): Buffer {
   const currency = config.currency_symbol || '$'
-  const money = (n: number): string => `${currency}${n.toFixed(2)}`
+  const money = (n: number): string => formatMoney(n, currency)
+  // Por peso: gramos debajo de 1 kg, kilos arriba (igual que el ticket); piezas tal cual.
+  const qtyLabel = (q: number, unit: 'PIEZA' | 'KG'): string =>
+    unit !== 'KG' ? String(q) : q < 1 ? `${Math.round(q * 1000)} g` : `${q} kg`
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const margin = 40
@@ -86,7 +90,7 @@ export function generateReportPdf(
     autoTable(doc, {
       startY: y,
       head: [['Top productos', 'Cantidad', 'Ingreso']],
-      body: report.topProducts.map((p) => [p.name, String(p.quantity), money(p.revenue)]),
+      body: report.topProducts.map((p) => [p.name, qtyLabel(p.quantity, p.unit), money(p.revenue)]),
       theme: 'striped',
       headStyles: { fillColor: [15, 52, 96] }
     })
@@ -96,7 +100,7 @@ export function generateReportPdf(
 
   autoTable(doc, {
     startY: y,
-    head: [['Folio', 'Fecha', 'Cobrador', 'Método', 'Art.', 'Total']],
+    head: [['Folio', 'Fecha', 'Cobrador', 'Método', 'Prod.', 'Total']],
     body: detail.map((s) => [
       `#${s.ticketNumber}`,
       new Date(s.createdAt * 1000).toLocaleString('es-MX'),

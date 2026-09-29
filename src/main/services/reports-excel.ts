@@ -42,7 +42,9 @@ export async function generateReportExcel(
 
   resumen.addRow(['Top productos', 'Cantidad', 'Ingreso']).font = { bold: true }
   for (const p of report.topProducts) {
-    resumen.addRow([p.name, p.quantity, p.revenue]).getCell(3).numFmt = money
+    resumen
+      .addRow([p.name, p.unit === 'KG' ? `${p.quantity} kg` : p.quantity, p.revenue])
+      .getCell(3).numFmt = money
   }
 
   /* --- Hoja Detalle --- */
@@ -52,7 +54,7 @@ export async function generateReportExcel(
     { header: 'Fecha', key: 'fecha', width: 22 },
     { header: 'Cobrador', key: 'cobrador', width: 18 },
     { header: 'Método', key: 'metodo', width: 16 },
-    { header: 'Artículos', key: 'items', width: 12 },
+    { header: 'Productos', key: 'items', width: 12 },
     { header: 'Total', key: 'total', width: 14, style: { numFmt: money } }
   ]
   det.getRow(1).font = { bold: true }

@@ -6,8 +6,7 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { getConfigMap } from '../services/config'
 import { buildReport, salesInPeriod, type ReportParams } from '../services/reportes'
-import { generateReportExcel } from '../services/reports-excel'
-import { generateReportPdf } from '../services/reports-pdf'
+import { runExport } from '../services/export-job'
 
 const paramsSchema = z.object({
   fecha: z
@@ -53,7 +52,13 @@ export async function reportesRoutes(app: FastifyInstance): Promise<void> {
       const db = getDb()
       const report = await buildReport(db, tipo, params)
       const detail = await salesInPeriod(db, report.from, report.to)
-      const buffer = await generateReportExcel(report, detail, await getConfigMap(db))
+      const buffer = await runExport({
+        kind: 'xlsx',
+        report,
+        detail,
+        config: await getConfigMap(db),
+        uploadsDir: app.posContext.uploadsDir
+      })
       return reply
         .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .header('Content-Disposition', `attachment; filename="${slug(tipo, report.from)}.xlsx"`)
@@ -69,12 +74,13 @@ export async function reportesRoutes(app: FastifyInstance): Promise<void> {
       const db = getDb()
       const report = await buildReport(db, tipo, params)
       const detail = await salesInPeriod(db, report.from, report.to)
-      const buffer = generateReportPdf(
+      const buffer = await runExport({
+        kind: 'pdf',
         report,
         detail,
-        await getConfigMap(db),
-        app.posContext.uploadsDir
-      )
+        config: await getConfigMap(db),
+        uploadsDir: app.posContext.uploadsDir
+      })
       return reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `attachment; filename="${slug(tipo, report.from)}.pdf"`)

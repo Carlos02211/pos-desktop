@@ -1,3 +1,4 @@
+import { saleItemCountSql } from './ventas'
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type {
   PaymentBreakdown,
@@ -9,7 +10,7 @@ import type {
 import type { DB } from '../db'
 import { saleItems, sales } from '../db/schema'
 import { HttpError } from '../lib/http-error'
-import { fromCents } from '../lib/money'
+import { fromCents, round3 } from '../lib/money'
 import { businessOffsetMinutes, dayStartUnix, partsFor } from '../lib/timezone'
 import { getConfigMap } from './config'
 
@@ -134,16 +135,21 @@ export async function buildReport(
       .select({
         productId: saleItems.productId,
         name: saleItems.name,
+        unit: saleItems.unit,
         quantity: sql<number>`sum(${saleItems.quantity})`,
         revenue: sql<number>`sum(${saleItems.subtotal})`
       })
       .from(saleItems)
       .innerJoin(sales, eq(sales.id, saleItems.saleId))
       .where(inPeriod)
-      .groupBy(saleItems.productId, saleItems.name)
+      .groupBy(saleItems.productId, saleItems.name, saleItems.unit)
       .orderBy(desc(sql`sum(${saleItems.subtotal})`))
       .limit(5)
-  ).map((p) => ({ ...p, quantity: Number(p.quantity), revenue: fromCents(Number(p.revenue)) }))
+  ).map((p) => ({
+    ...p,
+    quantity: round3(Number(p.quantity)),
+    revenue: fromCents(Number(p.revenue))
+  }))
 
   return {
     type,
@@ -178,7 +184,7 @@ export async function salesInPeriod(db: DB, from: number, to: number): Promise<R
         createdAt: sales.createdAt,
         userName: sql<string>`(select username from users where users.id = ${sales.userId})`,
         paymentMethod: sales.paymentMethod,
-        itemCount: sql<number>`(select coalesce(count(*),0) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`,
+        itemCount: saleItemCountSql,
         total: sales.total
       })
       .from(sales)

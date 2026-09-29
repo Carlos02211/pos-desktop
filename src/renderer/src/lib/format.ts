@@ -1,6 +1,8 @@
+import { formatMoney } from '@shared/money-format'
+
 /** Formatea un importe con símbolo de moneda (por defecto `$`, configurable en Sprint 7). */
 export function money(amount: number, symbol = '$'): string {
-  return `${symbol}${amount.toFixed(2)}`
+  return formatMoney(amount, symbol)
 }
 
 /** Cantidad legible: piezas enteras tal cual, kg en gramos si es menos de 1 kg. */
@@ -49,7 +51,8 @@ export function dateInputToUnix(value: string, endOfDay = false): number | undef
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
   CARD: 'Tarjeta',
-  TRANSFER: 'Transferencia'
+  TRANSFER: 'Transferencia',
+  CREDIT: 'Fiado'
 }
 export function paymentLabel(method: string): string {
   return METHOD_LABEL[method] ?? method

@@ -9,6 +9,7 @@
  */
 export const EVENTS = {
   VENTA_NUEVA: 'venta:nueva', // { saleId, total, userId, cashSessionId }
+  VENTA_ACTUALIZADA: 'venta:actualizada', // mismo payload: se agregaron productos a una venta
   CAJA_APERTURA: 'caja:apertura', // { cashSessionId, userId, openingAmount }
   CAJA_CIERRE: 'caja:cierre', // { cashSessionId, userId, total, difference }
   PRODUCTO_UPDATE: 'producto:update', // { productId }
@@ -20,6 +21,7 @@ export type EventName = (typeof EVENTS)[keyof typeof EVENTS]
 
 export interface EventPayloads {
   'venta:nueva': { saleId: number; total: number; userId: number; cashSessionId: number }
+  'venta:actualizada': { saleId: number; total: number; userId: number; cashSessionId: number }
   'caja:apertura': { cashSessionId: number; userId: number; openingAmount: number }
   'caja:cierre': { cashSessionId: number; userId: number; total: number; difference: number }
   'producto:update': { productId: number }
