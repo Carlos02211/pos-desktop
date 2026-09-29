@@ -1,7 +1,8 @@
+import { formatMoney } from '@shared/money-format'
+
 /** Formatea un importe con símbolo de moneda (por defecto `$`, configurable en Sprint 7). */
 export function money(amount: number, symbol = '$'): string {
-  const text = `${symbol}${Math.abs(amount).toFixed(2)}`
-  return amount < 0 && Math.abs(amount) >= 0.005 ? `−${text}` : text
+  return formatMoney(amount, symbol)
 }
 
 /** Cantidad legible: piezas enteras tal cual, kg en gramos si es menos de 1 kg. */

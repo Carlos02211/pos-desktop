@@ -12,6 +12,7 @@ import type {
   SystemPrinter,
   TicketLine
 } from '../../shared/types'
+import { formatMoney } from '../../shared/money-format'
 import { businessOffsetMinutes } from '../lib/timezone'
 import type { ConfigMap } from './config'
 import { errorMessage } from '../lib/error-message'
@@ -220,7 +221,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 function fmtMoney(n: number, symbol: string): string {
-  return `${symbol}${n.toFixed(2)}`
+  return formatMoney(n, symbol).replace('−', '-')
 }
 
 /** Cantidad legible en el ticket: piezas enteras tal cual, kg en gramos si es menos de 1 kg. */

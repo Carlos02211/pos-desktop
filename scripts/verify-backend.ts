@@ -26,6 +26,7 @@ import { count, eq } from 'drizzle-orm'
 import { closeDb, initDb } from '../src/main/db'
 import { config, users } from '../src/main/db/schema'
 import { runSeed } from '../src/main/db/seed'
+import { formatMoney } from '../src/shared/money-format'
 import { getStore, initStore } from '../src/main/lib/store'
 import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
@@ -1638,6 +1639,16 @@ async function main(): Promise<void> {
     assert(
       (await asCajero('/api/admin/impresora/ticket-ejemplo')).status === 403,
       'ticket de ejemplo: sólo el admin'
+    )
+
+    // Importes con separador de miles, como se leen en México.
+    assert(
+      formatMoney(2578.75) === '$2,578.75' &&
+        formatMoney(1234567.5) === '$1,234,567.50' &&
+        formatMoney(999.99) === '$999.99' &&
+        formatMoney(-5.75) === '−$5.75' &&
+        formatMoney(-0.001) === '$0.00',
+      'importes: separador de miles y signo menos al frente'
     )
 
     // Mensajes de validación en español y con el campo, no el texto técnico de Zod.

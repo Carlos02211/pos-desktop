@@ -12,6 +12,7 @@ import { HttpError } from '../lib/http-error'
 import { fromCents, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
 import { getSaleWithItems } from './ventas'
+import { formatMoney } from '../../shared/money-format'
 
 const listColumns = {
   id: creditAccounts.id,
@@ -137,7 +138,7 @@ export async function addAbono(
     if (amountCents > balanceCents) {
       throw new HttpError(
         400,
-        `El abono supera el saldo pendiente (${fromCents(balanceCents).toFixed(2)}).`
+        `El abono supera el saldo pendiente (${formatMoney(fromCents(balanceCents))}).`
       )
     }
 

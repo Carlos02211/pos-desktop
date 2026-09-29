@@ -14,6 +14,7 @@ import { lockOpenSession, withTx } from '../db/tx'
 import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
 import { fromCents, toCents } from '../lib/money'
+import { formatMoney } from '../../shared/money-format'
 
 /** Importes de una sesión de caja (centavos) → pesos, para la API. */
 export function sessionToApi(row: CashSessionRow): CashSessionRow {
@@ -182,7 +183,7 @@ export async function addCashMovement(
       if (amountCents > available) {
         throw new HttpError(
           400,
-          `No hay suficiente efectivo en caja (disponible ${fromCents(available).toFixed(2)}).`
+          `No hay suficiente efectivo en caja (disponible ${formatMoney(fromCents(available))}).`
         )
       }
     }
