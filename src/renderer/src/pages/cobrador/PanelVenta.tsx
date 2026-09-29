@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import {
+  ArrowLeftRight,
+  Banknote,
+  BookUser,
+  Clock3,
+  Lock,
+  PackageOpen,
+  Receipt,
+  Search,
+  Trash2
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type {
   AddToSaleResponse,
   Category,
@@ -18,9 +30,10 @@ import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
 import { VentasTurnoModal } from '@/components/VentasTurnoModal'
 import { useBarcodeScanner } from '@/lib/barcode-scanner'
-import { money } from '@/lib/format'
+import { useNow } from '@/hooks/useNow'
+import { money, timeOnly } from '@/lib/format'
 import { socket } from '@/lib/socket'
-import { type AppendTarget, cartCount, cartTotal, useCartStore } from '@/stores/cart.store'
+import { type AppendTarget, cartTotal, useCartStore } from '@/stores/cart.store'
 
 type Load = 'loading' | 'no-caja' | 'ready' | 'error'
 
@@ -36,6 +49,7 @@ export default function PanelVenta(): React.JSX.Element {
   const [ventasOpen, setVentasOpen] = useState(false)
   const [hasDrawer, setHasDrawer] = useState(false)
   const [opening, setOpening] = useState(false)
+  const [openedAt, setOpenedAt] = useState<number | null>(null)
 
   // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
   const items = useCartStore((s) => s.items)
@@ -64,6 +78,7 @@ export default function PanelVenta(): React.JSX.Element {
           setLoad('no-caja')
           return
         }
+        setOpenedAt(sesion.openedAt)
         await loadCatalog()
         // Sin cajón configurado el botón no aparece; si la consulta falla, tampoco.
         const drawer = await cajonActivo().catch(() => false)
@@ -206,9 +221,9 @@ export default function PanelVenta(): React.JSX.Element {
         <p className="text-sm text-muted-foreground">No tienes una caja abierta.</p>
         <button
           onClick={() => navigate('/cobrador/apertura')}
-          className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-ring bg-primary px-6 py-3 text-base font-semibold text-primary-foreground shadow-md transition hover:brightness-125"
         >
-          Abrir caja
+          <Banknote size={20} /> Abrir caja
         </button>
       </Centered>
     )
@@ -219,17 +234,23 @@ export default function PanelVenta(): React.JSX.Element {
       {/* Grid de productos */}
       <div className="flex min-h-0 flex-col border-r border-border">
         <div className="space-y-2 border-b border-border p-3">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return
-              e.preventDefault()
-              onSearchEnter()
-            }}
-            placeholder="Buscar producto o escanear código…"
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-          />
+          <div className="relative">
+            <Search
+              size={18}
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                onSearchEnter()
+              }}
+              placeholder="Buscar producto o escanear código…"
+              className="w-full rounded-lg border border-input bg-background py-2.5 pr-3 pl-10 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+            />
+          </div>
           <div className="flex flex-wrap gap-1.5">
             <CatTab active={activeCat === null} onClick={() => setActiveCat(null)}>
               Todo
@@ -257,42 +278,39 @@ export default function PanelVenta(): React.JSX.Element {
 
       {/* Carrito */}
       <div className="flex min-h-0 flex-col bg-card">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5 text-sm font-semibold">
-          <span className="whitespace-nowrap">Carrito · {cartCount(items)} art.</span>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="border-b border-border p-3">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(60px,1fr))] gap-1.5">
+            <ToolButton icon={Receipt} label="Ventas" onClick={() => setVentasOpen(true)} />
+            <ToolButton
+              icon={BookUser}
+              label="Cuentas"
+              onClick={() => navigate('/cobrador/cuentas')}
+            />
+            <ToolButton
+              icon={ArrowLeftRight}
+              label="Efectivo"
+              onClick={() => setMovimientoOpen(true)}
+            />
             {hasDrawer && (
-              <button
+              <ToolButton
+                icon={PackageOpen}
+                label={opening ? 'Abriendo…' : 'Cajón'}
                 onClick={() => void openDrawer()}
                 disabled={opening}
-                className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-secondary disabled:opacity-50"
-              >
-                Cajón
-              </button>
+              />
             )}
-            <button
-              onClick={() => setVentasOpen(true)}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
-            >
-              Ventas
-            </button>
-            <button
-              onClick={() => navigate('/cobrador/cuentas')}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
-            >
-              Cuentas
-            </button>
-            <button
-              onClick={() => setMovimientoOpen(true)}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
-            >
-              Efectivo
-            </button>
-            <button
+            <ToolButton
+              icon={Lock}
+              label="Cerrar caja"
               onClick={() => navigate('/cobrador/cierre')}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition hover:bg-secondary"
-            >
-              Cerrar caja
-            </button>
+              danger
+            />
+          </div>
+          <div className="mt-2.5 space-y-0.5">
+            <p className="text-sm font-semibold">
+              Carrito · {items.length} {items.length === 1 ? 'producto' : 'productos'}
+            </p>
+            {openedAt != null && <TurnoDesde openedAt={openedAt} />}
           </div>
         </div>
 
@@ -331,22 +349,25 @@ export default function PanelVenta(): React.JSX.Element {
 
         <div className="space-y-3 border-t border-border p-4">
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Total</span>
-            <span className="text-2xl font-bold">{money(total)}</span>
+            <span className="text-base text-muted-foreground">Total</span>
+            <span className="text-3xl font-bold tabular-nums">{money(total)}</span>
           </div>
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <button
               onClick={() => setCobroOpen(true)}
               disabled={items.length === 0}
-              className="rounded-lg bg-pos-success px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-pos-success px-4 py-3.5 text-lg font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
             >
+              <Banknote size={22} />
               {appendTo ? `Agregar a #${appendTo.ticketNumber}` : 'Cobrar'}
             </button>
             <button
               onClick={clear}
               disabled={items.length === 0}
-              className="rounded-lg border border-border px-3 py-2.5 text-sm transition hover:bg-secondary disabled:opacity-50"
+              title="Vaciar el carrito"
+              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-4 py-2 text-xs font-medium transition hover:border-destructive hover:text-destructive disabled:opacity-40"
             >
+              <Trash2 size={18} />
               Vaciar
             </button>
           </div>
@@ -396,13 +417,72 @@ function CatTab({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+      className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
         active
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-secondary text-foreground hover:brightness-110'
+          ? 'border-ring bg-primary text-primary-foreground shadow-sm'
+          : 'border-input bg-secondary text-foreground hover:brightness-125'
       }`}
     >
       {children}
     </button>
+  )
+}
+
+/** Botón de la barra del cobrador: ícono grande + texto, fácil de tocar en pantalla táctil. */
+function ToolButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  danger
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  danger?: boolean
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-xs font-medium whitespace-nowrap shadow-sm transition active:scale-[0.97] disabled:opacity-50 ${
+        danger
+          ? 'border-destructive/60 bg-destructive/10 text-red-300 hover:bg-destructive/25'
+          : 'border-input bg-secondary text-foreground hover:border-ring hover:brightness-125'
+      }`}
+    >
+      <Icon size={20} />
+      {label}
+    </button>
+  )
+}
+
+/** "Turno desde las 9:43 a. m. · 2 h 05 min" — se actualiza cada 30 s. */
+function TurnoDesde({ openedAt }: { openedAt: number }): React.JSX.Element {
+  const now = useNow(30_000)
+  const mins = Math.max(0, Math.floor((now.getTime() / 1000 - openedAt) / 60))
+  const days = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  const dur =
+    days > 0
+      ? `${days} d ${h} h`
+      : h > 0
+        ? `${h} h ${String(mins % 60).padStart(2, '0')} min`
+        : `${mins} min`
+  // Caja abierta desde otro día (se olvidó cerrar): se muestra la fecha para que se note.
+  const opened = new Date(openedAt * 1000)
+  const sameDay = opened.toDateString() === now.toDateString()
+  const desde = sameDay
+    ? `las ${timeOnly(openedAt)}`
+    : `el ${opened.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}, ${timeOnly(openedAt)}`
+  return (
+    <p
+      className={`flex items-center gap-1 text-xs ${sameDay ? 'text-muted-foreground' : 'text-pos-warning'}`}
+      title="Hora en que abriste la caja"
+    >
+      <Clock3 size={13} className="shrink-0" />
+      Turno desde {desde} · {dur}
+    </p>
   )
 }
