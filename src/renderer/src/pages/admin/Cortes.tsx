@@ -147,14 +147,14 @@ export default function Cortes(): React.JSX.Element {
           <thead className="bg-secondary/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Apertura</th>
-              <th className="px-3 py-2">Cierre</th>
+              <th className="hidden md:table-cell px-3 py-2">Cierre</th>
               <th className="px-3 py-2">Cobrador</th>
               <th className="w-8 px-2 py-2" aria-label="Detalle" />
-              <th className="px-3 py-2 text-right">Inicial</th>
-              <th className="px-3 py-2 text-right">Retiros</th>
-              <th className="px-3 py-2 text-right">Ingresos</th>
-              <th className="px-3 py-2 text-right">Esperado</th>
-              <th className="px-3 py-2 text-right">Contado</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Inicial</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Retiros</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Ingresos</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Esperado</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Contado</th>
               <th className="px-3 py-2 text-right">Diferencia</th>
             </tr>
           </thead>
@@ -185,7 +185,7 @@ export default function Cortes(): React.JSX.Element {
                     }
                   >
                     <td className="px-3 py-2 text-muted-foreground">{dateTime(row.openedAt)}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-2 text-muted-foreground">
                       {row.closedAt ? dateTime(row.closedAt) : <em>abierta</em>}
                     </td>
                     <td className="px-3 py-2">{row.userName}</td>
@@ -205,25 +205,27 @@ export default function Cortes(): React.JSX.Element {
                         </button>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">{money(row.openingAmount)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
+                    <td className="hidden md:table-cell px-3 py-2 text-right">
+                      {money(row.openingAmount)}
+                    </td>
+                    <td className="hidden md:table-cell px-3 py-2 text-right tabular-nums">
                       {row.cashOut > 0 ? (
                         <span className="text-pos-danger">−{money(row.cashOut)}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
+                    <td className="hidden md:table-cell px-3 py-2 text-right tabular-nums">
                       {row.cashIn > 0 ? (
                         <span className="text-pos-success">+{money(row.cashIn)}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="hidden md:table-cell px-3 py-2 text-right">
                       {row.expectedAmount != null ? money(row.expectedAmount) : '—'}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="hidden md:table-cell px-3 py-2 text-right">
                       {row.closingAmount != null ? money(row.closingAmount) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right font-medium">

@@ -171,12 +171,12 @@ export default function Ventas(): React.JSX.Element {
             <tr>
               <th className="px-3 py-2">Fecha</th>
               <th className="px-3 py-2">Folio</th>
-              <th className="px-3 py-2">Cobrador</th>
-              <th className="px-3 py-2">Cliente</th>
+              <th className="hidden md:table-cell px-3 py-2">Cobrador</th>
+              <th className="hidden md:table-cell px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Método</th>
-              <th className="px-3 py-2 text-right">Productos</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Productos</th>
               <th className="px-3 py-2 text-right">Total</th>
-              <th className="px-3 py-2 text-right">Acciones</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -201,14 +201,18 @@ export default function Ventas(): React.JSX.Element {
                 >
                   <td className="px-3 py-2 text-muted-foreground">{dateTime(row.createdAt)}</td>
                   <td className="px-3 py-2">#{row.ticketNumber}</td>
-                  <td className="px-3 py-2">{row.userName}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.customerName ?? '—'}</td>
+                  <td className="hidden md:table-cell px-3 py-2">{row.userName}</td>
+                  <td className="hidden md:table-cell px-3 py-2 text-muted-foreground">
+                    {row.customerName ?? '—'}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {paymentLabel(row.paymentMethod)}
                   </td>
-                  <td className="px-3 py-2 text-right text-muted-foreground">{row.itemCount}</td>
+                  <td className="hidden md:table-cell px-3 py-2 text-right text-muted-foreground">
+                    {row.itemCount}
+                  </td>
                   <td className="px-3 py-2 text-right font-medium">{money(row.total)}</td>
-                  <td className="px-3 py-1.5">
+                  <td className="hidden md:table-cell px-3 py-1.5">
                     <div className="flex justify-end gap-1.5">
                       <button
                         onClick={(e) => {
@@ -225,7 +229,7 @@ export default function Ventas(): React.JSX.Element {
                           setTicketRow(row)
                         }}
                         title="Ver el ticket y guardarlo en PDF"
-                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
+                        className="hidden items-center sm:inline-flex gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
                       >
                         <FileText size={13} /> Ticket
                       </button>
@@ -236,7 +240,7 @@ export default function Ventas(): React.JSX.Element {
                             void reprint(row)
                           }}
                           disabled={printingId != null}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary disabled:opacity-50"
+                          className="hidden items-center sm:inline-flex gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary disabled:opacity-50"
                         >
                           <Printer size={13} />
                           {printingId === row.id ? 'Enviando…' : 'Reimprimir'}

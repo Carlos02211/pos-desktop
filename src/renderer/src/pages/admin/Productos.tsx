@@ -76,7 +76,7 @@ export default function Productos(): React.JSX.Element {
 
   return (
     <div>
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Productos</h1>
         <div className="flex gap-2">
           <Link
@@ -99,12 +99,12 @@ export default function Productos(): React.JSX.Element {
         alta con el código puesto y, si lo conocemos, con su nombre y categoría.
       </p>
 
-      <div className="mb-3 flex gap-2">
+      <div className="mb-3 flex flex-wrap gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nombre o código…"
-          className="w-64 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+          className="w-full rounded-lg sm:w-64 border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
         />
         <select
           value={catFilter ?? ''}
@@ -125,9 +125,9 @@ export default function Productos(): React.JSX.Element {
           <thead className="bg-secondary/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Producto</th>
-              <th className="px-3 py-2">Categoría</th>
+              <th className="hidden md:table-cell px-3 py-2">Categoría</th>
               <th className="px-3 py-2 text-right">Precio</th>
-              <th className="px-3 py-2">Estado</th>
+              <th className="hidden md:table-cell px-3 py-2">Estado</th>
               <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
@@ -170,12 +170,14 @@ export default function Productos(): React.JSX.Element {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.categoryName ?? '—'}</td>
+                  <td className="hidden md:table-cell px-3 py-2 text-muted-foreground">
+                    {row.categoryName ?? '—'}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     {money(row.price)}
                     {row.unit === 'KG' && <span className="text-muted-foreground">/kg</span>}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="hidden md:table-cell px-3 py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         row.active === 1

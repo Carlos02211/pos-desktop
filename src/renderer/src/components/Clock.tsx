@@ -5,12 +5,18 @@ import { useNow } from '@/hooks/useNow'
 export function Clock(): React.JSX.Element {
   const now = useNow(1000)
   return (
-    <span className="flex items-center gap-2 rounded-lg border border-border bg-background/60 px-3 py-1">
-      <ClockIcon size={16} className="shrink-0 text-muted-foreground" />
-      <span className="text-base font-semibold tabular-nums">
+    <span className="flex items-center gap-2 rounded-lg border border-border bg-background/60 px-2 py-1 sm:px-3">
+      <ClockIcon size={16} className="hidden shrink-0 text-muted-foreground sm:block" />
+      {/* En celular sin segundos: cabe en la barra sin empujar lo demás. */}
+      <span className="text-sm font-semibold whitespace-nowrap tabular-nums sm:hidden">
+        {now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+      </span>
+      <span className="hidden text-base font-semibold whitespace-nowrap tabular-nums sm:inline">
         {now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
       </span>
-      <span className="hidden text-xs text-muted-foreground sm:inline">{fechaCorta(now)}</span>
+      <span className="hidden text-xs whitespace-nowrap text-muted-foreground md:inline">
+        {fechaCorta(now)}
+      </span>
     </span>
   )
 }
