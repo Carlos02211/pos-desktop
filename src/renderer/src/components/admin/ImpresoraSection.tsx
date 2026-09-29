@@ -115,7 +115,7 @@ export function ImpresoraSection({
       const r = await imprimirPrueba(value)
       setTest(
         r.printed
-          ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisá papel y tapa.' }
+          ? { ok: true, msg: 'Salió la hoja de prueba. Si no la ves, revisa el papel y la tapa.' }
           : { ok: false, msg: r.error ?? 'No se pudo imprimir.' }
       )
     } catch (err) {
@@ -170,7 +170,7 @@ export function ImpresoraSection({
       {!enabled && (
         <p className="mt-3 text-sm text-muted-foreground">
           Las ventas se registran sin imprimir y sin avisos en la caja. Cuando tengan impresora,
-          elegí <strong>Sí</strong> y guardá
+          elige <strong>Sí</strong> y guarda
           {value.trim() ? ': la conexión que ya estaba configurada se conserva.' : '.'}
         </p>
       )}
@@ -213,7 +213,7 @@ export function ImpresoraSection({
                   className={inputClass}
                   disabled={loadingList || !printers?.supported}
                 >
-                  <option value="">— Elegí una impresora —</option>
+                  <option value="">— Elige una impresora —</option>
                   {parsed.name && !printers?.printers.some((p) => p.name === parsed.name) && (
                     <option value={parsed.name}>{parsed.name} (no encontrada)</option>
                   )}
@@ -236,9 +236,9 @@ export function ImpresoraSection({
               </div>
               <span className="mt-1 block text-xs text-muted-foreground">
                 {printers && !printers.supported
-                  ? 'El servidor no corre en Windows: usá "Impresora de red" o "Avanzado".'
+                  ? 'El servidor no corre en Windows: usa "Impresora de red" o "Avanzado".'
                   : (printers?.error ??
-                    'Si no aparece: instalá el driver de la impresora en la PC servidor (el del fabricante, p. ej. Xprinter) y tocá actualizar.')}
+                    'Si no aparece: instala el driver de la impresora en la PC servidor (el del fabricante, p. ej. Xprinter) y toca actualizar.')}
               </span>
             </div>
           )}
@@ -265,7 +265,7 @@ export function ImpresoraSection({
                 />
               </label>
               <span className="col-span-2 text-xs text-muted-foreground">
-                Para ver su IP: con la impresora apagada, mantené presionado el botón FEED y
+                Para ver su IP: con la impresora apagada, mantén presionado el botón FEED y
                 encendela; imprime una hoja de autoprueba con la IP. Conviene fijarle esa IP en el
                 router. El puerto casi siempre es 9100.
               </span>

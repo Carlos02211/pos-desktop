@@ -45,7 +45,7 @@ class JsonFileStore implements KVStore {
         // No se borra en silencio: se avisa y se sigue con datos vacíos (el
         // jwt_secret se regenera; la licencia pediría reactivación).
         console.error(
-          `[store] ${this.path} ilegible — se ignora. Restaurá el backup si tenías licencia.`
+          `[store] ${this.path} ilegible — se ignora. Restaura el respaldo si tenías licencia.`
         )
       }
     }

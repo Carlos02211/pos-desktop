@@ -145,7 +145,7 @@ async function connectOrFail(printer: ThermalPrinter, iface: string): Promise<vo
   const net = /^tcp:\/\/([^/:]+)(?::(\d+))?/i.exec(iface)
   throw new Error(
     net
-      ? `La impresora no responde en ${net[1]}:${net[2] ?? '9100'}. Revisá que esté encendida, ` +
+      ? `La impresora no responde en ${net[1]}:${net[2] ?? '9100'}. Revisa que esté encendida, ` +
           'conectada a la misma red y que la IP sea la de su hoja de autoprueba.'
       : 'Impresora no conectada'
   )
@@ -177,20 +177,20 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
 
 /** Hoja de prueba: confirma interfaz, conexión y corte de papel. */
 export async function printTestPage(iface: string, config: ConfigMap): Promise<PrintResult> {
-  if (!iface.trim()) return { printed: false, error: 'Elegí una impresora primero.' }
+  if (!iface.trim()) return { printed: false, error: 'Elige una impresora primero.' }
   try {
     const { printer, timeoutMs } = createPrinter(iface.trim())
     await connectOrFail(printer, iface.trim())
     printer.alignCenter()
     printer.bold(true)
-    printer.println('PRUEBA DE IMPRESION')
+    printer.println('PRUEBA DE IMPRESIÓN')
     printer.bold(false)
     printer.println((config.business_name || 'Mi Negocio').toUpperCase())
     printer.drawLine()
     printer.alignLeft()
     printer.println(`Fecha: ${ticketDate(Math.floor(Date.now() / 1000), config)}`)
     printer.println('Si puede leer esto, la impresora')
-    printer.println('esta bien configurada.')
+    printer.println('está bien configurada.')
     printer.drawLine()
     printer.cut()
     await withTimeout(printer.execute(), timeoutMs, 'impresora')

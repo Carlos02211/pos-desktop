@@ -878,7 +878,10 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, 200))
     const bytes = Buffer.concat(received).toString('latin1')
     assert(
-      printed.printed && bytes.includes('PRUEBA DE IMPRESION'),
+      // Acentos en PC858 (Ó = 0xE0, á = 0xA0), no en latin1/UTF-8
+      printed.printed &&
+        bytes.includes('PRUEBA DE IMPRESI\xe0N') &&
+        bytes.includes('est\xa0 bien'),
       `impresora: hoja de prueba por red llega a la impresora (${printed.error ?? 'ok'})`
     )
 

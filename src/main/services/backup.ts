@@ -123,7 +123,7 @@ async function backupPostgres(databaseUrl: string, dir: string): Promise<BackupR
         ok: false,
         error:
           'No se encontró pg_dump (viene con PostgreSQL). Si PostgreSQL está en otra ' +
-          'carpeta, definí POS_PG_DUMP en el .env con la ruta a pg_dump.exe.'
+          'carpeta, define POS_PG_DUMP en el .env con la ruta a pg_dump.exe.'
       }
     }
     const detail = (e.stderr || e.message || '').toString().trim().split('\n')[0]

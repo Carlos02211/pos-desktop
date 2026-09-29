@@ -99,7 +99,7 @@ export function assertProductionConfig(): void {
         '(ej. postgres://pos:...@localhost:5432/pos).'
     )
   } else if (process.env.DATABASE_URL.startsWith('pglite://')) {
-    errors.push('DATABASE_URL apunta a PGlite (embebido, mono-conexión) — usá PostgreSQL real.')
+    errors.push('DATABASE_URL apunta a PGlite (embebido, mono-conexión) — usa PostgreSQL real.')
   }
 
   // JWT_SECRET es opcional (si no está, se autogenera y persiste en POS_DATA_DIR),
@@ -112,7 +112,7 @@ export function assertProductionConfig(): void {
     console.error(
       '\n❌ El servidor no puede arrancar en producción:\n' +
         errors.map((e) => `   - ${e}`).join('\n') +
-        '\n\n   (para pruebas locales podés forzar el arranque con POS_ALLOW_INSECURE=1)\n'
+        '\n\n   (para pruebas locales puedes forzar el arranque con POS_ALLOW_INSECURE=1)\n'
     )
     process.exit(1)
   }
