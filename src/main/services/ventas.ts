@@ -546,3 +546,58 @@ export async function creditBalanceForSale(db: DB, saleId: number): Promise<numb
     .limit(1)
   return account ? fromCents(account.total - account.paid) : null
 }
+
+/**
+ * Venta de muestra para la vista previa / publicidad: con productos reales del catálogo
+ * (hasta 3 por pieza y 1 por peso), pagada en efectivo con un billete redondo. No se guarda.
+ */
+export async function sampleSale(db: DB, userName: string): Promise<SaleWithItems> {
+  const rows = await db
+    .select()
+    .from(products)
+    .where(eq(products.active, 1))
+    .orderBy(products.name)
+    .limit(50)
+  const byUnit = (unit: 'PIEZA' | 'KG'): typeof rows => rows.filter((r) => r.unit === unit)
+  const picked = [...byUnit('PIEZA').slice(0, 3), ...byUnit('KG').slice(0, 1)]
+  const catalog = picked.length
+    ? picked.map((p) => ({ name: p.name, price: p.price, unit: p.unit }))
+    : [
+        { name: 'Producto de ejemplo', price: 2500, unit: 'PIEZA' as const },
+        { name: 'Producto por kilo', price: 4500, unit: 'KG' as const }
+      ]
+  const items: SaleItem[] = catalog.map((p, i) => {
+    // Dos piezas sólo de lo barato (≤ $50): un ticket de ejemplo creíble para publicidad.
+    const quantity = p.unit === 'KG' ? 0.75 : i === 0 && p.price <= 5000 ? 2 : 1
+    const subtotal = lineCents(p.price, quantity)
+    return {
+      id: i + 1,
+      saleId: 0,
+      productId: 0,
+      name: p.name,
+      price: fromCents(p.price),
+      originalPrice: null,
+      unit: p.unit,
+      quantity,
+      subtotal: fromCents(subtotal),
+      addedAt: null
+    }
+  })
+  const totalCents = items.reduce((sum, i) => sum + toCents(i.subtotal), 0)
+  const paidCents = Math.ceil(totalCents / 10_000) * 10_000 || 10_000
+  return {
+    id: 0,
+    cashSessionId: 1,
+    userId: 0,
+    total: fromCents(totalCents),
+    paymentMethod: 'CASH',
+    amountPaid: fromCents(paidCents),
+    change: fromCents(paidCents - totalCents),
+    ticketNumber: 1,
+    customerId: null,
+    createdAt: Math.floor(Date.now() / 1000),
+    items,
+    userName,
+    customerName: null
+  }
+}

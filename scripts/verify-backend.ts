@@ -1618,6 +1618,28 @@ async function main(): Promise<void> {
       'reimpresión de fiado: muestra el saldo actual además de lo que quedó a deber'
     )
 
+    // Vista previa del ticket (Imprimir → PDF): mismos renglones que la impresora.
+    type Preview = { lines: { text: string; align: string; bold: boolean }[] }
+    const previa = (await (await asAdmin(`/api/ventas/${fiadoTicket.id}/ticket`)).json()) as Preview
+    assert(
+      previa.lines.some((l) => l.text.includes('REIMPRESIÓN')) &&
+        previa.lines.some((l) => l.text.startsWith('TOTAL') && l.bold) &&
+        previa.lines.every((l) => l.text.length <= 48),
+      'vista previa: la venta sale como copia, con TOTAL en negritas y a 48 columnas'
+    )
+    const ejemplo = (await (await asAdmin('/api/admin/impresora/ticket-ejemplo')).json()) as Preview
+    assert(
+      ejemplo.lines.some((l) => l.text === 'TICKET DE EJEMPLO') &&
+        ejemplo.lines.some((l) => l.text.includes('Producto de prueba')) &&
+        ejemplo.lines.some((l) => l.text.startsWith('Cambio')) &&
+        ejemplo.lines.every((l) => l.text.length <= 48),
+      'ticket de ejemplo: con productos del catálogo, marcado como ejemplo, 48 columnas'
+    )
+    assert(
+      (await asCajero('/api/admin/impresora/ticket-ejemplo')).status === 403,
+      'ticket de ejemplo: sólo el admin'
+    )
+
     // Mensajes de validación en español y con el campo, no el texto técnico de Zod.
     const sinNombre = (await (
       await asAdmin('/api/productos', 'POST', { name: '', price: 10, categoryId: null })

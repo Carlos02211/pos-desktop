@@ -3,6 +3,7 @@ import type {
   AddToSaleResponse,
   CreateSaleInput,
   CreateSaleResponse,
+  TicketLine,
   TurnSale
 } from '@shared/types'
 import { api } from './client'
@@ -24,4 +25,14 @@ export function agregarAVenta(saleId: number, input: AddToSaleInput): Promise<Ad
 /** Reimprime el ticket (el cobrador, sólo el último de su caja). Sale marcado como copia. */
 export function reimprimirVenta(saleId: number): Promise<{ ok: boolean }> {
   return api.post<{ ok: boolean }>(`/api/ventas/${saleId}/reimprimir`)
+}
+
+/** Renglones del ticket de una venta (vista previa para imprimir o guardar en PDF). */
+export function ticketDeVenta(saleId: number): Promise<{ lines: TicketLine[] }> {
+  return api.get<{ lines: TicketLine[] }>(`/api/ventas/${saleId}/ticket`)
+}
+
+/** Ticket de ejemplo con los productos del negocio (pruebas y publicidad). */
+export function ticketDeEjemplo(): Promise<{ lines: TicketLine[] }> {
+  return api.get<{ lines: TicketLine[] }>('/api/admin/impresora/ticket-ejemplo')
 }

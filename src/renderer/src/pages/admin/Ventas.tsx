@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, Printer } from 'lucide-react'
+import { Eye, FileText, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PaymentMethod, SaleListItem, UserListItem } from '@shared/types'
 import { getConfig, listUsuarios, listVentas, reimprimirTicket } from '@/api/admin'
 import { ApiRequestError } from '@/api/client'
 import { VentaDetalleModal } from '@/components/admin/VentaDetalleModal'
+import { TicketPreviewModal } from '@/components/TicketPreviewModal'
 import { dateInputToUnix, dateTime, money, paymentLabel } from '@/lib/format'
 
 const PAGE_SIZE = 50
@@ -24,6 +25,7 @@ export default function Ventas(): React.JSX.Element {
   // Sin impresora activada no se ofrece reimprimir (mismo criterio que el servidor).
   const [hasPrinter, setHasPrinter] = useState(false)
   const [printingId, setPrintingId] = useState<number | null>(null)
+  const [ticketRow, setTicketRow] = useState<SaleListItem | null>(null)
 
   // Cualquier cambio de filtro vuelve a la página 1.
   const setFrom = (v: string): void => {
@@ -209,6 +211,16 @@ export default function Ventas(): React.JSX.Element {
                       >
                         <Eye size={13} /> Ver
                       </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setTicketRow(row)
+                        }}
+                        title="Ver el ticket y guardarlo en PDF"
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition hover:bg-secondary"
+                      >
+                        <FileText size={13} /> Ticket
+                      </button>
                       {hasPrinter && (
                         <button
                           onClick={(e) => {
@@ -254,6 +266,13 @@ export default function Ventas(): React.JSX.Element {
         </div>
       </div>
 
+      {ticketRow && (
+        <TicketPreviewModal
+          saleId={ticketRow.id}
+          title={`Ticket #${ticketRow.ticketNumber}`}
+          onClose={() => setTicketRow(null)}
+        />
+      )}
       {detailId !== null && (
         <VentaDetalleModal saleId={detailId} onClose={() => setDetailId(null)} />
       )}

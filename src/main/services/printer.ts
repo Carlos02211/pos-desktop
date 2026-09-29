@@ -5,7 +5,13 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
 import { CharacterSet, PrinterTypes, ThermalPrinter } from 'node-thermal-printer'
-import type { DrawerResult, PrintResult, SaleWithItems, SystemPrinter } from '../../shared/types'
+import type {
+  DrawerResult,
+  PrintResult,
+  SaleWithItems,
+  SystemPrinter,
+  TicketLine
+} from '../../shared/types'
 import { businessOffsetMinutes } from '../lib/timezone'
 import type { ConfigMap } from './config'
 import { errorMessage } from '../lib/error-message'
@@ -243,19 +249,6 @@ function ticketDate(unixSeconds: number, config: ConfigMap): string {
 /** Columnas de un ticket de 80 mm con la fuente normal. */
 const TICKET_COLS = 48
 
-/**
- * Renglón con texto a la izquierda y valor a la derecha. Columnas enteras (`cols`): con
- * `width` fraccionario la librería redondea cada celda hacia arriba (48 × 0.6 = 28.8 → 29)
- * y el renglón sale de 49, así que el último carácter brinca al renglón siguiente.
- */
-function pair(printer: ThermalPrinter, left: string, right: string, leftWidth = 0.6): void {
-  const leftCols = Math.floor(TICKET_COLS * leftWidth)
-  printer.tableCustom([
-    { text: left, align: 'LEFT', cols: leftCols },
-    { text: right, align: 'RIGHT', cols: TICKET_COLS - leftCols }
-  ])
-}
-
 /** ¿El negocio usa impresora? Sin `printer_enabled` (instalaciones previas): si hay interfaz. */
 export function printerEnabled(config: ConfigMap): boolean {
   const flag = config.printer_enabled ?? ''
@@ -334,12 +327,115 @@ export interface TicketOptions {
   updated?: boolean
   /** Reimpresión de un fiado: lo que debe HOY (tras abonos), además de lo que quedó a deber. */
   creditBalance?: number
+  /** Ticket armado con datos de ejemplo (vista previa / publicidad), no una venta real. */
+  sample?: boolean
+}
+
+/** Parte un texto en renglones de 48 columnas, cortando en espacios cuando se puede. */
+function wrap(text: string): string[] {
+  const out: string[] = []
+  let rest = text.trimEnd()
+  while (rest.length > TICKET_COLS) {
+    let cut = rest.lastIndexOf(' ', TICKET_COLS)
+    if (cut <= 0) cut = TICKET_COLS
+    out.push(rest.slice(0, cut).trimEnd())
+    rest = rest.slice(cut).trimStart()
+  }
+  out.push(rest)
+  return out
+}
+
+/**
+ * Renglón con texto a la izquierda y valor a la derecha, exactamente de 48 columnas. Si no
+ * caben juntos, el texto va en su renglón y el valor alineado a la derecha en el siguiente.
+ */
+function pairText(left: string, right: string, leftWidth = 0.6): string[] {
+  const leftCols = Math.floor(TICKET_COLS * leftWidth)
+  const rightCols = TICKET_COLS - leftCols
+  if (left.length >= leftCols || right.length > rightCols) {
+    return [...wrap(left), right.padStart(TICKET_COLS)]
+  }
+  return [left.padEnd(leftCols) + right.padStart(rightCols)]
+}
+
+/**
+ * El ticket como renglones (texto + alineación + negritas). Lo usan la impresora térmica y
+ * la vista previa del navegador (Imprimir → PDF), así la vista previa es idéntica al papel.
+ */
+export function ticketLines(
+  sale: SaleWithItems,
+  config: ConfigMap,
+  { reprintAt, updated = false, creditBalance, sample = false }: TicketOptions = {}
+): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  const pair = (left: string, right: string, leftWidth?: number, bold = false): void => {
+    for (const t of pairText(left, right, leftWidth)) lines.push({ text: t, align: 'left', bold })
+  }
+  const rule = (): void => {
+    lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  }
+  const symbol = config.currency_symbol || '$'
+  const money = (n: number): string => fmtMoney(n, symbol)
+
+  add((config.business_name || 'Mi Negocio').toUpperCase(), 'center', true)
+  if (config.business_address) add(config.business_address, 'center')
+  if (config.business_phone) add(`Tel: ${config.business_phone}`, 'center')
+  if (sample) {
+    add('TICKET DE EJEMPLO', 'center', true)
+  } else if (reprintAt != null) {
+    // Una copia no debe pasar por el original (devoluciones, garantías dos veces).
+    add('*** REIMPRESIÓN ***', 'center', true)
+    add(`Reimpreso: ${ticketDate(reprintAt, config)}`, 'center')
+  } else if (updated) {
+    add('TICKET ACTUALIZADO', 'center', true)
+    add('Reemplaza al ticket anterior', 'center')
+  }
+  rule()
+
+  // El folio vuelve a 1 en cada turno: folio + turno identifican el ticket (reimpresiones).
+  pair(`Folio: ${sale.ticketNumber}`, `Turno de caja: ${sale.cashSessionId}`, 0.4)
+  add(`Fecha: ${ticketDate(sale.createdAt, config)}`)
+  add(`Cobrador: ${sale.userName}`)
+  if (sale.customerName) add(`Cliente: ${sale.customerName}`)
+  rule()
+
+  for (const item of sale.items) {
+    const label = `${fmtQty(item.quantity, item.unit)} x ${item.name}`
+    // Nombre largo en su propio renglón: dentro de la columna se parte a media palabra.
+    if (label.length > 32) {
+      add(label)
+      pair('', money(item.subtotal), 0.7)
+    } else {
+      pair(label, money(item.subtotal), 0.7)
+    }
+  }
+
+  rule()
+  pair('TOTAL', money(sale.total), 0.5, true)
+  pair('Pago', METHOD_LABEL[sale.paymentMethod])
+  if (sale.paymentMethod === 'CASH') {
+    pair('Recibido', money(sale.amountPaid ?? 0))
+    pair('Cambio', money(sale.change ?? 0))
+  } else if (sale.paymentMethod === 'CREDIT') {
+    const paid = sale.amountPaid ?? 0
+    if (paid > 0) pair('Enganche', money(paid))
+    pair('Queda a deber', money(Math.round((sale.total - paid) * 100) / 100))
+    if (creditBalance != null) {
+      pair('Saldo actual', creditBalance > 0 ? money(creditBalance) : 'Pagado')
+    }
+  }
+  rule()
+  add(config.ticket_footer || '¡Gracias por su compra!', 'center')
+  return lines
 }
 
 export async function printTicket(
   sale: SaleWithItems,
   config: ConfigMap,
-  { openDrawer = false, reprintAt, updated = false, creditBalance }: TicketOptions = {}
+  options: TicketOptions = {}
 ): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
@@ -353,69 +449,17 @@ export async function printTicket(
 
     // Primero el cajón: se abre mientras sale el ticket, no al terminar. Sólo en la venta
     // (`openDrawer`): una reimpresión no mete ni saca dinero.
-    if (openDrawer && cashDrawerEnabled(config) && receivesCash(sale)) printer.add(DRAWER_KICK)
-
-    const symbol = config.currency_symbol || '$'
-    const money = (n: number): string => fmtMoney(n, symbol)
-
-    printer.alignCenter()
-    printer.bold(true)
-    printer.println((config.business_name || 'Mi Negocio').toUpperCase())
-    printer.bold(false)
-    if (config.business_address) printer.println(config.business_address)
-    if (config.business_phone) printer.println(`Tel: ${config.business_phone}`)
-    // Una copia no debe pasar por el original (devoluciones, garantías dos veces).
-    if (reprintAt != null) {
-      printer.bold(true)
-      printer.println('*** REIMPRESIÓN ***')
-      printer.bold(false)
-      printer.println(`Reimpreso: ${ticketDate(reprintAt, config)}`)
-    } else if (updated) {
-      printer.bold(true)
-      printer.println('TICKET ACTUALIZADO')
-      printer.bold(false)
-      printer.println('Reemplaza al ticket anterior')
+    if (options.openDrawer && cashDrawerEnabled(config) && receivesCash(sale)) {
+      printer.add(DRAWER_KICK)
     }
-    printer.drawLine()
-
+    for (const line of ticketLines(sale, config, options)) {
+      if (line.align === 'center') printer.alignCenter()
+      else printer.alignLeft()
+      printer.bold(line.bold)
+      printer.println(line.text)
+    }
+    printer.bold(false)
     printer.alignLeft()
-    // El folio vuelve a 1 en cada turno: folio + turno identifican el ticket (reimpresiones).
-    pair(printer, `Folio: ${sale.ticketNumber}`, `Turno de caja: ${sale.cashSessionId}`, 0.4)
-    printer.println(`Fecha: ${ticketDate(sale.createdAt, config)}`)
-    printer.println(`Cobrador: ${sale.userName}`)
-    if (sale.customerName) printer.println(`Cliente: ${sale.customerName}`)
-    printer.drawLine()
-
-    for (const item of sale.items) {
-      const label = `${fmtQty(item.quantity, item.unit)} x ${item.name}`
-      // Nombre largo en su propio renglón: dentro de la columna se parte a media palabra.
-      if (label.length > 32) {
-        printer.println(label)
-        pair(printer, '', money(item.subtotal), 0.7)
-      } else {
-        pair(printer, label, money(item.subtotal), 0.7)
-      }
-    }
-
-    printer.drawLine()
-    printer.bold(true)
-    pair(printer, 'TOTAL', money(sale.total), 0.5)
-    printer.bold(false)
-    pair(printer, 'Pago', METHOD_LABEL[sale.paymentMethod])
-    if (sale.paymentMethod === 'CASH') {
-      pair(printer, 'Recibido', money(sale.amountPaid ?? 0))
-      pair(printer, 'Cambio', money(sale.change ?? 0))
-    } else if (sale.paymentMethod === 'CREDIT') {
-      const paid = sale.amountPaid ?? 0
-      if (paid > 0) pair(printer, 'Enganche', money(paid))
-      pair(printer, 'Queda a deber', money(Math.round((sale.total - paid) * 100) / 100))
-      if (creditBalance != null) {
-        pair(printer, 'Saldo actual', creditBalance > 0 ? money(creditBalance) : 'Pagado')
-      }
-    }
-    printer.drawLine()
-    printer.alignCenter()
-    printer.println(config.ticket_footer || '¡Gracias por su compra!')
     printer.cut()
 
     await withTimeout(printer.execute(), timeoutMs, 'impresora')

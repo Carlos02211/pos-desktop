@@ -6,7 +6,7 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getConfigMap } from '../services/config'
-import { printTicket } from '../services/printer'
+import { printTicket, ticketLines } from '../services/printer'
 import {
   addToSale,
   assertCanReprint,
@@ -202,6 +202,23 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/ventas/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
     return getSaleWithItems(getDb(), id)
+  })
+
+  // Vista previa del ticket (Imprimir → PDF). Es una copia: mismos permisos que reimprimir.
+  app.get('/api/ventas/:id/ticket', { preHandler: requireRole('COBRADOR') }, async (request) => {
+    const { id } = parse(idParam, request.params)
+    const db = getDb()
+    await assertCanReprint(db, request.authUser!, id)
+    const sale = await getSaleWithItems(db, id)
+    return {
+      lines: ticketLines(sale, await getConfigMap(db), {
+        reprintAt: Math.floor(Date.now() / 1000),
+        creditBalance:
+          sale.paymentMethod === 'CREDIT'
+            ? ((await creditBalanceForSale(db, sale.id)) ?? undefined)
+            : undefined
+      })
+    }
   })
 
   // Reimpresión: el admin, cualquier ticket; el cobrador, sólo el último de su caja.

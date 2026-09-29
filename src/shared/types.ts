@@ -154,6 +154,13 @@ export interface SaleWithItems extends Sale {
   customerName: string | null
 }
 
+/** Un renglón del ticket (48 columnas). La impresora y la vista previa usan los mismos. */
+export interface TicketLine {
+  text: string
+  align: 'left' | 'center'
+  bold: boolean
+}
+
 /** Resultado de intentar imprimir un ticket. Nunca hace fallar la venta. */
 export interface PrintResult {
   printed: boolean

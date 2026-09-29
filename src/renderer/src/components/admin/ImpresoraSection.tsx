@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { CheckCircle2, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
+import { CheckCircle2, FileText, Loader2, Printer, RefreshCw, XCircle } from 'lucide-react'
 import type { SystemPrintersResponse } from '@shared/types'
 import { ApiRequestError } from '@/api/client'
 import { imprimirPrueba, listImpresoras } from '@/api/admin'
+import { TicketPreviewModal } from '@/components/TicketPreviewModal'
 import { cn } from '@/lib/utils'
 
 /**
@@ -94,6 +95,8 @@ export function ImpresoraSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const [sampleOpen, setSampleOpen] = useState(false)
+
   function selectMode(m: Exclude<Mode, null>): void {
     setMode(m)
     setTest(null)
@@ -136,6 +139,16 @@ export function ImpresoraSection({
       <p className="mt-1 text-xs text-muted-foreground">
         Los tickets salen por esta impresora sin importar desde qué caja o tableta se cobre.
       </p>
+      <button
+        type="button"
+        onClick={() => setSampleOpen(true)}
+        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition hover:bg-secondary"
+      >
+        <FileText className="h-4 w-4" /> Ver ticket de ejemplo (PDF)
+      </button>
+      {sampleOpen && (
+        <TicketPreviewModal title="Ticket de ejemplo" onClose={() => setSampleOpen(false)} />
+      )}
 
       <div className="mt-3">
         <span className="mb-1 block text-sm font-medium">

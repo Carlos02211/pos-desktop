@@ -19,7 +19,8 @@ import {
 } from '../services/backup'
 import { getConfigMap } from '../services/config'
 import { createFolder, listFolder } from '../services/folders'
-import { listSystemPrinters, openCashDrawer, printTestPage } from '../services/printer'
+import { listSystemPrinters, openCashDrawer, printTestPage, ticketLines } from '../services/printer'
+import { sampleSale } from '../services/ventas'
 import { errorMessage } from '../lib/error-message'
 
 /**
@@ -45,6 +46,16 @@ function permissionHint(path: string): string {
 
 export async function sistemaRoutes(app: FastifyInstance): Promise<void> {
   const admin = { preHandler: requireRole('ADMIN') }
+
+  // Ticket de ejemplo con los productos del negocio: vista previa sin impresora y publicidad.
+  app.get('/api/admin/impresora/ticket-ejemplo', admin, async (request) => {
+    const db = getDb()
+    return {
+      lines: ticketLines(await sampleSale(db, request.authUser!.username), await getConfigMap(db), {
+        sample: true
+      })
+    }
+  })
 
   app.get('/api/admin/respaldos', admin, async (): Promise<BackupStatus> => {
     const { target, dir, isDefaultDir } = await resolveBackupJob(app.posContext)
