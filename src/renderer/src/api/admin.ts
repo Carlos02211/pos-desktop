@@ -25,9 +25,15 @@ import type {
   SalesQuery,
   SystemPrintersResponse,
   UpdateUserInput,
-  UserListItem
+  UserListItem,
+  BarcodeLookup,
+  CatalogInfo,
+  CatalogItem,
+  ImportProductsRequest,
+  ImportProductsResult,
+  ParsedImportSheet
 } from '@shared/types'
-import { api } from './client'
+import { api, ApiRequestError } from './client'
 
 /* ---- Categorías ---- */
 
@@ -63,6 +69,37 @@ export function actualizarProducto(id: number, input: ProductInput): Promise<Pro
 
 export function desactivarProducto(id: number): Promise<void> {
   return api.delete<void>(`/api/productos/${id}`)
+}
+
+/* ---- Importación de productos ---- */
+
+/** Lee un Excel/CSV en el servidor y devuelve los renglones interpretados (no guarda). */
+export function leerArchivoImportacion(file: File): Promise<ParsedImportSheet> {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post<ParsedImportSheet>('/api/productos/importar/leer', form)
+}
+
+export function importarProductos(input: ImportProductsRequest): Promise<ImportProductsResult> {
+  return api.post<ImportProductsResult>('/api/productos/importar', input)
+}
+
+export function listCatalogos(): Promise<CatalogInfo[]> {
+  return api.get<CatalogInfo[]>('/api/catalogos')
+}
+
+export function getCatalogo(id: string): Promise<CatalogItem[]> {
+  return api.get<CatalogItem[]>(`/api/catalogos/${id}`)
+}
+
+/** Datos sugeridos para un código nuevo (catálogo base o internet); null si no hay. */
+export async function buscarDatosPorCodigo(code: string): Promise<BarcodeLookup | null> {
+  try {
+    return await api.get<BarcodeLookup>(`/api/catalogos/codigo/${encodeURIComponent(code)}`)
+  } catch (err) {
+    if (err instanceof ApiRequestError && (err.status === 404 || err.status === 400)) return null
+    throw err
+  }
 }
 
 export function subirImagenProducto(id: number, file: File): Promise<{ path: string }> {

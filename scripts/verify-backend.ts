@@ -58,7 +58,12 @@ import type {
   SalesPage,
   SalesReport,
   SaleWithItems,
-  UserListItem
+  UserListItem,
+  BarcodeLookup,
+  CatalogInfo,
+  CatalogItem,
+  ImportProductsResult,
+  ParsedImportSheet
 } from '../src/shared/types'
 
 // `verify:backend`     → SQLite en un directorio temporal.
@@ -1688,6 +1693,180 @@ async function main(): Promise<void> {
     )
     await asAdmin('/api/config', 'PUT', { printer_enabled: '0', printer_interface: '' })
     cajonPrinter.close()
+
+    // ---- Importación de productos (Excel / catálogo base) ----
+    const plantilla = await asAdmin('/api/productos/plantilla')
+    assert(
+      plantilla.status === 200 &&
+        (plantilla.headers.get('content-type') ?? '').includes('spreadsheetml'),
+      `importar: plantilla .xlsx (status ${plantilla.status})`
+    )
+    assert((await asCajero('/api/productos/plantilla')).status === 403, 'importar: sólo el admin')
+    const xlsxForm = new FormData()
+    xlsxForm.append('file', new Blob([await plantilla.arrayBuffer()]), 'plantilla.xlsx')
+    const leidas = (await (
+      await fetch(`${base}/api/productos/importar/leer`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}` },
+        body: xlsxForm
+      })
+    ).json()) as ParsedImportSheet
+    assert(
+      leidas.rows.length === 2 &&
+        leidas.rows[0].item?.barcode === '7501055300075' &&
+        leidas.rows[0].item?.price === 20 &&
+        leidas.rows[1].item?.unit === 'KG',
+      `importar: lee la plantilla (código como texto, precio, Kg) (${JSON.stringify(leidas.rows)})`
+    )
+    const csvForm = new FormData()
+    csvForm.append(
+      'file',
+      new Blob([
+        '\uFEFFProducto;Precio de venta;Departamento;Código de barras\r\n' +
+          'Sabritas 45 g;"$1,020.50";Botanas;7501011111111\r\n;;;\r\nSin precio;;;\r\n' +
+          'Precio raro;abc;;\r\n'
+      ]),
+      'lista.csv'
+    )
+    const csv = (await (
+      await fetch(`${base}/api/productos/importar/leer`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}` },
+        body: csvForm
+      })
+    ).json()) as ParsedImportSheet
+    assert(
+      csv.rows.length === 2 &&
+        csv.rows[0].item?.price === 1020.5 &&
+        csv.rows[0].item?.category === 'Botanas' &&
+        csv.withoutPrice === 1 &&
+        csv.rows[1].error === 'El precio no es un número válido.' &&
+        csv.rows[1].row === 5,
+      `importar: CSV con ";", BOM, "$1,020.50", vacío, sin precio (se ignora) y precio inválido (${JSON.stringify(csv)})`
+    )
+
+    const lista = [
+      {
+        name: 'Galletas Marías 170 g',
+        price: 18,
+        unit: 'PIEZA',
+        category: 'Galletas Import',
+        barcode: '7500000000001'
+      },
+      {
+        name: 'Frijol a granel',
+        price: 38.5,
+        unit: 'KG',
+        category: 'galletas import',
+        barcode: null
+      },
+      { name: 'producto de prueba', price: 5, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Galletas Marías 170 g', price: 18, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Otro', price: 1, unit: 'PIEZA', category: null, barcode: '7500000000001' },
+      { name: '', price: 1, unit: 'PIEZA', category: null, barcode: null },
+      { name: 'Precio malo', price: -3, unit: 'PIEZA', category: null, barcode: null }
+    ]
+    const prodsAntes = ((await (await asAdmin('/api/productos?all=1')).json()) as unknown[]).length
+    const simulado = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista, dryRun: true })
+    ).json()) as ImportProductsResult
+    assert(
+      simulado.created === 2 &&
+        simulado.skipped.map((x) => x.index).join() === '2,3,4,5,6' &&
+        simulado.newCategories.join() === 'Galletas Import',
+      `importar (vista previa): 2 entran, 5 se explican, categoría sin duplicar por mayúsculas (${JSON.stringify(simulado)})`
+    )
+    assert(
+      ((await (await asAdmin('/api/productos?all=1')).json()) as unknown[]).length === prodsAntes,
+      'importar (vista previa): no guarda nada'
+    )
+    const importado = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista })
+    ).json()) as ImportProductsResult
+    const trasImportar = (await (
+      await asAdmin('/api/productos?all=1')
+    ).json()) as ProductWithCategory[]
+    const frijol = trasImportar.find((p) => p.name === 'Frijol a granel')
+    assert(
+      importado.created === 2 &&
+        trasImportar.length === prodsAntes + 2 &&
+        frijol?.unit === 'KG' &&
+        frijol.price === 38.5 &&
+        frijol.categoryName === 'Galletas Import',
+      `importar: guarda 2, con unidad, precio y la misma categoría nueva (${JSON.stringify(frijol)})`
+    )
+    const repetido = (await (
+      await asAdmin('/api/productos/importar', 'POST', { items: lista.slice(0, 2) })
+    ).json()) as ImportProductsResult
+    assert(
+      repetido.created === 0 && repetido.skipped.length === 2,
+      'importar: volver a importar la misma lista no duplica nada'
+    )
+
+    const catalogos = (await (await asAdmin('/api/catalogos')).json()) as CatalogInfo[]
+    const abarrotes = catalogos.find((c) => c.id === 'abarrotes-mx')
+    assert(!!abarrotes && abarrotes.count > 1000, `catálogo de abarrotes (${abarrotes?.count})`)
+    const catItems = (await (await asAdmin('/api/catalogos/abarrotes-mx')).json()) as CatalogItem[]
+    assert(
+      catItems.length === abarrotes!.count &&
+        catItems.every((c) => c.barcode?.startsWith('750') && c.name.length >= 3),
+      'catálogo: todos con código mexicano y nombre'
+    )
+    assert(
+      (await asAdmin('/api/catalogos/no-existe')).status === 404,
+      'catálogo inexistente -> 404'
+    )
+
+    // Catálogo en Excel (precio vacío) → al subirlo tal cual no entra nada y se cuentan
+    // todos como "sin precio"; con precio en un renglón, entra sólo ése.
+    const catXlsx = await asAdmin('/api/catalogos/abarrotes-mx/excel')
+    assert(catXlsx.status === 200, `catálogo en Excel -> 200 (${catXlsx.status})`)
+    const catBytes = await catXlsx.arrayBuffer()
+    const subirXlsx = async (bytes: ArrayBuffer): Promise<ParsedImportSheet> => {
+      const f = new FormData()
+      f.append('file', new Blob([bytes]), 'catalogo.xlsx')
+      return (await (
+        await fetch(`${base}/api/productos/importar/leer`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${session.token}` },
+          body: f
+        })
+      ).json()) as ParsedImportSheet
+    }
+    const catLeido = await subirXlsx(catBytes)
+    assert(
+      catLeido.rows.length === 0 && catLeido.withoutPrice === abarrotes!.count,
+      `catálogo en Excel sin precios: 0 productos, ${abarrotes!.count} sin precio (${catLeido.rows.length}/${catLeido.withoutPrice}, ${catBytes.byteLength} bytes)`
+    )
+    const ExcelJS = (await import('exceljs')).default
+    const wbCat = new ExcelJS.Workbook()
+    await wbCat.xlsx.load(catBytes)
+    wbCat.worksheets[0].getCell('B3').value = 23.5
+    const conPrecio = await subirXlsx((await wbCat.xlsx.writeBuffer()) as ArrayBuffer)
+    assert(
+      conPrecio.rows.length === 1 &&
+        conPrecio.rows[0].item?.price === 23.5 &&
+        conPrecio.rows[0].item?.barcode === catItems[1].barcode &&
+        conPrecio.withoutPrice === abarrotes!.count - 1,
+      `catálogo en Excel con un precio: entra sólo ése, con su código (${JSON.stringify(conPrecio.rows)})`
+    )
+
+    // Alta por código escaneado: datos del catálogo base (sin internet).
+    const porCodigo = (await (
+      await asAdmin(`/api/catalogos/codigo/${catItems[0].barcode}`)
+    ).json()) as BarcodeLookup
+    assert(
+      porCodigo.source === 'catalogo' && porCodigo.item.name === catItems[0].name,
+      `código escaneado: datos del catálogo base (${JSON.stringify(porCodigo)})`
+    )
+    assert(
+      (await asAdmin('/api/catalogos/codigo/abc123')).status === 400,
+      'código con letras -> 400 (no se busca afuera)'
+    )
+    assert(
+      (await asCajero(`/api/catalogos/codigo/${catItems[0].barcode}`)).status === 403,
+      'buscar datos por código: sólo el admin'
+    )
 
     console.log(
       `\n✅ Backend verificado (${PG ? 'PostgreSQL' : 'SQLite'}) — Sprints 0–8 + cuentas por cobrar OK`

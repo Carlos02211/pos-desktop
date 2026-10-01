@@ -125,7 +125,11 @@ export default function PanelVenta(): React.JSX.Element {
     (code: string): boolean => {
       const product = byBarcode.get(code.trim())
       if (!product) {
-        toast.error(`No hay ningún producto con el código ${code.trim()}`)
+        toast.error(`El código ${code.trim()} no está registrado`, {
+          description:
+            'Véndelo con un producto parecido y pide al administrador que lo dé de alta: en Productos, con escanearlo basta.',
+          duration: 8000
+        })
         return false
       }
       addItem(product)

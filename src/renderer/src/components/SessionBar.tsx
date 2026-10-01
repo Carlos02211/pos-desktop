@@ -1,12 +1,12 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Store } from 'lucide-react'
+import { LogOut, Menu, Store } from 'lucide-react'
 import { logout as logoutRequest } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBrandingStore } from '@/stores/branding.store'
 import { Clock } from '@/components/Clock'
 
 /** Barra superior: logo y nombre del negocio, usuario en sesión y cerrar sesión. */
-export function SessionBar(): React.JSX.Element {
+export function SessionBar({ onMenu }: { onMenu?: () => void } = {}): React.JSX.Element {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const clear = useAuthStore((s) => s.clear)
@@ -24,8 +24,18 @@ export function SessionBar(): React.JSX.Element {
   }
 
   return (
-    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border bg-card px-4 py-2 text-sm">
+    <header className="grid grid-cols-[1fr_auto_auto] items-center gap-2 border-b border-border bg-card px-3 py-2 text-sm sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-4">
       <span className="flex min-w-0 items-center gap-2.5">
+        {onMenu && (
+          <button
+            type="button"
+            onClick={onMenu}
+            aria-label="Abrir menú"
+            className="-ml-1 rounded-lg p-2 hover:bg-secondary md:hidden"
+          >
+            <Menu size={20} />
+          </button>
+        )}
         {logoUrl ? (
           <img
             src={logoUrl}
@@ -41,15 +51,16 @@ export function SessionBar(): React.JSX.Element {
       </span>
       <Clock />
       <div className="flex items-center justify-end gap-3">
-        <span className="truncate text-muted-foreground">
+        <span className="hidden truncate text-muted-foreground lg:inline">
           {user?.username} · {user?.role === 'ADMIN' ? 'Administrador' : 'Cobrador'}
         </span>
         <button
           onClick={() => void onLogout()}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium transition hover:bg-secondary"
+          title={`Salir (${user?.username ?? ''})`}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition hover:bg-secondary"
         >
           <LogOut size={13} />
-          Salir
+          <span className="hidden sm:inline">Salir</span>
         </button>
       </div>
     </header>

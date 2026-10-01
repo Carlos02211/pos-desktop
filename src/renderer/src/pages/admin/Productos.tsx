@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { Plus, Upload } from 'lucide-react'
 import type { Category, ProductWithCategory } from '@shared/types'
 import { API_BASE_URL, ApiRequestError } from '@/api/client'
 import { desactivarProducto, listCategoriasAdmin, listProductosAdmin } from '@/api/admin'
 import { ProductoFormModal } from '@/components/admin/ProductoFormModal'
+import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { money } from '@/lib/format'
 
 export default function Productos(): React.JSX.Element {
@@ -14,6 +17,7 @@ export default function Productos(): React.JSX.Element {
   const [catFilter, setCatFilter] = useState<number | null>(null)
   const [editing, setEditing] = useState<ProductWithCategory | null>(null)
   const [creating, setCreating] = useState(false)
+  const [scannedCode, setScannedCode] = useState<string | undefined>()
 
   const [nonce, setNonce] = useState(0)
   const reload = useCallback(() => setNonce((n) => n + 1), [])
@@ -44,6 +48,22 @@ export default function Productos(): React.JSX.Element {
     )
   }, [rows, search, catFilter])
 
+  // Lector de códigos en la lista: si el producto existe se abre para editarlo; si no, se da
+  // de alta con el código puesto (y los datos del catálogo, si los hay).
+  useBarcodeScanner(
+    (code) => {
+      const existing = rows.find((r) => r.barcode === code)
+      if (existing) {
+        toast.info(`Ya está registrado: ${existing.name}`)
+        setEditing(existing)
+      } else {
+        setScannedCode(code)
+        setCreating(true)
+      }
+    },
+    !loading && !creating && !editing
+  )
+
   async function deactivate(row: ProductWithCategory): Promise<void> {
     try {
       await desactivarProducto(row.id)
@@ -56,22 +76,35 @@ export default function Productos(): React.JSX.Element {
 
   return (
     <div>
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Productos</h1>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
-        >
-          Nuevo producto
-        </button>
+        <div className="flex gap-2">
+          <Link
+            to="/admin/productos/importar"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-secondary"
+          >
+            <Upload size={15} /> Importar
+          </Link>
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+          >
+            <Plus size={15} /> Nuevo producto
+          </button>
+        </div>
       </header>
 
-      <div className="mb-3 flex gap-2">
+      <p className="mb-3 text-sm text-muted-foreground">
+        Tip: con el lector puedes escanear un producto aquí mismo. Si no está registrado se abre el
+        alta con el código puesto y, si lo conocemos, con su nombre y categoría.
+      </p>
+
+      <div className="mb-3 flex flex-wrap gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nombre o código…"
-          className="w-64 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+          className="w-full rounded-lg sm:w-64 border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
         />
         <select
           value={catFilter ?? ''}
@@ -92,9 +125,9 @@ export default function Productos(): React.JSX.Element {
           <thead className="bg-secondary/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Producto</th>
-              <th className="px-3 py-2">Categoría</th>
+              <th className="hidden md:table-cell px-3 py-2">Categoría</th>
               <th className="px-3 py-2 text-right">Precio</th>
-              <th className="px-3 py-2">Estado</th>
+              <th className="hidden md:table-cell px-3 py-2">Estado</th>
               <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
@@ -137,12 +170,14 @@ export default function Productos(): React.JSX.Element {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.categoryName ?? '—'}</td>
+                  <td className="hidden md:table-cell px-3 py-2 text-muted-foreground">
+                    {row.categoryName ?? '—'}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     {money(row.price)}
                     {row.unit === 'KG' && <span className="text-muted-foreground">/kg</span>}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="hidden md:table-cell px-3 py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         row.active === 1
@@ -180,13 +215,16 @@ export default function Productos(): React.JSX.Element {
         <ProductoFormModal
           product={editing}
           categories={categories}
+          initialBarcode={editing ? undefined : scannedCode}
           onClose={() => {
             setCreating(false)
             setEditing(null)
+            setScannedCode(undefined)
           }}
           onSaved={() => {
             setCreating(false)
             setEditing(null)
+            setScannedCode(undefined)
             reload()
           }}
         />
