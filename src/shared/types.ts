@@ -93,11 +93,37 @@ export interface SaleItem {
   subtotal: number
   /** Unix (s) en que se agregó a una venta ya cobrada; null = parte de la venta original. */
   addedAt: number | null
+  /** Indicación para quien despacha ("sin chile", "bien dorado"); null = ninguna. */
+  note: string | null
+}
+
+/** Opción a elegir al vender un producto ("Tipo de pollo": "Adobado"). */
+export interface ProductOption {
+  id: number
+  /** Grupo de "elige uno" al que pertenece ("Tipo de pollo", "Salsa"). */
+  groupName: string
+  name: string
+  /** Lo que se suma al precio del producto (0 = mismo precio). */
+  price: number
+  sortOrder: number
+}
+
+/** Un producto que va dentro de un paquete o presentación (para descontar inventario). */
+export interface ProductComponent {
+  componentId: number
+  name: string
+  unit: ProductUnit
+  /** Cuánto lleva por cada uno vendido (0.5 = medio pollo). */
+  quantity: number
 }
 
 /** Producto con el nombre de su categoría resuelto (respuesta de `GET /api/productos`). */
 export interface ProductWithCategory extends Product {
   categoryName: string | null
+  /** Opciones activas a elegir al venderlo, en orden; vacío = se vende tal cual. */
+  options: ProductOption[]
+  /** Qué lleva (paquetes y presentaciones); vacío = no es paquete. */
+  components: ProductComponent[]
 }
 
 /** Un renglón a importar (de Excel o de un catálogo base). Precio en pesos. */
@@ -164,6 +190,16 @@ export interface BarcodeLookup {
   item: CatalogItem
 }
 
+/** Resultado de aplicar una plantilla de negocio (`POST /api/productos/plantillas/:id`). */
+export interface TemplateResult {
+  /** Productos que se dieron de alta. */
+  created: string[]
+  /** Productos que ya existían con ese nombre: no se tocaron. */
+  existing: string[]
+  /** Los que no se pudieron dar de alta y por qué. */
+  failed: { name: string; reason: string }[]
+}
+
 /** Categoría con el número de productos asociados (para la tabla de administración). */
 export interface CategoryWithCount extends Category {
   productCount: number
@@ -192,7 +228,19 @@ export interface ProductInput {
   minStock?: number | null
   /** Existencia con la que arranca el inventario: sólo se usa al activarlo (alta o edición). */
   initialStock?: number
+  /** Opciones a elegir al venderlo. Omitido = no se tocan; [] = se quitan todas. */
+  options?: ProductOptionInput[]
+  /** Contenido del paquete. Omitido = no se toca; [] = deja de ser paquete. */
+  components?: { componentId: number; quantity: number }[]
   active?: boolean
+}
+
+/** Opción en el formulario de producto: con `id` se edita la existente; sin `id` es nueva. */
+export interface ProductOptionInput {
+  id?: number
+  groupName: string
+  name: string
+  price: number
 }
 
 /** Línea del carrito que el cliente envía. */
@@ -203,8 +251,11 @@ export interface CartLineInput {
   /** Precio editado por el cajero para esta línea (ej. descuento a un cliente frecuente). Si se
    *  omite, o coincide con el precio de catálogo, se usa el precio de catálogo tal cual. */
   price?: number
-  /** Sólo en productos de precio libre: qué se cobró ("Engargolado"). Va al ticket. */
+  /** Precio libre: qué se cobró ("Engargolado"), va en el nombre del renglón. Cualquier otro
+   *  producto: indicación para quien despacha ("sin chile"). Va al ticket. */
   note?: string
+  /** Opciones elegidas: una por cada grupo del producto ("Adobado"). */
+  optionIds?: number[]
 }
 
 /** Cuerpo de `POST /api/ventas`. */
@@ -217,6 +268,73 @@ export interface CreateSaleInput {
   customerId?: number
   /** Token único del intento de cobro — el servidor deduplica reintentos (doble submit / timeout). */
   clientRequestId?: string
+  /** Se está entregando este encargo: queda entregado y su anticipo se descuenta del total. */
+  orderId?: number
+}
+
+/* ---- Encargos ---- */
+
+export type OrderStatus = 'PENDING' | 'DELIVERED' | 'CANCELLED'
+
+/**
+ * Renglón de un encargo: lo que se mandó del carrito (`price` sólo si el cajero lo rebajó) más
+ * cómo quedó ese día (nombre con opciones y precio por unidad).
+ */
+export interface OrderItem extends CartLineInput {
+  name: string
+  unit: ProductUnit
+  unitPrice: number
+  subtotal: number
+}
+
+export interface Order {
+  id: number
+  customerName: string
+  phone: string | null
+  /** Unix (s): cuándo pasan por él. */
+  pickupAt: number
+  notes: string | null
+  items: OrderItem[]
+  /** Total con los precios del día en que se encargó. */
+  total: number
+  /** Anticipo que ya dejaron (0 = nada). */
+  deposit: number
+  depositSaleId: number | null
+  status: OrderStatus
+  /** Venta con la que se entregó. */
+  saleId: number | null
+  userId: number
+  userName: string
+  createdAt: number
+  closedAt: number | null
+}
+
+/** Cuerpo de `POST /api/encargos`. */
+export interface CreateOrderInput {
+  customerName: string
+  phone?: string
+  pickupAt: number
+  notes?: string
+  items: CartLineInput[]
+  /** Anticipo (0..total). Si es mayor a 0 se cobra en ese momento como una venta aparte. */
+  deposit?: number
+  depositMethod?: SettledMethod
+  /** Efectivo recibido por el anticipo (CASH). */
+  amountPaid?: number
+  clientRequestId?: string
+}
+
+export interface CreateOrderResponse {
+  order: Order
+  /** Venta del anticipo (si dejaron), para el folio y el cambio. */
+  depositSale: SaleWithItems | null
+  print: PrintResult
+}
+
+/** Cuerpo de `POST /api/encargos/:id/cancelar`. */
+export interface CancelOrderInput {
+  /** Se le regresa el anticipo en efectivo (sale de la caja como retiro). */
+  refund?: boolean
 }
 
 /** Cuerpo de `POST /api/caja/apertura`. */

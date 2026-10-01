@@ -6,6 +6,7 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getCatalog, listCatalogs, lookupBarcode } from '../services/catalogos'
+import { applyTemplate, templateExists } from '../services/plantillas'
 import {
   buildCatalogWorkbook,
   buildImportTemplate,
@@ -34,6 +35,19 @@ const codeParam = z.object({
 })
 
 export async function importarRoutes(app: FastifyInstance): Promise<void> {
+  // Plantilla de negocio (pollería): categorías, productos, opciones y paquetes de ejemplo.
+  app.post(
+    '/api/productos/plantillas/:id',
+    { preHandler: requireRole('ADMIN') },
+    async (request) => {
+      const { id } = parse(catalogParam, request.params)
+      if (!templateExists(id)) throw new HttpError(404, 'Esa plantilla no existe.')
+      const result = await applyTemplate(getDb(), request.authUser!.id, id)
+      if (result.created.length > 0) emit('producto:update', { productId: 0 })
+      return result
+    }
+  )
+
   app.get('/api/productos/plantilla', { preHandler: requireRole('ADMIN') }, async (_req, reply) =>
     reply
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

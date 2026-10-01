@@ -9,7 +9,7 @@ import type {
 } from '../../shared/types'
 import type { DB } from '../db'
 import type { ProductRow } from '../db/schema'
-import { categories, products, sales, stockMovements, users } from '../db/schema'
+import { categories, productComponents, products, sales, stockMovements, users } from '../db/schema'
 import { lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { round3 } from '../lib/money'
@@ -96,8 +96,19 @@ export async function discountSaleStock(
   lines: { productId: number; quantity: number }[]
 ): Promise<void> {
   const byProduct = new Map<number, number>()
+  const add = (id: number, qty: number): void => {
+    byProduct.set(id, round3((byProduct.get(id) ?? 0) + qty))
+  }
+  for (const line of lines) add(line.productId, line.quantity)
+  // Paquetes y presentaciones: se descuenta lo que llevan ("Medio pollo" = 0.5 de "Pollo").
+  const contents = await tx
+    .select()
+    .from(productComponents)
+    .where(inArray(productComponents.productId, [...new Set(lines.map((l) => l.productId))]))
   for (const line of lines) {
-    byProduct.set(line.productId, (byProduct.get(line.productId) ?? 0) + line.quantity)
+    for (const c of contents) {
+      if (c.productId === line.productId) add(c.componentId, Number(c.quantity) * line.quantity)
+    }
   }
   const tracked = await tx
     .select({ id: products.id })

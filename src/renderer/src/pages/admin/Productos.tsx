@@ -223,6 +223,7 @@ export default function Productos(): React.JSX.Element {
         <ProductoFormModal
           product={editing}
           categories={categories}
+          products={rows}
           initialBarcode={editing ? undefined : scannedCode}
           onClose={() => {
             setCreating(false)

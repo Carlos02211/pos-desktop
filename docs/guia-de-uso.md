@@ -25,19 +25,44 @@ _Solo puedes tener una caja abierta a la vez._
    quieres, **qué es** — sale así en el ticket (ej. "Varios - Engargolado"). Puedes agregar
    varios renglones de Varios en la misma venta. Los productos marcados como **Precio libre**
    por el administrador también te piden el importe al tocarlos.
-5. Toca **Cobrar**.
-6. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
+5. ¿El producto tiene **opciones** (ej. un pollo: **Natural**, **Adobado**, **Al carbón**)? Al
+   tocarlo se abre una ventana: toca una opción de cada grupo y, si quieres, escribe una **nota**
+   ("sin chile", "bien dorado"). Si alguna opción cuesta más, el precio ya sale sumado.
+   A cualquier producto del carrito también le puedes poner nota con el botón **Nota**.
+   Las notas salen en el ticket, debajo del producto.
+6. Toca **Cobrar**.
+7. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
    - **Efectivo**: escribe (o toca un botón de monto) lo que te dio el cliente. La app calcula el **cambio**.
    - **Tarjeta** o **Transferencia**: no piden monto.
    - **Fiado**: el cliente paga después. Tienes que elegir o escribir un cliente (obligatorio).
    - En cualquier método puedes escribir el **nombre del cliente** (campo "Cliente") aunque no
      sea fiado — es opcional, sirve para llevar registro de quién compró. Empieza a escribir y
      te va a sugerir nombres ya guardados; si escribes uno nuevo, se agrega solo al confirmar.
-7. Toca **Confirmar venta**. El ticket se imprime solo.
+8. Toca **Confirmar venta**. El ticket se imprime solo.
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._
 
-## 3. Sacar o meter efectivo de la caja
+## 3. Encargos (apartar para más tarde)
+
+Cuando te piden algo para recoger después ("apártame dos pollos para las 2") o para llevar a
+domicilio:
+
+1. Arma el pedido en el carrito como una venta normal (con opciones y notas). Si es a
+   domicilio, agrega **Envío a domicilio**.
+2. En vez de Cobrar, toca **Encargo** (junto a Cobrar).
+3. Escribe **a nombre de quién**, el **teléfono** (opcional), **cuándo pasa** (Hoy, Mañana u
+   otro día, y la hora) y una **nota** (ej. la dirección).
+4. Si deja **anticipo**, escríbelo y elige cómo pagó. Se cobra en ese momento y sale un ticket
+   con el comprobante del encargo (qué lleva, cuándo pasa y cuánto resta). Sin anticipo, sale
+   sólo el comprobante.
+5. El botón **Encargos** (arriba del carrito) muestra cuántos hay pendientes. Ahí ves cada uno
+   con su hora: en **amarillo** los de la próxima hora y en **rojo** los atrasados.
+6. Cuando pasen por él, toca **Entregar**: el pedido se pasa al carrito (puedes agregar algo
+   más) y al cobrar se descuenta solo el anticipo — cobras únicamente lo que resta.
+7. Si ya no lo quieren, toca **Cancelar**. Si dejó anticipo, eliges si se lo regresas (sale
+   de la caja como retiro) o se queda.
+
+## 4. Sacar o meter efectivo de la caja
 
 Si durante el turno **sacas** dinero de la caja (comprar bolsas, un gasto, llevar
 al banco) o **metes** dinero (el dueño deja cambio):
@@ -49,7 +74,7 @@ al banco) o **metes** dinero (el dueño deja cambio):
 Así el **efectivo esperado** del cierre queda correcto y no marca faltante por error.
 Un retiro no puede ser mayor al efectivo que hay en la caja.
 
-## 4. Cerrar caja (al terminar el turno)
+## 5. Cerrar caja (al terminar el turno)
 
 1. Toca **Cerrar caja** (arriba del carrito).
 2. Revisa el resumen del turno: verás el **efectivo esperado en caja**.

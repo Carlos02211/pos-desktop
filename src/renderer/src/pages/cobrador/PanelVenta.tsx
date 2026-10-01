@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   Banknote,
   BookUser,
+  ClipboardList,
   Clock3,
   Lock,
   PackageOpen,
@@ -17,25 +18,32 @@ import type { LucideIcon } from 'lucide-react'
 import type {
   AddToSaleResponse,
   Category,
+  CreateOrderResponse,
   CreateSaleResponse,
+  Order,
   ProductWithCategory
 } from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
 import { abrirCajon, cajonActivo, getSesionActiva } from '@/api/caja'
+import { listarEncargos } from '@/api/encargos'
 import { reimprimirVenta } from '@/api/ventas'
 import { ApiRequestError } from '@/api/client'
 import { AgregarCobroModal } from '@/components/AgregarCobroModal'
 import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
+import { EncargoFormModal } from '@/components/EncargoFormModal'
+import { EncargosModal } from '@/components/EncargosModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
+import { OpcionesModal } from '@/components/OpcionesModal'
 import { PrecioLibreModal } from '@/components/PrecioLibreModal'
 import { ProductoBtn } from '@/components/ProductoBtn'
 import { VentasTurnoModal } from '@/components/VentasTurnoModal'
 import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { useNow } from '@/hooks/useNow'
-import { money, timeOnly } from '@/lib/format'
+import { dateTime, money, timeOnly } from '@/lib/format'
 import { socket } from '@/lib/socket'
 import { type AppendTarget, cartTotal, useCartStore } from '@/stores/cart.store'
+import { useSocketStore } from '@/stores/socket.store'
 
 type Load = 'loading' | 'no-caja' | 'ready' | 'error'
 
@@ -54,6 +62,12 @@ export default function PanelVenta(): React.JSX.Element {
   const [openedAt, setOpenedAt] = useState<number | null>(null)
   /** Producto de precio libre al que se le está escribiendo el importe. */
   const [libre, setLibre] = useState<ProductWithCategory | null>(null)
+  /** Producto con opciones ("Pollo entero") al que se le está eligiendo el tipo. */
+  const [conOpciones, setConOpciones] = useState<ProductWithCategory | null>(null)
+  const [encargoOpen, setEncargoOpen] = useState(false)
+  const [encargosOpen, setEncargosOpen] = useState(false)
+  const [pendingOrders, setPendingOrders] = useState(0)
+  const revision = useSocketStore((s) => s.revision)
 
   // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
   const items = useCartStore((s) => s.items)
@@ -65,7 +79,13 @@ export default function PanelVenta(): React.JSX.Element {
   const clear = useCartStore((s) => s.clear)
   const appendTo = useCartStore((s) => s.appendTo)
   const setAppendTo = useCartStore((s) => s.setAppendTo)
+  const setNote = useCartStore((s) => s.setNote)
+  const delivery = useCartStore((s) => s.delivery)
+  const loadOrder = useCartStore((s) => s.loadOrder)
   const total = useMemo(() => cartTotal(items), [items])
+  // Entrega de un encargo: se cobra lo que resta después del anticipo.
+  const deposit = delivery?.deposit ?? 0
+  const toCharge = Math.max(0, Math.round((total - deposit) * 100) / 100)
 
   const loadCatalog = useCallback(async () => {
     const [prods, cats] = await Promise.all([getProductos(), getCategorias()])
@@ -100,6 +120,14 @@ export default function PanelVenta(): React.JSX.Element {
     }
   }, [loadCatalog])
 
+  // Cuántos encargos hay pendientes (el número en el botón); se refresca con cada evento.
+  useEffect(() => {
+    if (load !== 'ready') return
+    listarEncargos('PENDING')
+      .then((list) => setPendingOrders(list.length))
+      .catch(() => {})
+  }, [load, revision])
+
   // El admin edita un producto -> recargar el grid sin refrescar la página.
   useEffect(() => {
     const reload = (): void => {
@@ -130,6 +158,7 @@ export default function PanelVenta(): React.JSX.Element {
   const select = useCallback(
     (product: ProductWithCategory): void => {
       if (product.openPrice === 1) setLibre(product)
+      else if (product.options.length > 0) setConOpciones(product)
       else addItem(product)
     },
     [addItem]
@@ -158,7 +187,14 @@ export default function PanelVenta(): React.JSX.Element {
     [byBarcode, select]
   )
 
-  const modalOpen = cobroOpen || movimientoOpen || ventasOpen || libre !== null
+  const modalOpen =
+    cobroOpen ||
+    movimientoOpen ||
+    ventasOpen ||
+    libre !== null ||
+    conOpciones !== null ||
+    encargoOpen ||
+    encargosOpen
 
   // Con un modal abierto el lector no agrega nada detrás (el cobro ya está en curso).
   useBarcodeScanner(scan, load === 'ready' && !modalOpen)
@@ -197,9 +233,14 @@ export default function PanelVenta(): React.JSX.Element {
   }
 
   function onSaleDone(sale: CreateSaleResponse): void {
+    const delivered = delivery
     clear()
     setCobroOpen(false)
-    if (sale.creditAccountId) {
+    if (delivered) {
+      toast.success(
+        `Encargo #${delivered.orderId} entregado · venta #${sale.ticketNumber} por ${money(sale.total)}`
+      )
+    } else if (sale.creditAccountId) {
       const debt = sale.total - (sale.amountPaid ?? 0)
       toast.success(`Venta #${sale.ticketNumber} a crédito · queda a deber ${money(debt)}`)
     } else {
@@ -237,6 +278,34 @@ export default function PanelVenta(): React.JSX.Element {
         }
       }
     )
+  }
+
+  function onOrderDone(res: CreateOrderResponse): void {
+    clear()
+    setEncargoOpen(false)
+    const change = res.depositSale?.change
+    toast.success(
+      `Encargo #${res.order.id} de ${res.order.customerName} · pasa ${dateTime(res.order.pickupAt)}` +
+        (res.order.deposit > 0 ? ` · anticipo ${money(res.order.deposit)}` : '') +
+        (change ? ` · cambio ${money(change)}` : ''),
+      { duration: 8000 }
+    )
+    if (!res.print.printed && !res.print.skipped) {
+      toast.warning(`Comprobante no impreso: ${res.print.error ?? 'impresora no disponible'}`)
+    }
+  }
+
+  function startDelivery(order: Order): void {
+    const missing = loadOrder(order, products)
+    setEncargosOpen(false)
+    if (missing.length > 0) {
+      toast.warning(
+        `Ya no se venden: ${missing.join(', ')}. Agrega algo parecido o cóbralo con Varios.`,
+        { duration: 10_000 }
+      )
+    } else {
+      toast.info(`Revisa el pedido de ${order.customerName} y toca "Cobrar".`)
+    }
   }
 
   function startAppend(target: AppendTarget): void {
@@ -328,6 +397,12 @@ export default function PanelVenta(): React.JSX.Element {
             )}
             <ToolButton icon={Receipt} label="Ventas" onClick={() => setVentasOpen(true)} />
             <ToolButton
+              icon={ClipboardList}
+              label="Encargos"
+              badge={pendingOrders}
+              onClick={() => setEncargosOpen(true)}
+            />
+            <ToolButton
               icon={BookUser}
               label="Cuentas"
               onClick={() => navigate('/cobrador/cuentas')}
@@ -375,6 +450,21 @@ export default function PanelVenta(): React.JSX.Element {
           </div>
         )}
 
+        {delivery && (
+          <div className="flex items-center justify-between gap-2 border-b border-border bg-pos-warning/15 px-4 py-2 text-xs">
+            <span>
+              Entregando el encargo <strong>#{delivery.orderId}</strong> de {delivery.customerName}
+              {deposit > 0 && <> · ya dejó {money(deposit)}</>}
+            </span>
+            <button
+              onClick={clear}
+              className="shrink-0 rounded-md border border-border px-2 py-0.5 font-medium transition hover:bg-secondary"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {items.length === 0 ? (
             <p className="pt-8 text-center text-sm text-muted-foreground">
@@ -388,17 +478,32 @@ export default function PanelVenta(): React.JSX.Element {
                 onQty={setQty}
                 onPrice={setPrice}
                 onRemove={removeItem}
+                onNote={setNote}
               />
             ))
           )}
         </div>
 
         <div className="space-y-3 border-t border-border p-4">
+          {deposit > 0 && (
+            <div className="space-y-0.5 text-sm">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Pedido</span>
+                <span className="tabular-nums">{money(total)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Anticipo</span>
+                <span className="tabular-nums">−{money(deposit)}</span>
+              </div>
+            </div>
+          )}
           <div className="flex items-baseline justify-between">
-            <span className="text-base text-muted-foreground">Total</span>
-            <span className="text-3xl font-bold tabular-nums">{money(total)}</span>
+            <span className="text-base text-muted-foreground">
+              {deposit > 0 ? 'Resta' : 'Total'}
+            </span>
+            <span className="text-3xl font-bold tabular-nums">{money(toCharge)}</span>
           </div>
-          <div className="grid grid-cols-[1fr_auto] gap-2">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
             <button
               onClick={() => setCobroOpen(true)}
               disabled={items.length === 0}
@@ -406,6 +511,15 @@ export default function PanelVenta(): React.JSX.Element {
             >
               <Banknote size={22} />
               {appendTo ? `Agregar a #${appendTo.ticketNumber}` : 'Cobrar'}
+            </button>
+            <button
+              onClick={() => setEncargoOpen(true)}
+              disabled={items.length === 0 || !!appendTo || !!delivery}
+              title="Guardar como encargo: pasan por él después (con o sin anticipo)"
+              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-3 py-2 text-xs font-medium transition hover:border-ring disabled:opacity-40"
+            >
+              <ClipboardList size={18} />
+              Encargo
             </button>
             <button
               onClick={clear}
@@ -429,7 +543,7 @@ export default function PanelVenta(): React.JSX.Element {
             onDone={onAddDone}
           />
         ) : (
-          <CobroModal total={total} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
+          <CobroModal total={toCharge} onClose={() => setCobroOpen(false)} onDone={onSaleDone} />
         ))}
       {ventasOpen && (
         <VentasTurnoModal
@@ -439,6 +553,30 @@ export default function PanelVenta(): React.JSX.Element {
         />
       )}
       {movimientoOpen && <MovimientoCajaModal onClose={() => setMovimientoOpen(false)} />}
+      {encargoOpen && (
+        <EncargoFormModal
+          total={total}
+          onClose={() => setEncargoOpen(false)}
+          onDone={onOrderDone}
+        />
+      )}
+      {encargosOpen && (
+        <EncargosModal
+          cartBusy={items.length > 0}
+          onClose={() => setEncargosOpen(false)}
+          onDeliver={startDelivery}
+        />
+      )}
+      {conOpciones && (
+        <OpcionesModal
+          product={conOpciones}
+          onClose={() => setConOpciones(null)}
+          onAdd={(options, note) => {
+            addItem(conOpciones, options, note)
+            setConOpciones(null)
+          }}
+        />
+      )}
       {libre && (
         <PrecioLibreModal
           product={libre}
@@ -491,7 +629,8 @@ function ToolButton({
   onClick,
   disabled,
   danger,
-  title
+  title,
+  badge
 }: {
   icon: LucideIcon
   label: string
@@ -499,13 +638,15 @@ function ToolButton({
   disabled?: boolean
   danger?: boolean
   title?: string
+  /** Número en la esquina (encargos pendientes); 0 = no se muestra. */
+  badge?: number
 }): React.JSX.Element {
   return (
     <button
       onClick={onClick}
       title={title}
       disabled={disabled}
-      className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-xs font-medium whitespace-nowrap shadow-sm transition active:scale-[0.97] disabled:opacity-50 ${
+      className={`relative flex flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-xs font-medium whitespace-nowrap shadow-sm transition active:scale-[0.97] disabled:opacity-50 ${
         danger
           ? 'border-destructive/60 bg-destructive/10 text-red-300 hover:bg-destructive/25'
           : 'border-input bg-secondary text-foreground hover:border-ring hover:brightness-125'
@@ -513,6 +654,11 @@ function ToolButton({
     >
       <Icon size={20} />
       {label}
+      {!!badge && (
+        <span className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-pos-warning px-1 text-[11px] font-bold text-black">
+          {badge}
+        </span>
+      )}
     </button>
   )
 }

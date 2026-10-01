@@ -22,7 +22,7 @@ import { DIALECT, type DB } from './index'
  * `table` es un nombre físico de tabla escrito en el propio código (no entra
  * input del usuario). Devuelve `true` si la fila existe.
  */
-export type LockableTable = 'cash_sessions' | 'credit_accounts' | 'products'
+export type LockableTable = 'cash_sessions' | 'credit_accounts' | 'products' | 'orders'
 
 export async function lockRow(tx: DB, table: LockableTable, id: number): Promise<boolean> {
   if (DIALECT !== 'pg') return true

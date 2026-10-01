@@ -60,7 +60,8 @@ export function AgregarCobroModal({
           quantity: i.quantity,
           // Precio libre: el importe siempre lo pone el cajero.
           price: i.openPrice || i.price !== i.originalPrice ? i.price : undefined,
-          note: i.note
+          note: i.note,
+          optionIds: i.optionIds
         })),
         amountPaid: cash ? paid : undefined,
         clientRequestId

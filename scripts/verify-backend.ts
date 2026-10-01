@@ -32,6 +32,9 @@ import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
   AddToSaleResponse,
+  CreateOrderResponse,
+  Order,
+  TemplateResult,
   InventoryItem,
   StockMovement,
   TurnSale,
@@ -2126,6 +2129,343 @@ async function main(): Promise<void> {
         (await asCajero(`/api/inventario/${cuaderno.id}/entrada`, 'POST', { quantity: 1 }))
           .status === 403,
       'inventario: sólo el administrador'
+    )
+
+    // ---- Pollería: opciones, paquetes, notas y encargos ----
+    const pollo = await altaInv({
+      name: 'Pollo crudo',
+      price: 70,
+      trackStock: true,
+      initialStock: 20
+    })
+    const tortillas = await altaInv({
+      name: 'Tortillas 1 kg',
+      price: 25,
+      trackStock: true,
+      initialStock: 50
+    })
+    const tipos = [
+      { groupName: 'Tipo de pollo', name: 'Natural', price: 0 },
+      { groupName: 'Tipo de pollo', name: 'Adobado', price: 0 },
+      { groupName: 'Tipo de pollo', name: 'Al carbón', price: 10 }
+    ]
+    const entero = await altaInv({
+      name: 'Pollo entero',
+      price: 180,
+      options: tipos,
+      components: [{ componentId: pollo.id, quantity: 1 }]
+    })
+    assert(
+      entero.options.length === 3 &&
+        entero.options[2].name === 'Al carbón' &&
+        entero.options[2].price === 10 &&
+        entero.components[0]?.componentId === pollo.id,
+      `alta con opciones y contenido (${JSON.stringify(entero)})`
+    )
+    const medio = await altaInv({
+      name: 'Medio pollo',
+      price: 95,
+      options: tipos,
+      components: [{ componentId: pollo.id, quantity: 0.5 }]
+    })
+    const familiar = await altaInv({
+      name: 'Paquete familiar',
+      price: 260,
+      options: tipos,
+      components: [
+        { componentId: pollo.id, quantity: 1 },
+        { componentId: tortillas.id, quantity: 1 }
+      ]
+    })
+    const anidado = await asAdmin('/api/productos', 'POST', {
+      name: 'Paquete doble',
+      price: 400,
+      categoryId: null,
+      components: [{ componentId: familiar.id, quantity: 2 }]
+    })
+    assert(anidado.status === 400, `un paquete no puede llevar otro paquete (${anidado.status})`)
+    const libreConOpciones = await asAdmin('/api/productos', 'POST', {
+      name: 'Libre con opciones',
+      price: 0,
+      categoryId: null,
+      openPrice: true,
+      options: tipos
+    })
+    assert(libreConOpciones.status === 400, 'precio libre no lleva opciones -> 400')
+
+    const catalogoCaja = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(
+      !catalogoCaja.some((p) => p.name === 'Anticipo de encargo') &&
+        catalogoCaja.find((p) => p.id === medio.id)?.options.length === 3,
+      'la caja ve las opciones y no ve el producto interno de anticipos'
+    )
+
+    const [natural, adobado, carbon] = entero.options
+    const venderPollo = (items: unknown[]): Promise<Response> =>
+      asCajero('/api/ventas', 'POST', { items, paymentMethod: 'CASH', amountPaid: 1000 })
+    assert(
+      (await venderPollo([{ productId: entero.id, quantity: 1 }])).status === 400 &&
+        (
+          await venderPollo([
+            { productId: entero.id, quantity: 1, optionIds: [natural.id, adobado.id] }
+          ])
+        ).status === 400 &&
+        (
+          await venderPollo([
+            { productId: entero.id, quantity: 1, optionIds: [medio.options[0].id] }
+          ])
+        ).status === 400,
+      'opciones: falta elegir, dos del mismo grupo u opción de otro producto -> 400'
+    )
+    assert(
+      (
+        await venderPollo([
+          { productId: entero.id, quantity: 1, optionIds: [carbon.id], price: 191 }
+        ])
+      ).status === 400,
+      'el precio con opciones tampoco puede subir del de catálogo (190)'
+    )
+    const ventaPolloRes = await venderPollo([
+      { productId: entero.id, quantity: 2, optionIds: [carbon.id], note: '  bien   dorado ' },
+      { productId: medio.id, quantity: 1, optionIds: [medio.options[0].id] }
+    ])
+    const ventaPollo = (await ventaPolloRes.json()) as CreateSaleResponse
+    assert(
+      ventaPollo.total === 475 &&
+        ventaPollo.items[0].name === 'Pollo entero (Al carbón)' &&
+        ventaPollo.items[0].price === 190 &&
+        ventaPollo.items[0].note === 'bien dorado' &&
+        ventaPollo.items[1].note === null,
+      `venta con opciones (+$10 al carbón) y nota (${JSON.stringify(ventaPollo)})`
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 17.5,
+      `paquetes descuentan su contenido: 20 − 2 − 0.5 = 17.5 (${(await itemDe(pollo.id))?.stock})`
+    )
+
+    // Quitar "Al carbón": las demás se conservan (mismos ids) y la quitada ya no se vende.
+    const sinCarbon = (await (
+      await asAdmin(`/api/productos/${entero.id}`, 'PUT', {
+        name: entero.name,
+        price: 180,
+        categoryId: null,
+        options: [
+          { id: natural.id, groupName: 'Tipo de pollo', name: 'Natural', price: 0 },
+          { id: adobado.id, groupName: 'Tipo de pollo', name: 'Adobado', price: 0 }
+        ]
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      sinCarbon.options.map((o) => o.id).join() === `${natural.id},${adobado.id}` &&
+        sinCarbon.components.length === 1,
+      `editar opciones conserva ids y no toca el contenido (${JSON.stringify(sinCarbon)})`
+    )
+    assert(
+      (await venderPollo([{ productId: entero.id, quantity: 1, optionIds: [carbon.id] }]))
+        .status === 400,
+      'una opción quitada ya no se puede vender'
+    )
+
+    // Encargo con anticipo en efectivo.
+    const lineaFamiliar = {
+      productId: familiar.id,
+      quantity: 1,
+      optionIds: [familiar.options[1].id],
+      note: 'sin cebolla'
+    }
+    const pickupAt = Math.floor(Date.now() / 1000) + 3 * 3600
+    assert(
+      (
+        await asCajero('/api/encargos', 'POST', {
+          customerName: 'Doña Rosa',
+          pickupAt,
+          items: [lineaFamiliar],
+          deposit: 300,
+          depositMethod: 'CASH',
+          amountPaid: 300
+        })
+      ).status === 400,
+      'anticipo mayor que el encargo -> 400'
+    )
+    assert(
+      (
+        await asCajero('/api/encargos', 'POST', {
+          customerName: 'Doña Rosa',
+          pickupAt: pickupAt - 86_400,
+          items: [lineaFamiliar]
+        })
+      ).status === 400,
+      'encargo para una hora que ya pasó -> 400'
+    )
+    const encargoRes = await asCajero('/api/encargos', 'POST', {
+      customerName: '  Doña   Rosa ',
+      phone: '555 123 4567',
+      pickupAt,
+      notes: 'Pasa su hijo',
+      items: [lineaFamiliar],
+      deposit: 100,
+      depositMethod: 'CASH',
+      amountPaid: 200,
+      clientRequestId: 'encargo-rosa-1'
+    })
+    const encargo = (await encargoRes.json()) as CreateOrderResponse
+    assert(
+      encargoRes.status === 201 &&
+        encargo.order.customerName === 'Doña Rosa' &&
+        encargo.order.total === 260 &&
+        encargo.order.deposit === 100 &&
+        encargo.order.status === 'PENDING' &&
+        encargo.order.items[0].name === 'Paquete familiar (Adobado)' &&
+        encargo.order.items[0].note === 'sin cebolla' &&
+        encargo.depositSale?.total === 100 &&
+        encargo.depositSale.change === 100,
+      `encargo con anticipo: venta de $100 con cambio de $100 (${JSON.stringify(encargo)})`
+    )
+    const encargoDup = await asCajero('/api/encargos', 'POST', {
+      customerName: 'Doña Rosa',
+      pickupAt,
+      items: [lineaFamiliar],
+      deposit: 100,
+      depositMethod: 'CASH',
+      amountPaid: 200,
+      clientRequestId: 'encargo-rosa-1'
+    })
+    assert(
+      encargoDup.status === 200 &&
+        ((await encargoDup.json()) as CreateOrderResponse).order.id === encargo.order.id,
+      'encargo repetido (doble clic) devuelve el mismo, sin cobrar dos veces'
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 17.5,
+      'el encargo no descuenta inventario hasta que se entrega'
+    )
+    const anticipoId = encargo.depositSale!.items[0].productId
+    assert(
+      (await venderPollo([{ productId: anticipoId, quantity: 1, price: 50 }])).status === 400,
+      'el producto de anticipos no se vende a mano'
+    )
+    const turnoAnticipo = ((await (await asCajero('/api/ventas/turno')).json()) as TurnSale[]).find(
+      (t) => t.id === encargo.depositSale!.id
+    )
+    assert(turnoAnticipo?.itemCount === 0, 'el anticipo no cuenta como producto vendido')
+    const pendientes = (await (await asCajero('/api/encargos')).json()) as Order[]
+    assert(
+      pendientes.length === 1 && pendientes[0].id === encargo.order.id,
+      'lista de encargos pendientes'
+    )
+
+    // Entrega: se cobra lo que resta (260 − 100) y se descuenta el inventario.
+    const entrega = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [lineaFamiliar],
+        paymentMethod: 'CASH',
+        amountPaid: 200,
+        orderId: encargo.order.id
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      entrega.total === 160 &&
+        entrega.change === 40 &&
+        entrega.items.some((i) => i.subtotal === -100),
+      `entrega: cobra 160 y el anticipo va como renglón negativo (${JSON.stringify(entrega)})`
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 16.5 && (await itemDe(tortillas.id))?.stock === 49,
+      'al entregar se descuenta el contenido del paquete'
+    )
+    const otraEntrega = await asCajero('/api/ventas', 'POST', {
+      items: [lineaFamiliar],
+      paymentMethod: 'CASH',
+      amountPaid: 300,
+      orderId: encargo.order.id
+    })
+    assert(
+      otraEntrega.status === 409,
+      `un encargo entregado no se cobra dos veces (${otraEntrega.status})`
+    )
+    const cerrados = (await (await asCajero('/api/encargos?status=CLOSED')).json()) as Order[]
+    assert(
+      cerrados[0]?.id === encargo.order.id &&
+        cerrados[0].status === 'DELIVERED' &&
+        cerrados[0].saleId === entrega.id,
+      'el encargo queda entregado con su venta'
+    )
+
+    // Entregar llevando menos de lo que ya se pagó: no se puede (el total quedaría negativo).
+    const chico = (await (
+      await asCajero('/api/encargos', 'POST', {
+        customerName: 'Pedro',
+        pickupAt,
+        items: [{ productId: medio.id, quantity: 2, optionIds: [medio.options[0].id] }],
+        deposit: 150,
+        depositMethod: 'TRANSFER'
+      })
+    ).json()) as CreateOrderResponse
+    assert(
+      (
+        await asCajero('/api/ventas', 'POST', {
+          items: [{ productId: medio.id, quantity: 1, optionIds: [medio.options[0].id] }],
+          paymentMethod: 'CASH',
+          amountPaid: 0,
+          orderId: chico.order.id
+        })
+      ).status === 400,
+      'entregar menos de lo anticipado -> 400'
+    )
+
+    // Cancelar devolviendo el anticipo: sale de la caja como retiro.
+    const cancelado = (await (
+      await asCajero(`/api/encargos/${chico.order.id}/cancelar`, 'POST', { refund: true })
+    ).json()) as Order
+    const movsEncargo = (await (await asCajero('/api/caja/movimientos')).json()) as CashMovement[]
+    assert(
+      cancelado.status === 'CANCELLED' &&
+        movsEncargo.some(
+          (m) => m.type === 'OUT' && m.amount === 150 && m.reason.includes(`#${chico.order.id}`)
+        ),
+      `cancelar con devolución registra el retiro de $150 (${JSON.stringify(movsEncargo)})`
+    )
+    assert(
+      (await asCajero(`/api/encargos/${chico.order.id}/cancelar`, 'POST', {})).status === 409,
+      'no se cancela dos veces'
+    )
+    const sinAnticipo = await asCajero('/api/encargos', 'POST', {
+      customerName: 'Luis',
+      pickupAt,
+      items: [{ productId: entero.id, quantity: 1, optionIds: [natural.id] }]
+    })
+    assert(
+      sinAnticipo.status === 201 &&
+        ((await sinAnticipo.json()) as CreateOrderResponse).depositSale === null,
+      'encargo sin anticipo: no hay venta todavía'
+    )
+
+    // Plantilla de pollería: sobre un catálogo que ya tiene "Pollo entero" (que aquí es paquete).
+    const plantillaPolleria = (await (
+      await asAdmin('/api/productos/plantillas/polleria', 'POST')
+    ).json()) as TemplateResult
+    const conPlantilla = (await (
+      await asAdmin('/api/productos?all=1')
+    ).json()) as ProductWithCategory[]
+    const cuarto = conPlantilla.find((p) => p.name === 'Cuarto de pollo')
+    const envio = conPlantilla.find((p) => p.name === 'Envío a domicilio')
+    assert(
+      plantillaPolleria.existing.includes('Pollo entero') &&
+        plantillaPolleria.created.includes('Tortillas 1/2 kg') &&
+        plantillaPolleria.failed.some((f) => f.name === 'Cuarto de pollo') &&
+        cuarto === undefined &&
+        envio?.openPrice === 1 &&
+        envio.categoryName === 'Servicio',
+      `plantilla: respeta lo existente y reporta lo que choca (${JSON.stringify(plantillaPolleria)})`
+    )
+    const otraVez = (await (
+      await asAdmin('/api/productos/plantillas/polleria', 'POST')
+    ).json()) as TemplateResult
+    assert(otraVez.created.length === 0, 'aplicar la plantilla dos veces no duplica')
+    assert(
+      (await asCajero('/api/productos/plantillas/polleria', 'POST')).status === 403 &&
+        (await asAdmin('/api/productos/plantillas/ferreteria', 'POST')).status === 404,
+      'plantilla: sólo admin y sólo las que existen'
     )
 
     console.log(

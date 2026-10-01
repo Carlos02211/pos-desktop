@@ -11,16 +11,19 @@ import type {
 } from '../../shared/types'
 import type { DB } from '../db'
 import type { SaleItemRow, SaleRow } from '../db/schema'
+import type { CashSessionRow } from '../db/schema'
 import {
   cashSessions,
   creditAccounts,
   customers,
+  orders,
+  productOptions,
   products,
   saleItems,
   sales,
   users
 } from '../db/schema'
-import { lockOpenSession, withTx } from '../db/tx'
+import { lockOpenSession, lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { fromCents, lineCents, round3, toCents } from '../lib/money'
 import { getActiveSession } from './caja'
@@ -75,117 +78,196 @@ export async function createSale(
   if (input.items.length === 0) {
     throw new HttpError(400, 'La venta no tiene productos.')
   }
-  if (input.paymentMethod === 'CREDIT' && input.customerId == null) {
-    throw new HttpError(400, 'Elige a qué cliente se le fía.')
-  }
 
   return withTx(db, async (tx) => {
-    const session = await getActiveSession(tx, userId)
-    if (!session) {
-      throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
-    }
-    // Serializa las ventas de esta sesión de caja (folio + cierre) bajo PostgreSQL.
-    if (!(await lockOpenSession(tx, session.id))) {
-      throw new HttpError(409, 'La caja se acaba de cerrar. Abre caja para seguir vendiendo.')
-    }
-
-    let customerName: string | null = null
-    if (input.customerId != null) {
-      const [customer] = await tx
-        .select()
-        .from(customers)
-        .where(eq(customers.id, input.customerId))
-        .limit(1)
-      if (!customer || customer.active !== 1) {
-        throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
-      }
-      customerName = customer.name
-    }
-
+    const session = await requireOpenSession(tx, userId)
     const { lines, totalCents } = await buildLines(tx, input.items)
 
-    let amountPaidCents: number | null = null
-    let changeCents: number | null = null
-    let creditAmountCents = 0
-    if (input.paymentMethod === 'CASH') {
-      const paidCents = input.amountPaid == null ? -1 : toCents(input.amountPaid)
-      if (paidCents < totalCents) {
-        throw new HttpError(400, 'El monto recibido es menor al total.')
-      }
-      amountPaidCents = paidCents
-      changeCents = paidCents - totalCents
-    } else if (input.paymentMethod === 'CREDIT') {
-      // Abono inicial (en efectivo) opcional: 0..total. El resto queda a deber.
-      const downCents = Math.max(0, toCents(input.amountPaid ?? 0))
-      if (downCents >= totalCents) {
+    // Entrega de un encargo: el anticipo que ya dejaron se descuenta con un renglón negativo
+    // (la venta del anticipo ya lo sumó a su caja, así que cortes y reportes cuadran solos).
+    let orderId: number | null = null
+    let total = totalCents
+    if (input.orderId != null) {
+      await lockRow(tx, 'orders', input.orderId)
+      const [order] = await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1)
+      if (!order) throw new HttpError(404, 'Encargo no encontrado.')
+      if (order.status !== 'PENDING') {
         throw new HttpError(
-          400,
-          'El abono inicial cubre el total: cobra en efectivo, no a crédito.'
+          409,
+          order.status === 'DELIVERED'
+            ? `El encargo #${order.id} ya se entregó.`
+            : `El encargo #${order.id} está cancelado.`
         )
       }
-      amountPaidCents = downCents || null
-      creditAmountCents = totalCents - downCents
-    }
-
-    const [last] = await tx
-      .select({ max: sql<number>`coalesce(max(${sales.ticketNumber}), 0)` })
-      .from(sales)
-      .where(eq(sales.cashSessionId, session.id))
-    const ticketNumber = Number(last?.max ?? 0) + 1
-
-    const [sale] = await tx
-      .insert(sales)
-      .values({
-        cashSessionId: session.id,
-        userId,
-        total: totalCents,
-        paymentMethod: input.paymentMethod,
-        amountPaid: amountPaidCents,
-        change: changeCents,
-        ticketNumber,
-        customerId: input.customerId ?? null
-      })
-      .returning()
-
-    const itemRows: SaleItemRow[] = await tx
-      .insert(saleItems)
-      .values(lines.map((line) => ({ saleId: sale.id, ...line })))
-      .returning()
-    await discountSaleStock(tx, userId, sale.id, lines)
-
-    let creditAccountId: number | undefined
-    if (input.paymentMethod === 'CREDIT') {
-      const [account] = await tx
-        .insert(creditAccounts)
-        .values({
-          saleId: sale.id,
-          customerId: input.customerId!,
-          userId,
-          total: creditAmountCents,
-          paid: 0,
-          status: 'OPEN'
+      if (order.deposit > 0) {
+        if (order.deposit > totalCents) {
+          throw new HttpError(
+            400,
+            `El anticipo (${fromCents(order.deposit)}) es mayor que lo que se lleva: agrega lo que falta del encargo.`
+          )
+        }
+        const anticipo = await depositProductId(tx)
+        lines.push({
+          productId: anticipo,
+          name: `Anticipo del encargo #${order.id}`,
+          price: -order.deposit,
+          originalPrice: null,
+          unit: 'PIEZA',
+          quantity: 1,
+          subtotal: -order.deposit,
+          note: null
         })
-        .returning()
-      creditAccountId = account.id
+        total -= order.deposit
+      }
+      orderId = order.id
     }
 
-    const [user] = await tx
-      .select({ username: users.username })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-
-    return {
-      ...saleMoneyToApi(sale),
-      items: itemRows.map(itemMoneyToApi),
-      userName: user?.username ?? '',
-      customerName,
-      creditAccountId
+    const sale = await recordSale(tx, userId, session, input, lines, total)
+    if (orderId != null) {
+      await tx
+        .update(orders)
+        .set({ status: 'DELIVERED', saleId: sale.id, closedAt: Math.floor(Date.now() / 1000) })
+        .where(eq(orders.id, orderId))
     }
+    return sale
   })
 }
 
-type NewSaleLine = Omit<SaleItemRow, 'id' | 'saleId' | 'addedAt'>
+/** Caja abierta del usuario, bloqueada para que el folio no se repita (PostgreSQL). */
+export async function requireOpenSession(tx: DB, userId: number): Promise<CashSessionRow> {
+  const session = await getActiveSession(tx, userId)
+  if (!session) {
+    throw new HttpError(409, 'No hay una caja abierta. Abre caja para vender.')
+  }
+  // Serializa las ventas de esta sesión de caja (folio + cierre) bajo PostgreSQL.
+  if (!(await lockOpenSession(tx, session.id))) {
+    throw new HttpError(409, 'La caja se acaba de cerrar. Abre caja para seguir vendiendo.')
+  }
+  return session
+}
+
+/** Producto interno de los anticipos de encargos (lo crea la migración; por si acaso, aquí). */
+export async function depositProductId(tx: DB): Promise<number> {
+  const [found] = await tx
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.kind, 'ANTICIPO'))
+    .limit(1)
+  if (found) return found.id
+  const [created] = await tx
+    .insert(products)
+    .values({ name: 'Anticipo de encargo', price: 0, unit: 'PIEZA', kind: 'ANTICIPO' })
+    .returning({ id: products.id })
+  return created.id
+}
+
+/**
+ * Guarda la venta con sus renglones ya validados: cobro (cambio / fiado), folio, inventario y
+ * cuenta por cobrar. Corre dentro de la transacción de quien la llama (venta o anticipo).
+ */
+export async function recordSale(
+  tx: DB,
+  userId: number,
+  session: CashSessionRow,
+  payment: Pick<CreateSaleInput, 'paymentMethod' | 'amountPaid' | 'customerId'>,
+  lines: NewSaleLine[],
+  totalCents: number
+): Promise<SaleResult> {
+  if (payment.paymentMethod === 'CREDIT' && payment.customerId == null) {
+    throw new HttpError(400, 'Elige a qué cliente se le fía.')
+  }
+
+  let customerName: string | null = null
+  if (payment.customerId != null) {
+    const [customer] = await tx
+      .select()
+      .from(customers)
+      .where(eq(customers.id, payment.customerId))
+      .limit(1)
+    if (!customer || customer.active !== 1) {
+      throw new HttpError(400, 'El cliente indicado no existe o está inactivo.')
+    }
+    customerName = customer.name
+  }
+
+  let amountPaidCents: number | null = null
+  let changeCents: number | null = null
+  let creditAmountCents = 0
+  if (payment.paymentMethod === 'CASH') {
+    const paidCents = payment.amountPaid == null ? -1 : toCents(payment.amountPaid)
+    if (paidCents < totalCents) {
+      throw new HttpError(400, 'El monto recibido es menor al total.')
+    }
+    amountPaidCents = paidCents
+    changeCents = paidCents - totalCents
+  } else if (payment.paymentMethod === 'CREDIT') {
+    // Abono inicial (en efectivo) opcional: 0..total. El resto queda a deber.
+    const downCents = Math.max(0, toCents(payment.amountPaid ?? 0))
+    if (downCents >= totalCents) {
+      throw new HttpError(400, 'El abono inicial cubre el total: cobra en efectivo, no a crédito.')
+    }
+    amountPaidCents = downCents || null
+    creditAmountCents = totalCents - downCents
+  }
+
+  const [last] = await tx
+    .select({ max: sql<number>`coalesce(max(${sales.ticketNumber}), 0)` })
+    .from(sales)
+    .where(eq(sales.cashSessionId, session.id))
+  const ticketNumber = Number(last?.max ?? 0) + 1
+
+  const [sale] = await tx
+    .insert(sales)
+    .values({
+      cashSessionId: session.id,
+      userId,
+      total: totalCents,
+      paymentMethod: payment.paymentMethod,
+      amountPaid: amountPaidCents,
+      change: changeCents,
+      ticketNumber,
+      customerId: payment.customerId ?? null
+    })
+    .returning()
+
+  const itemRows: SaleItemRow[] = await tx
+    .insert(saleItems)
+    .values(lines.map((line) => ({ saleId: sale.id, ...line })))
+    .returning()
+  await discountSaleStock(tx, userId, sale.id, lines)
+
+  let creditAccountId: number | undefined
+  if (payment.paymentMethod === 'CREDIT') {
+    const [account] = await tx
+      .insert(creditAccounts)
+      .values({
+        saleId: sale.id,
+        customerId: payment.customerId!,
+        userId,
+        total: creditAmountCents,
+        paid: 0,
+        status: 'OPEN'
+      })
+      .returning()
+    creditAccountId = account.id
+  }
+
+  const [user] = await tx
+    .select({ username: users.username })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+
+  return {
+    ...saleMoneyToApi(sale),
+    items: itemRows.map(itemMoneyToApi),
+    userName: user?.username ?? '',
+    customerName,
+    creditAccountId
+  }
+}
+
+export type NewSaleLine = Omit<SaleItemRow, 'id' | 'saleId' | 'addedAt'>
 
 /**
  * Valida las líneas del carrito contra el catálogo y calcula los importes en centavos.
@@ -193,7 +275,7 @@ type NewSaleLine = Omit<SaleItemRow, 'id' | 'saleId' | 'addedAt'>
  * descuento dentro del máximo configurado, salvo en productos de precio libre ("Varios"),
  * donde escribe el importe y una descripción opcional que se guarda en el nombre de la línea. La usan la venta nueva y "agregar a una venta".
  */
-async function buildLines(
+export async function buildLines(
   tx: DB,
   items: CreateSaleInput['items']
 ): Promise<{ lines: NewSaleLine[]; totalCents: number }> {
@@ -203,10 +285,19 @@ async function buildLines(
   const ids = [...new Set(items.map((i) => i.productId))]
   const rows = await tx.select().from(products).where(inArray(products.id, ids))
   const byId = new Map(rows.map((r) => [r.id, r]))
+  // Opciones activas de esos productos ("Tipo de pollo"): cada grupo es obligatorio.
+  const optionRows = await tx
+    .select()
+    .from(productOptions)
+    .where(and(inArray(productOptions.productId, ids), eq(productOptions.active, 1)))
+    .orderBy(productOptions.sortOrder, productOptions.id)
 
   let totalCents = 0
   const lines = items.map((line): NewSaleLine => {
     const product = byId.get(line.productId)
+    if (product && product.kind !== 'NORMAL') {
+      throw new HttpError(400, `"${product.name}" no se vende desde la caja.`)
+    }
     if (!product || product.active !== 1) {
       throw new HttpError(
         400,
@@ -235,7 +326,7 @@ async function buildLines(
       if (priceCents <= 0) {
         throw new HttpError(400, `Escribe el importe de "${product.name}".`)
       }
-      const note = line.note?.trim().replace(/\s+/g, ' ')
+      const note = cleanNote(line.note)
       const subtotalCents = lineCents(priceCents, quantity)
       totalCents += subtotalCents
       return {
@@ -245,10 +336,38 @@ async function buildLines(
         originalPrice: null,
         unit: product.unit,
         quantity,
-        subtotal: subtotalCents
+        subtotal: subtotalCents,
+        note: null
       }
     }
-    let priceCents = product.price
+    // Opciones: exactamente una por grupo. Su precio extra se suma al de catálogo y su
+    // nombre va en el renglón ("Pollo entero (Adobado)").
+    const own = optionRows.filter((o) => o.productId === product.id)
+    const chosenIds = [...new Set(line.optionIds ?? [])]
+    const chosen = own.filter((o) => chosenIds.includes(o.id))
+    if (chosen.length !== chosenIds.length) {
+      throw new HttpError(
+        400,
+        `Una opción de "${product.name}" ya no existe. Quítalo del carrito y agrégalo otra vez.`
+      )
+    }
+    const groups = [...new Set(own.map((o) => o.groupName))]
+    for (const group of groups) {
+      const picked = chosen.filter((o) => o.groupName === group).length
+      if (picked !== 1) {
+        throw new HttpError(
+          400,
+          picked === 0
+            ? `Falta elegir "${group}" de "${product.name}".`
+            : `Elige sólo una opción de "${group}" en "${product.name}".`
+        )
+      }
+    }
+    const catalogCents = product.price + chosen.reduce((sum, o) => sum + o.price, 0)
+    const name = chosen.length
+      ? `${product.name} (${chosen.map((o) => o.name).join(', ')})`
+      : product.name
+    let priceCents = catalogCents
     if (line.price != null) {
       if (!Number.isFinite(line.price) || line.price <= 0) {
         throw new HttpError(400, `Precio inválido para "${product.name}".`)
@@ -256,10 +375,10 @@ async function buildLines(
       const editedCents = toCents(line.price)
       // El cajero sólo puede aplicar un DESCUENTO sobre el precio de catálogo —
       // nunca cobrar de más, y el precio de catálogo siempre lo pone el servidor.
-      if (editedCents > product.price) {
+      if (editedCents > catalogCents) {
         throw new HttpError(400, `El precio de "${product.name}" no puede superar el de catálogo.`)
       }
-      const minAllowedCents = Math.ceil((product.price * (100 - maxDiscountPct)) / 100)
+      const minAllowedCents = Math.ceil((catalogCents * (100 - maxDiscountPct)) / 100)
       if (editedCents < minAllowedCents) {
         throw new HttpError(
           400,
@@ -274,15 +393,22 @@ async function buildLines(
     totalCents += subtotalCents
     return {
       productId: product.id,
-      name: product.name,
+      name,
       price: priceCents,
-      originalPrice: priceCents < product.price ? product.price : null,
+      originalPrice: priceCents < catalogCents ? catalogCents : null,
       unit: product.unit,
       quantity,
-      subtotal: subtotalCents
+      subtotal: subtotalCents,
+      note: cleanNote(line.note)
     }
   })
   return { lines, totalCents }
+}
+
+/** Nota del renglón sin espacios de más; vacía = null. */
+function cleanNote(note: string | undefined): string | null {
+  const clean = note?.trim().replace(/\s+/g, ' ')
+  return clean ? clean : null
 }
 
 /**
@@ -293,7 +419,8 @@ async function buildLines(
  * Productos distintos de la venta ("Art."): 3 kg de papa y 5 limones = 2, aunque una línea
  * se haya agregado después (mismo producto en otra línea cuenta una sola vez).
  */
-export const saleItemCountSql = sql<number>`(select count(distinct ${saleItems.productId}) from ${saleItems} where ${saleItems.saleId} = ${sales.id})`
+// Sin el renglón de anticipo de encargo: no es un producto que se lleve.
+export const saleItemCountSql = sql<number>`(select count(distinct ${saleItems.productId}) from ${saleItems} where ${saleItems.saleId} = ${sales.id} and ${saleItems.productId} not in (select ${products.id} from ${products} where ${products.kind} <> 'NORMAL'))`
 
 const MAX_PAGE_SIZE = 100
 
@@ -588,7 +715,7 @@ export async function sampleSale(db: DB, userName: string): Promise<SaleWithItem
     .select()
     .from(products)
     // Los de precio libre ("Varios") no tienen un precio que mostrar en el ejemplo.
-    .where(and(eq(products.active, 1), eq(products.openPrice, 0)))
+    .where(and(eq(products.active, 1), eq(products.openPrice, 0), eq(products.kind, 'NORMAL')))
     .orderBy(products.name)
     .limit(50)
   const byUnit = (unit: 'PIEZA' | 'KG'): typeof rows => rows.filter((r) => r.unit === unit)
@@ -613,7 +740,8 @@ export async function sampleSale(db: DB, userName: string): Promise<SaleWithItem
       unit: p.unit,
       quantity,
       subtotal: fromCents(subtotal),
-      addedAt: null
+      addedAt: null,
+      note: null
     }
   })
   const totalCents = items.reduce((sum, i) => sum + toCents(i.subtotal), 0)
