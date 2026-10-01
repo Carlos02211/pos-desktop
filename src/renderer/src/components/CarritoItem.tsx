@@ -7,6 +7,9 @@ import { money } from '@/lib/format'
 /** Pesos de apoyo para cargar rápido cantidades comunes de productos por kg. */
 const QUICK_GRAMS = [100, 250, 500, 1000]
 
+/** Mismo tope que acepta el servidor por renglón. */
+const MAX_PIECES = 9999
+
 export function CarritoItem({
   item,
   onQty,
@@ -14,11 +17,12 @@ export function CarritoItem({
   onRemove
 }: {
   item: CartItem
-  onQty: (productId: number, quantity: number) => void
-  onPrice: (productId: number, price: number) => void
-  onRemove: (productId: number) => void
+  onQty: (key: string, quantity: number) => void
+  onPrice: (key: string, price: number) => void
+  onRemove: (key: string) => void
 }): React.JSX.Element {
-  const edited = item.price !== item.originalPrice
+  // En precio libre no hay precio de catálogo contra el cual marcar un descuento.
+  const edited = !item.openPrice && item.price !== item.originalPrice
   const isKg = item.unit === 'KG'
   const grams = Math.round(item.quantity * 1000)
 
@@ -36,11 +40,11 @@ export function CarritoItem({
     const value = Number(priceDraft)
     // Sólo se permite descuento: el servidor rechaza un precio mayor al de catálogo, así que
     // se avisa aquí en vez de dejarlo en verde (como si fuera descuento) hasta cobrar.
-    if (Number.isFinite(value) && value > item.originalPrice) {
+    if (!item.openPrice && Number.isFinite(value) && value > item.originalPrice) {
       toast.error(`El precio no puede ser mayor al de catálogo (${money(item.originalPrice)}).`)
       setPriceDraft(String(item.price))
     } else if (Number.isFinite(value) && value > 0) {
-      onPrice(item.productId, Math.round((value + Number.EPSILON) * 100) / 100)
+      onPrice(item.key, Math.round((value + Number.EPSILON) * 100) / 100)
     } else {
       setPriceDraft(String(item.price))
     }
@@ -57,7 +61,7 @@ export function CarritoItem({
   function commitGrams(): void {
     const value = Number(gramsDraft)
     if (Number.isFinite(value) && value > 0) {
-      onQty(item.productId, Math.round((value / 1000 + Number.EPSILON) * 1000) / 1000)
+      onQty(item.key, Math.round((value / 1000 + Number.EPSILON) * 1000) / 1000)
     } else {
       setGramsDraft(String(grams))
     }
@@ -65,13 +69,35 @@ export function CarritoItem({
 
   function pickGrams(g: number): void {
     setGramsDraft(String(g))
-    onQty(item.productId, g / 1000)
+    onQty(item.key, g / 1000)
+  }
+
+  // Piezas escritas a mano (50 copias sin picar 50 veces el +).
+  const [lastQty, setLastQty] = useState(item.quantity)
+  const [qtyDraft, setQtyDraft] = useState(String(item.quantity))
+  if (item.quantity !== lastQty) {
+    setLastQty(item.quantity)
+    setQtyDraft(String(item.quantity))
+  }
+
+  function commitQty(): void {
+    const value = Number(qtyDraft)
+    if (Number.isInteger(value) && value >= 1 && value <= MAX_PIECES) {
+      onQty(item.key, value)
+    } else {
+      if (Number.isInteger(value) && value > MAX_PIECES) {
+        toast.error(`La cantidad máxima por renglón es ${MAX_PIECES.toLocaleString('es-MX')}.`)
+      }
+      setQtyDraft(String(item.quantity))
+    }
   }
 
   return (
     <div className="flex items-center gap-2 border-b border-border py-2">
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{item.name}</p>
+        <p className="line-clamp-2 text-sm font-medium break-words" title={item.name}>
+          {item.name}
+        </p>
 
         <div className="mt-0.5 flex items-center gap-1.5">
           <input
@@ -84,7 +110,7 @@ export function CarritoItem({
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur()
             }}
-            title="Precio de esta línea (editable)"
+            title={item.openPrice ? 'Importe (precio libre)' : 'Precio de esta línea (editable)'}
             className={`w-20 rounded border border-input bg-background px-1.5 py-0.5 text-xs outline-none focus:border-ring ${
               edited ? 'font-semibold text-pos-success' : ''
             }`}
@@ -137,15 +163,30 @@ export function CarritoItem({
       ) : (
         <div className="flex items-center gap-1">
           <button
-            onClick={() => onQty(item.productId, item.quantity - 1)}
+            onClick={() => onQty(item.key, item.quantity - 1)}
             className="grid h-7 w-7 place-items-center rounded-md border border-border transition hover:bg-secondary"
             aria-label="Quitar uno"
           >
             <Minus size={13} />
           </button>
-          <span className="w-7 text-center text-sm font-semibold">{item.quantity}</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            step="1"
+            value={qtyDraft}
+            onChange={(e) => setQtyDraft(e.target.value)}
+            onBlur={commitQty}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            title="Cantidad (escríbela o usa − / +)"
+            aria-label="Cantidad"
+            className="w-11 [appearance:textfield] rounded border border-input bg-background px-1 py-1 text-center text-sm font-semibold outline-none focus:border-ring [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
           <button
-            onClick={() => onQty(item.productId, item.quantity + 1)}
+            onClick={() => onQty(item.key, Math.min(MAX_PIECES, item.quantity + 1))}
             className="grid h-7 w-7 place-items-center rounded-md border border-border transition hover:bg-secondary"
             aria-label="Agregar uno"
           >
@@ -157,7 +198,7 @@ export function CarritoItem({
       <span className="w-16 text-right text-sm font-bold">{money(item.price * item.quantity)}</span>
 
       <button
-        onClick={() => onRemove(item.productId)}
+        onClick={() => onRemove(item.key)}
         className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-pos-danger/15 hover:text-pos-danger"
         aria-label="Quitar del carrito"
       >

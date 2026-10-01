@@ -13,21 +13,27 @@ _Solo puedes tener una caja abierta a la vez._
 ## 2. Cobrar una venta
 
 1. Toca los **productos** para agregarlos al carrito (a la derecha).
-2. Ajusta cantidades con **−** y **+**, o quita con la **✕**.
+2. Ajusta cantidades con **−** y **+** (o escribe la cantidad directo, ej. **50** copias), o
+   quita con la **✕**.
    - Si el producto se vende **por peso** (kg), en vez de − y + hay un campo para escribir los
      **gramos**, más botones rápidos: **100 g, 250 g, 500 g, 1 kg**.
 3. ¿Necesitas dar un **precio distinto** al de la etiqueta (ej. descuento)? Toca el precio de
    esa línea en el carrito y escribe el nuevo — queda registrado para el administrador (se ve
    en el detalle de la venta cuál era el precio original).
-4. Toca **Cobrar**.
-5. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
+4. ¿Algo que **no está en el catálogo** o de **precio variable** (engargolado, una tarea, un
+   servicio)? Toca **Varios** (arriba del carrito) o presiona **F2**, escribe el **importe** y, si
+   quieres, **qué es** — sale así en el ticket (ej. "Varios - Engargolado"). Puedes agregar
+   varios renglones de Varios en la misma venta. Los productos marcados como **Precio libre**
+   por el administrador también te piden el importe al tocarlos.
+5. Toca **Cobrar**.
+6. Elige el **método de pago**: **Efectivo**, **Tarjeta**, **Transferencia** o **Fiado**.
    - **Efectivo**: escribe (o toca un botón de monto) lo que te dio el cliente. La app calcula el **cambio**.
    - **Tarjeta** o **Transferencia**: no piden monto.
    - **Fiado**: el cliente paga después. Tienes que elegir o escribir un cliente (obligatorio).
    - En cualquier método puedes escribir el **nombre del cliente** (campo "Cliente") aunque no
      sea fiado — es opcional, sirve para llevar registro de quién compró. Empieza a escribir y
      te va a sugerir nombres ya guardados; si escribes uno nuevo, se agrega solo al confirmar.
-6. Toca **Confirmar venta**. El ticket se imprime solo.
+7. Toca **Confirmar venta**. El ticket se imprime solo.
 
 _Si la impresora no responde, la venta **igual queda registrada**; aparece un aviso._
 

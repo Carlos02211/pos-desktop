@@ -58,7 +58,9 @@ export function AgregarCobroModal({
         items: items.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
-          price: i.price !== i.originalPrice ? i.price : undefined
+          // Precio libre: el importe siempre lo pone el cajero.
+          price: i.openPrice || i.price !== i.originalPrice ? i.price : undefined,
+          note: i.note
         })),
         amountPaid: cash ? paid : undefined,
         clientRequestId

@@ -40,6 +40,8 @@ export interface Product {
   imagePath: string | null
   /** Código de barras (EAN/UPC o interno); null si el producto no tiene. */
   barcode: string | null
+  /** 1 = precio libre ("Varios", servicios): el cajero escribe el importe al cobrar. */
+  openPrice: number
   active: number
   createdAt: number
   updatedAt: number
@@ -176,6 +178,8 @@ export interface ProductInput {
   categoryId: number | null
   /** Omitido = no se toca; null o '' = se quita el código. */
   barcode?: string | null
+  /** Precio libre: el cajero escribe el importe al cobrar. Omitido = no se toca. */
+  openPrice?: boolean
   active?: boolean
 }
 
@@ -187,6 +191,8 @@ export interface CartLineInput {
   /** Precio editado por el cajero para esta línea (ej. descuento a un cliente frecuente). Si se
    *  omite, o coincide con el precio de catálogo, se usa el precio de catálogo tal cual. */
   price?: number
+  /** Sólo en productos de precio libre: qué se cobró ("Engargolado"). Va al ticket. */
+  note?: string
 }
 
 /** Cuerpo de `POST /api/ventas`. */

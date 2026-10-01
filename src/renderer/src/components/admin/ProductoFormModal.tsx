@@ -45,6 +45,7 @@ export function ProductoFormModal({
   }>({ state: initialLookup ? 'loading' : 'idle' })
   const lookedUp = useRef<string | null>(null)
   const [active, setActive] = useState(product ? product.active === 1 : true)
+  const [openPrice, setOpenPrice] = useState(product?.openPrice === 1)
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -101,7 +102,9 @@ export function ProductoFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sólo al abrir
   }, [])
 
-  const price = Number.parseFloat(priceText.replace(',', '.'))
+  // En precio libre el precio es sólo una sugerencia: vacío = 0.
+  const price =
+    openPrice && priceText.trim() === '' ? 0 : Number.parseFloat(priceText.replace(',', '.'))
   const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
 
   // Un solo object URL por archivo seleccionado; se libera al cambiarlo o cerrar.
@@ -133,6 +136,7 @@ export function ProductoFormModal({
         unit,
         categoryId: catId,
         barcode: barcode.trim(),
+        openPrice,
         active
       }
       const saved = product
@@ -164,7 +168,9 @@ export function ProductoFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1 block text-sm font-medium">Precio</span>
+            <span className="mb-1 block text-sm font-medium">
+              {openPrice ? 'Precio sugerido (opcional)' : 'Precio'}
+            </span>
             <input
               inputMode="decimal"
               value={priceText}
@@ -185,6 +191,22 @@ export function ProductoFormModal({
             </select>
           </label>
         </div>
+
+        <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={openPrice}
+            onChange={(e) => setOpenPrice(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Precio libre</span>
+            <span className="block text-xs text-muted-foreground">
+              El cajero escribe el importe al cobrar y, si quiere, qué fue (ej. Varios, engargolado,
+              impresión especial). Sin tope de precio ni límite de descuento.
+            </span>
+          </span>
+        </label>
 
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Código de barras (opcional)</span>

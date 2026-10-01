@@ -47,6 +47,8 @@ export const products = sqliteTable(
     imagePath: text('image_path'), // ruta relativa dentro de userData/uploads/productos/
     // Código de barras (EAN/UPC o interno). Opcional; NULL no choca con el índice único.
     barcode: text('barcode'),
+    // 1 = precio libre ("Varios", servicios): el cajero escribe el importe al cobrar.
+    openPrice: integer('open_price').notNull().default(0),
     active: integer('active').notNull().default(1),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now)
