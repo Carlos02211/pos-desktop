@@ -3,6 +3,8 @@
  *
  *   pnpm license:gen <fingerprint>     genera la clave para ese fingerprint
  *   pnpm license:gen --here            usa el fingerprint de este equipo
+ *   pnpm license:gen <fingerprint> --solo-clave   imprime sólo la clave (para copiarla
+ *                                     desde el celular por SSH; ver scripts/lic)
  *
  * El cliente lee su fingerprint en la pantalla de activación de la app.
  *
@@ -39,7 +41,7 @@ async function main(): Promise<void> {
 
   const path = privateKeyPath()
   if (!existsSync(path)) {
-    console.error(`No existe la clave privada ${path}. Creala una vez con: pnpm license:keygen`)
+    console.error(`No existe la clave privada ${path}. Créala una vez con: pnpm license:keygen`)
     process.exitCode = 1
     return
   }
@@ -54,8 +56,13 @@ async function main(): Promise<void> {
     return
   }
 
+  const key = signLicense(fingerprint, privateKey)
+  if (process.argv.includes('--solo-clave')) {
+    console.log(key)
+    return
+  }
   console.log('Fingerprint:', fingerprint)
-  console.log('Clave:      ', signLicense(fingerprint, privateKey))
+  console.log('Clave:      ', key)
 }
 
 main().catch((err) => {
