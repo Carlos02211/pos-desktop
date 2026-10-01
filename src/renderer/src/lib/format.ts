@@ -12,6 +12,12 @@ export function formatQty(quantity: number, unit: 'PIEZA' | 'KG'): string {
   return `${quantity.toFixed(3).replace(/\.?0+$/, '')} kg`
 }
 
+/** Existencia de inventario: "12 pz" o "1.75 kg" (puede ser negativa). */
+export function formatStock(stock: number, unit: 'PIEZA' | 'KG'): string {
+  if (unit !== 'KG') return `${Math.round(stock)} pz`
+  return `${stock.toFixed(3).replace(/\.?0+$/, '')} kg`
+}
+
 /** Fecha y hora legible a partir de un timestamp Unix en segundos. */
 export function dateTime(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString('es-MX', {

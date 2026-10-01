@@ -1,37 +1,42 @@
 import type {
   BackupRunResponse,
   BackupStatus,
+  BarcodeLookup,
   CashHistoryQuery,
   CashMovementWithUser,
   CashSessionListItem,
+  CatalogInfo,
+  CatalogItem,
   Category,
   CategoryInput,
   CategoryWithCount,
   ConfigInput,
   ConfigResponse,
-  PingResponse,
   CreateUserInput,
-  DrawerResult,
   DashboardData,
+  DrawerResult,
   FolderListing,
+  ImportProductsRequest,
+  ImportProductsResult,
+  InventoryItem,
+  ParsedImportSheet,
+  PingResponse,
   PrintResult,
   Product,
   ProductInput,
   ProductWithCategory,
   ReportType,
-  SalesReport,
   SaleWithItems,
   SalesPage,
   SalesQuery,
+  SalesReport,
+  StockAdjustInput,
+  StockEntryInput,
+  StockMovement,
   SystemPrintersResponse,
+  TemplateResult,
   UpdateUserInput,
-  UserListItem,
-  BarcodeLookup,
-  CatalogInfo,
-  CatalogItem,
-  ImportProductsRequest,
-  ImportProductsResult,
-  ParsedImportSheet
+  UserListItem
 } from '@shared/types'
 import { api, ApiRequestError } from './client'
 
@@ -71,6 +76,34 @@ export function desactivarProducto(id: number): Promise<void> {
   return api.delete<void>(`/api/productos/${id}`)
 }
 
+/* ---- Inventario ---- */
+
+export function getInventario(): Promise<InventoryItem[]> {
+  return api.get<InventoryItem[]>('/api/inventario')
+}
+
+export function getMovimientosInventario(productId: number): Promise<StockMovement[]> {
+  return api.get<StockMovement[]>(`/api/inventario/${productId}/movimientos`)
+}
+
+export function registrarEntrada(
+  productId: number,
+  input: StockEntryInput
+): Promise<InventoryItem> {
+  return api.post<InventoryItem>(`/api/inventario/${productId}/entrada`, input)
+}
+
+export function ajustarExistencia(
+  productId: number,
+  input: StockAdjustInput
+): Promise<InventoryItem> {
+  return api.post<InventoryItem>(`/api/inventario/${productId}/ajuste`, input)
+}
+
+export function activarInventario(productIds: number[]): Promise<{ enabled: number }> {
+  return api.post<{ enabled: number }>('/api/inventario/activar', { productIds })
+}
+
 /* ---- Importación de productos ---- */
 
 /** Lee un Excel/CSV en el servidor y devuelve los renglones interpretados (no guarda). */
@@ -82,6 +115,11 @@ export function leerArchivoImportacion(file: File): Promise<ParsedImportSheet> {
 
 export function importarProductos(input: ImportProductsRequest): Promise<ImportProductsResult> {
   return api.post<ImportProductsResult>('/api/productos/importar', input)
+}
+
+/** Da de alta el catálogo de ejemplo de un giro (pollería). Lo que ya existe no se toca. */
+export function aplicarPlantilla(id: 'polleria'): Promise<TemplateResult> {
+  return api.post<TemplateResult>(`/api/productos/plantillas/${id}`)
 }
 
 export function listCatalogos(): Promise<CatalogInfo[]> {

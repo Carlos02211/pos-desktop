@@ -7,6 +7,7 @@ import { promisify } from 'util'
 import { CharacterSet, PrinterTypes, ThermalPrinter } from 'node-thermal-printer'
 import type {
   DrawerResult,
+  Order,
   PrintResult,
   SaleWithItems,
   SystemPrinter,
@@ -330,6 +331,8 @@ export interface TicketOptions {
   creditBalance?: number
   /** Ticket armado con datos de ejemplo (vista previa / publicidad), no una venta real. */
   sample?: boolean
+  /** Venta del anticipo de este encargo: el ticket lleva también el comprobante del encargo. */
+  order?: Order
 }
 
 /** Parte un texto en renglones de 48 columnas, cortando en espacios cuando se puede. */
@@ -366,7 +369,7 @@ function pairText(left: string, right: string, leftWidth = 0.6): string[] {
 export function ticketLines(
   sale: SaleWithItems,
   config: ConfigMap,
-  { reprintAt, updated = false, creditBalance, sample = false }: TicketOptions = {}
+  { reprintAt, updated = false, creditBalance, sample = false, order }: TicketOptions = {}
 ): TicketLine[] {
   const lines: TicketLine[] = []
   const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
@@ -412,6 +415,7 @@ export function ticketLines(
     } else {
       pair(label, money(item.subtotal), 0.7)
     }
+    if (item.note) add(`   > ${item.note}`)
   }
 
   rule()
@@ -429,7 +433,129 @@ export function ticketLines(
     }
   }
   rule()
+  if (order) {
+    lines.push(...orderBlock(order, config))
+    rule()
+  }
   add(config.ticket_footer || '¡Gracias por su compra!', 'center')
+  return lines
+}
+
+/**
+ * Comprobante del encargo: para quién, cuándo pasa, qué lleva y cuánto resta. Va al pie del
+ * ticket del anticipo, o solo (`orderTicketLines`) si no dejaron anticipo.
+ */
+function orderBlock(order: Order, config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  const pair = (left: string, right: string, leftWidth?: number, bold = false): void => {
+    for (const t of pairText(left, right, leftWidth)) lines.push({ text: t, align: 'left', bold })
+  }
+  const symbol = config.currency_symbol || '$'
+  const money = (n: number): string => fmtMoney(n, symbol)
+
+  add(`ENCARGO #${order.id}`, 'center', true)
+  add(`Para: ${order.customerName}${order.phone ? ` - Tel. ${order.phone}` : ''}`)
+  add(`Pasa por él: ${ticketDate(order.pickupAt, config)}`, 'left', true)
+  for (const item of order.items) {
+    add(`${fmtQty(item.quantity, item.unit)} x ${item.name}`)
+    if (item.note) add(`   > ${item.note}`)
+  }
+  if (order.notes) add(`Nota: ${order.notes}`)
+  pair('Total del encargo', money(order.total), 0.6)
+  if (order.deposit > 0) {
+    pair('Anticipo', money(order.deposit), 0.6)
+    pair('Resta por pagar', money(Math.round((order.total - order.deposit) * 100) / 100), 0.6, true)
+  }
+  return lines
+}
+
+/** Pre-cuenta de una cuenta abierta (mesa): lo que lleva y el total. No es comprobante de pago. */
+export function tabTicketLines(order: Order, config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  const pair = (left: string, right: string, leftWidth?: number, bold = false): void => {
+    for (const t of pairText(left, right, leftWidth)) lines.push({ text: t, align: 'left', bold })
+  }
+  const rule = (): void => {
+    lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  }
+  const money = (n: number): string => fmtMoney(n, config.currency_symbol || '$')
+  add((config.business_name || 'Mi Negocio').toUpperCase(), 'center', true)
+  if (config.business_address) add(config.business_address, 'center')
+  rule()
+  add(`CUENTA: ${order.customerName}`, 'left', true)
+  add(`Abierta: ${ticketDate(order.pickupAt, config)}`)
+  add(`Impresa: ${ticketDate(Math.floor(Date.now() / 1000), config)}`)
+  rule()
+  for (const item of order.items) {
+    const label = `${fmtQty(item.quantity, item.unit)} x ${item.name}`
+    if (label.length > 32) {
+      add(label)
+      pair('', money(item.subtotal), 0.7)
+    } else {
+      pair(label, money(item.subtotal), 0.7)
+    }
+  }
+  rule()
+  pair('TOTAL', money(order.total), 0.5, true)
+  rule()
+  add('Esta cuenta no es comprobante de pago', 'center')
+  return lines
+}
+
+/** Comanda para la cocina: qué preparar y para quién, sin precios. */
+export function comandaLines(name: string, items: Order['items'], config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  add('COMANDA', 'center', true)
+  add(name, 'center', true)
+  add(ticketDate(Math.floor(Date.now() / 1000), config), 'center')
+  lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  for (const item of items) {
+    add(`${fmtQty(item.quantity, item.unit)} x ${item.name}`, 'left', true)
+    if (item.note) add(`   > ${item.note}`)
+  }
+  return lines
+}
+
+export async function printTabTicket(order: Order, config: ConfigMap): Promise<PrintResult> {
+  return printLines(tabTicketLines(order, config), config, false)
+}
+
+export async function printComanda(
+  name: string,
+  items: Order['items'],
+  config: ConfigMap
+): Promise<PrintResult> {
+  return printLines(comandaLines(name, items, config), config, false)
+}
+
+/** Comprobante de un encargo sin anticipo (no hay venta: sólo el pedido). */
+export function orderTicketLines(order: Order, config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  const rule = (): void => {
+    lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  }
+  add((config.business_name || 'Mi Negocio').toUpperCase(), 'center', true)
+  if (config.business_address) add(config.business_address, 'center')
+  if (config.business_phone) add(`Tel: ${config.business_phone}`, 'center')
+  rule()
+  add(`Fecha: ${ticketDate(order.createdAt, config)}`)
+  add(`Atendió: ${order.userName}`)
+  rule()
+  lines.push(...orderBlock(order, config))
+  rule()
+  add('Se paga al recogerlo', 'center')
   return lines
 }
 
@@ -437,6 +563,22 @@ export async function printTicket(
   sale: SaleWithItems,
   config: ConfigMap,
   options: TicketOptions = {}
+): Promise<PrintResult> {
+  // Primero el cajón: se abre mientras sale el ticket, no al terminar. Sólo en la venta
+  // (`openDrawer`): una reimpresión no mete ni saca dinero.
+  const kick = !!options.openDrawer && cashDrawerEnabled(config) && receivesCash(sale)
+  return printLines(ticketLines(sale, config, options), config, kick)
+}
+
+/** Imprime el comprobante de un encargo sin anticipo. Nunca lanza. */
+export async function printOrderTicket(order: Order, config: ConfigMap): Promise<PrintResult> {
+  return printLines(orderTicketLines(order, config), config, false)
+}
+
+async function printLines(
+  lines: TicketLine[],
+  config: ConfigMap,
+  kick: boolean
 ): Promise<PrintResult> {
   if (!printerEnabled(config)) return { printed: false, skipped: true }
   const iface = config.printer_interface?.trim()
@@ -448,12 +590,8 @@ export async function printTicket(
     const { printer, timeoutMs } = createPrinter(iface)
     await connectOrFail(printer, iface)
 
-    // Primero el cajón: se abre mientras sale el ticket, no al terminar. Sólo en la venta
-    // (`openDrawer`): una reimpresión no mete ni saca dinero.
-    if (options.openDrawer && cashDrawerEnabled(config) && receivesCash(sale)) {
-      printer.add(DRAWER_KICK)
-    }
-    for (const line of ticketLines(sale, config, options)) {
+    if (kick) printer.add(DRAWER_KICK)
+    for (const line of lines) {
       if (line.align === 'center') printer.alignCenter()
       else printer.alignLeft()
       printer.bold(line.bold)

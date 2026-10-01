@@ -32,6 +32,30 @@ const productSchema = z.object({
     .regex(/^[\x21-\x7E]*$/, 'El código de barras no puede llevar espacios ni acentos.')
     .nullable()
     .optional(),
+  openPrice: z.boolean().optional(),
+  trackStock: z.boolean().optional(),
+  minStock: z.number().nonnegative().max(1_000_000).nullable().optional(),
+  initialStock: z.number().nonnegative().max(1_000_000).optional(),
+  options: z
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        groupName: z.string().trim().min(1).max(40),
+        name: z.string().trim().min(1).max(40),
+        price: z.number().nonnegative().max(100_000)
+      })
+    )
+    .max(40)
+    .optional(),
+  components: z
+    .array(
+      z.object({
+        componentId: z.number().int().positive(),
+        quantity: z.number().positive().max(9_999)
+      })
+    )
+    .max(30)
+    .optional(),
   active: z.boolean().optional()
 })
 const idParam = z.object({ id: z.coerce.number().int().positive() })
@@ -45,14 +69,23 @@ export async function productosRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/api/productos', { preHandler: requireRole('ADMIN') }, async (request, reply) => {
-    const product = await createProduct(getDb(), parse(productSchema, request.body))
+    const product = await createProduct(
+      getDb(),
+      parse(productSchema, request.body),
+      request.authUser!.id
+    )
     emit('producto:update', { productId: product.id })
     return reply.code(201).send(product)
   })
 
   app.put('/api/productos/:id', { preHandler: requireRole('ADMIN') }, async (request) => {
     const { id } = parse(idParam, request.params)
-    const product = await updateProduct(getDb(), id, parse(productSchema, request.body))
+    const product = await updateProduct(
+      getDb(),
+      id,
+      parse(productSchema, request.body),
+      request.authUser!.id
+    )
     emit('producto:update', { productId: id })
     return product
   })

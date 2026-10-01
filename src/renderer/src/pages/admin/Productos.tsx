@@ -174,8 +174,16 @@ export default function Productos(): React.JSX.Element {
                     {row.categoryName ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {money(row.price)}
-                    {row.unit === 'KG' && <span className="text-muted-foreground">/kg</span>}
+                    {row.openPrice === 1 ? (
+                      <span className="text-muted-foreground" title="El cajero escribe el importe">
+                        Libre
+                      </span>
+                    ) : (
+                      <>
+                        {money(row.price)}
+                        {row.unit === 'KG' && <span className="text-muted-foreground">/kg</span>}
+                      </>
+                    )}
                   </td>
                   <td className="hidden md:table-cell px-3 py-2">
                     <span
@@ -215,6 +223,7 @@ export default function Productos(): React.JSX.Element {
         <ProductoFormModal
           product={editing}
           categories={categories}
+          products={rows}
           initialBarcode={editing ? undefined : scannedCode}
           onClose={() => {
             setCreating(false)

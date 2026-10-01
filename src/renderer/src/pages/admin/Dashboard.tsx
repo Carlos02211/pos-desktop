@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { DashboardData } from '@shared/types'
 import { getDashboard } from '@/api/admin'
 import { dateTime, money, paymentLabel, timeOnly } from '@/lib/format'
@@ -46,6 +47,21 @@ export default function Dashboard(): React.JSX.Element {
         />
         <Stat label="Por cobrar (fiado)" value={money(data.cuentasPorCobrar)} tone="warn" />
       </div>
+
+      {data.lowStockCount > 0 && (
+        <Link
+          to="/admin/inventario?f=low"
+          className="flex items-center justify-between rounded-lg border border-pos-warning/50 bg-pos-warning/10 px-4 py-3 text-sm transition hover:bg-pos-warning/20"
+        >
+          <span>
+            <strong>
+              {data.lowStockCount} {data.lowStockCount === 1 ? 'producto está' : 'productos están'}
+            </strong>{' '}
+            por agotarse o agotados.
+          </span>
+          <span className="font-semibold">Ver inventario →</span>
+        </Link>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-border">

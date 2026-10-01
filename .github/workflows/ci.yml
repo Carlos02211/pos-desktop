@@ -70,5 +70,12 @@ jobs:
         env:
           DATABASE_URL: postgres://pos:pos@localhost:5432/pos
 
+      # Permisos de todas las rutas por rol, datos basura, mesas/encargos en paralelo y carga
+      # sostenida (1,000 ventas). Aquí salió el deadlock de FOR UPDATE contra llaves foráneas.
+      - name: verify:estres (PostgreSQL real, roles y carga)
+        run: pnpm verify:estres
+        env:
+          DATABASE_URL: postgres://pos:pos@localhost:5432/pos
+
       - name: verify:backend (PGlite)
         run: pnpm verify:backend:pg

@@ -7,6 +7,7 @@ import { fromCents } from '../lib/money'
 import { businessOffsetMinutes, dayStartUnix, nowParts } from '../lib/timezone'
 import { getConfigMap } from './config'
 import { totalReceivable } from './cuentas'
+import { countLowStock } from './inventario'
 
 /** Indicadores del día en curso (zona horaria del negocio, `config.business_utc_offset`). */
 export async function getDashboard(db: DB): Promise<DashboardData> {
@@ -81,6 +82,7 @@ export async function getDashboard(db: DB): Promise<DashboardData> {
       TRANSFER: fromCents(Number(totals.transfer))
     },
     cuentasPorCobrar: await totalReceivable(db),
+    lowStockCount: await countLowStock(db),
     openSessions,
     recentSales
   }

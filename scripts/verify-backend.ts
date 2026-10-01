@@ -32,6 +32,13 @@ import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
   AddToSaleResponse,
+  CartLineInput,
+  CreateOrderResponse,
+  Order,
+  TabResponse,
+  TemplateResult,
+  InventoryItem,
+  StockMovement,
   TurnSale,
   BackupRunResponse,
   BackupStatus,
@@ -279,7 +286,14 @@ async function main(): Promise<void> {
     const asCajero = call(cajeroToken.token)
     const asAdmin = call(session.token)
 
-    const prods = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    const catalogo = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    // La migración deja listo "Varios" (precio libre); aparte, el producto de prueba del seed.
+    const varios = catalogo.find((p) => p.openPrice === 1)
+    assert(
+      varios?.name === 'Varios' && varios.price === 0,
+      `catálogo: "Varios" de precio libre creado por la migración (${JSON.stringify(varios)})`
+    )
+    const prods = catalogo.filter((p) => p.openPrice === 0)
     assert(prods.length === 1, `catálogo: 1 producto activo (encontrados: ${prods.length})`)
     assert(
       prods[0].categoryName === 'General' && prods[0].price === 25,
@@ -1866,6 +1880,768 @@ async function main(): Promise<void> {
     assert(
       (await asCajero(`/api/catalogos/codigo/${catItems[0].barcode}`)).status === 403,
       'buscar datos por código: sólo el admin'
+    )
+
+    // ---- Precio libre ("Varios", servicios de papelería) ----
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '10' })
+    const ventaVarios = await asCajero('/api/ventas', 'POST', {
+      items: [
+        { productId: varios!.id, quantity: 2, price: 35.5, note: '  Engargolado   azul ' },
+        { productId: varios!.id, quantity: 1, price: 3 },
+        { productId: producto.id, quantity: 1500 }
+      ],
+      paymentMethod: 'CASH',
+      amountPaid: 40000
+    })
+    assert(ventaVarios.status === 201, `venta con "Varios" -> 201 (${ventaVarios.status})`)
+    const saleVarios = (await ventaVarios.json()) as CreateSaleResponse
+    assert(
+      saleVarios.items.length === 3 &&
+        saleVarios.items[0].name === 'Varios - Engargolado azul' &&
+        saleVarios.items[0].subtotal === 71 &&
+        saleVarios.items[0].originalPrice === null &&
+        saleVarios.items[1].name === 'Varios' &&
+        saleVarios.items[2].quantity === 1500 &&
+        saleVarios.total === 71 + 3 + 1500 * 25,
+      `"Varios": importe libre sin tope de descuento, descripción en el renglón, 1500 piezas (${JSON.stringify(saleVarios.items)})`
+    )
+    const variosSinImporte = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: varios!.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      amountPaid: 10
+    })
+    assert(
+      variosSinImporte.status === 400 &&
+        ((await variosSinImporte.json()) as { error: string }).error.includes('importe'),
+      `"Varios" sin importe -> 400 (${variosSinImporte.status})`
+    )
+    const notaLarga = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: varios!.id, quantity: 1, price: 5, note: 'x'.repeat(61) }],
+      paymentMethod: 'CASH',
+      amountPaid: 10
+    })
+    assert(
+      notaLarga.status === 400,
+      `descripción de más de 60 caracteres -> 400 (${notaLarga.status})`
+    )
+    const notaEnNormal = await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: producto.id, quantity: 1, note: 'no aplica' }],
+      paymentMethod: 'CASH',
+      amountPaid: 25
+    })
+    const saleNotaEnNormal = (await notaEnNormal.json()) as CreateSaleResponse
+    assert(
+      notaEnNormal.status === 201 && saleNotaEnNormal.items[0].name === producto.name,
+      'la descripción se ignora en productos de precio fijo'
+    )
+    await asAdmin('/api/config', 'PUT', { max_line_discount_pct: '100' })
+
+    const servicioRes = await asAdmin('/api/productos', 'POST', {
+      name: 'Impresión especial',
+      price: 0,
+      categoryId: null,
+      openPrice: true
+    })
+    const servicio = (await servicioRes.json()) as ProductWithCategory
+    assert(
+      servicioRes.status === 201 && servicio.openPrice === 1,
+      `alta de producto con precio libre (${servicioRes.status})`
+    )
+    const servicioEditado = (await (
+      await asAdmin(`/api/productos/${servicio.id}`, 'PUT', {
+        name: 'Impresión especial',
+        price: 10,
+        categoryId: null
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      servicioEditado.openPrice === 1 && servicioEditado.price === 10,
+      'editar sin mandar openPrice lo conserva (precio sugerido $10)'
+    )
+    const servicioSugerido = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [{ productId: servicio.id, quantity: 1 }],
+        paymentMethod: 'CASH',
+        amountPaid: 10
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      servicioSugerido.total === 10,
+      `precio libre sin importe usa el sugerido (${JSON.stringify(servicioSugerido)})`
+    )
+
+    // ---- Inventario ----
+    const altaInv = async (body: Record<string, unknown>): Promise<ProductWithCategory> =>
+      (await (
+        await asAdmin('/api/productos', 'POST', { categoryId: null, ...body })
+      ).json()) as ProductWithCategory
+    const cuaderno = await altaInv({
+      name: 'Cuaderno profesional',
+      price: 30,
+      trackStock: true,
+      initialStock: 10,
+      minStock: 3
+    })
+    assert(
+      cuaderno.trackStock === 1 && cuaderno.stock === 10 && cuaderno.minStock === 3,
+      `alta con inventario: existencia inicial 10, mínimo 3 (${JSON.stringify(cuaderno)})`
+    )
+    const queso = await altaInv({
+      name: 'Queso Oaxaca',
+      price: 160,
+      unit: 'KG',
+      trackStock: true,
+      initialStock: 2.5
+    })
+    const inventario = async (): Promise<InventoryItem[]> =>
+      (await (await asAdmin('/api/inventario')).json()) as InventoryItem[]
+    const itemDe = async (id: number): Promise<InventoryItem | undefined> =>
+      (await inventario()).find((i) => i.id === id)
+
+    const ventaInv = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [
+          { productId: cuaderno.id, quantity: 4 },
+          { productId: queso.id, quantity: 0.75 },
+          { productId: producto.id, quantity: 1 }
+        ],
+        paymentMethod: 'CASH',
+        amountPaid: 1000
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      (await itemDe(cuaderno.id))?.stock === 6 && (await itemDe(queso.id))?.stock === 1.75,
+      'venta descuenta existencia: cuaderno 10→6, queso 2.5→1.75 kg'
+    )
+    assert(
+      (await itemDe(producto.id)) === undefined,
+      'producto sin inventario no aparece en Inventario'
+    )
+    const agregado = await asCajero(`/api/ventas/${ventaInv.id}/agregar`, 'POST', {
+      items: [{ productId: cuaderno.id, quantity: 4 }],
+      amountPaid: 120
+    })
+    const cuadernoBajo = await itemDe(cuaderno.id)
+    assert(
+      agregado.status === 200 && cuadernoBajo?.stock === 2 && cuadernoBajo.status === 'LOW',
+      `agregar a una venta también descuenta: 6→2, "por agotarse" (${agregado.status}, ${JSON.stringify(cuadernoBajo)})`
+    )
+    await asCajero('/api/ventas', 'POST', {
+      items: [{ productId: cuaderno.id, quantity: 3 }],
+      paymentMethod: 'CARD'
+    })
+    const inv1 = await inventario()
+    assert(
+      inv1[0].id === cuaderno.id && inv1[0].stock === -1 && inv1[0].status === 'OUT',
+      `sin existencia la venta NO se bloquea: queda en -1, "agotado" y primero en la lista (${JSON.stringify(inv1[0])})`
+    )
+    const dashInv = (await (await asAdmin('/api/dashboard')).json()) as { lowStockCount: number }
+    assert(dashInv.lowStockCount === 1, `dashboard: 1 por agotarse (${dashInv.lowStockCount})`)
+
+    const entrada = await asAdmin(`/api/inventario/${cuaderno.id}/entrada`, 'POST', {
+      quantity: 12,
+      reason: 'Proveedor Norma'
+    })
+    const trasEntrada = (await entrada.json()) as InventoryItem
+    assert(
+      entrada.status === 200 && trasEntrada.stock === 11 && trasEntrada.status === 'OK',
+      `entrada de 12: -1→11 (${entrada.status}, ${JSON.stringify(trasEntrada)})`
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${cuaderno.id}/entrada`, 'POST', { quantity: 1.5 }))
+        .status === 400,
+      'entrada con fracción en producto por pieza -> 400'
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${producto.id}/entrada`, 'POST', { quantity: 1 })).status ===
+        409,
+      'entrada a producto sin inventario -> 409'
+    )
+    const entradaKg = (await (
+      await asAdmin(`/api/inventario/${queso.id}/entrada`, 'POST', { quantity: 0.1 })
+    ).json()) as InventoryItem
+    assert(entradaKg.stock === 1.85, `entrada en kg sin decimales raros (${entradaKg.stock})`)
+
+    const ajuste = (await (
+      await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: 9 })
+    ).json()) as InventoryItem
+    assert(ajuste.stock === 9, `ajuste por conteo: 11→9 (${ajuste.stock})`)
+    await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: 9 })
+    const movsInv = (await (
+      await asAdmin(`/api/inventario/${cuaderno.id}/movimientos`)
+    ).json()) as StockMovement[]
+    assert(
+      movsInv.map((m) => `${m.type}:${m.quantity}:${m.stockAfter}`).join(' ') ===
+        'ADJUST:-2:9 ENTRY:12:11 SALE:-3:-1 SALE:-4:2 SALE:-4:6 ADJUST:10:10',
+      `historial completo y sin movimiento en un conteo igual (${movsInv.map((m) => `${m.type}:${m.quantity}:${m.stockAfter}`).join(' ')})`
+    )
+    assert(
+      movsInv[0].reason === 'Conteo físico' &&
+        movsInv[1].reason === 'Proveedor Norma' &&
+        movsInv[4].ticketNumber === ventaInv.ticketNumber &&
+        movsInv[5].reason === 'Existencia inicial' &&
+        movsInv[0].userName === 'admin' &&
+        movsInv[2].userName === 'cajero',
+      `movimientos con motivo, folio y usuario (${JSON.stringify(movsInv.slice(0, 5))})`
+    )
+    assert(
+      (await asAdmin(`/api/inventario/${cuaderno.id}/ajuste`, 'POST', { counted: -1 })).status ===
+        400,
+      'conteo negativo -> 400'
+    )
+
+    const activar = (await (
+      await asAdmin('/api/inventario/activar', 'POST', { productIds: [producto.id, cuaderno.id] })
+    ).json()) as { enabled: number }
+    assert(
+      activar.enabled === 1,
+      `activar inventario en lote: sólo los que no lo llevaban (${activar.enabled})`
+    )
+    assert(
+      (await itemDe(producto.id))?.status === 'OUT',
+      'producto activado arranca en 0 (agotado) hasta contarlo'
+    )
+    const sinInv = (await (
+      await asAdmin(`/api/productos/${producto.id}`, 'PUT', {
+        name: producto.name,
+        price: 25,
+        categoryId: producto.categoryId,
+        trackStock: false
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      sinInv.trackStock === 0 && (await itemDe(producto.id)) === undefined,
+      'quitar inventario desde el producto lo saca de la lista'
+    )
+    const editarSinTocar = (await (
+      await asAdmin(`/api/productos/${cuaderno.id}`, 'PUT', {
+        name: cuaderno.name,
+        price: 32,
+        categoryId: null
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      editarSinTocar.trackStock === 1 &&
+        editarSinTocar.stock === 9 &&
+        editarSinTocar.minStock === 3,
+      'editar el producto sin mandar inventario no toca existencia ni mínimo'
+    )
+    assert(
+      (await asCajero('/api/inventario')).status === 403 &&
+        (await asCajero(`/api/inventario/${cuaderno.id}/entrada`, 'POST', { quantity: 1 }))
+          .status === 403,
+      'inventario: sólo el administrador'
+    )
+
+    // ---- Pollería: opciones, paquetes, notas y encargos ----
+    const pollo = await altaInv({
+      name: 'Pollo crudo',
+      price: 70,
+      trackStock: true,
+      initialStock: 20
+    })
+    const tortillas = await altaInv({
+      name: 'Tortillas 1 kg',
+      price: 25,
+      trackStock: true,
+      initialStock: 50
+    })
+    const tipos = [
+      { groupName: 'Tipo de pollo', name: 'Natural', price: 0 },
+      { groupName: 'Tipo de pollo', name: 'Adobado', price: 0 },
+      { groupName: 'Tipo de pollo', name: 'Al carbón', price: 10 }
+    ]
+    const entero = await altaInv({
+      name: 'Pollo entero',
+      price: 180,
+      options: tipos,
+      components: [{ componentId: pollo.id, quantity: 1 }]
+    })
+    assert(
+      entero.options.length === 3 &&
+        entero.options[2].name === 'Al carbón' &&
+        entero.options[2].price === 10 &&
+        entero.components[0]?.componentId === pollo.id,
+      `alta con opciones y contenido (${JSON.stringify(entero)})`
+    )
+    const medio = await altaInv({
+      name: 'Medio pollo',
+      price: 95,
+      options: tipos,
+      components: [{ componentId: pollo.id, quantity: 0.5 }]
+    })
+    const familiar = await altaInv({
+      name: 'Paquete familiar',
+      price: 260,
+      options: tipos,
+      components: [
+        { componentId: pollo.id, quantity: 1 },
+        { componentId: tortillas.id, quantity: 1 }
+      ]
+    })
+    const anidado = await asAdmin('/api/productos', 'POST', {
+      name: 'Paquete doble',
+      price: 400,
+      categoryId: null,
+      components: [{ componentId: familiar.id, quantity: 2 }]
+    })
+    assert(anidado.status === 400, `un paquete no puede llevar otro paquete (${anidado.status})`)
+    const libreConOpciones = await asAdmin('/api/productos', 'POST', {
+      name: 'Libre con opciones',
+      price: 0,
+      categoryId: null,
+      openPrice: true,
+      options: tipos
+    })
+    assert(libreConOpciones.status === 400, 'precio libre no lleva opciones -> 400')
+
+    const catalogoCaja = (await (await asCajero('/api/productos')).json()) as ProductWithCategory[]
+    assert(
+      !catalogoCaja.some((p) => p.name === 'Anticipo de encargo') &&
+        catalogoCaja.find((p) => p.id === medio.id)?.options.length === 3,
+      'la caja ve las opciones y no ve el producto interno de anticipos'
+    )
+
+    const [natural, adobado, carbon] = entero.options
+    const venderPollo = (items: unknown[]): Promise<Response> =>
+      asCajero('/api/ventas', 'POST', { items, paymentMethod: 'CASH', amountPaid: 1000 })
+    assert(
+      (await venderPollo([{ productId: entero.id, quantity: 1 }])).status === 400 &&
+        (
+          await venderPollo([
+            { productId: entero.id, quantity: 1, optionIds: [natural.id, adobado.id] }
+          ])
+        ).status === 400 &&
+        (
+          await venderPollo([
+            { productId: entero.id, quantity: 1, optionIds: [medio.options[0].id] }
+          ])
+        ).status === 400,
+      'opciones: falta elegir, dos del mismo grupo u opción de otro producto -> 400'
+    )
+    assert(
+      (
+        await venderPollo([
+          { productId: entero.id, quantity: 1, optionIds: [carbon.id], price: 191 }
+        ])
+      ).status === 400,
+      'el precio con opciones tampoco puede subir del de catálogo (190)'
+    )
+    const ventaPolloRes = await venderPollo([
+      { productId: entero.id, quantity: 2, optionIds: [carbon.id], note: '  bien   dorado ' },
+      { productId: medio.id, quantity: 1, optionIds: [medio.options[0].id] }
+    ])
+    const ventaPollo = (await ventaPolloRes.json()) as CreateSaleResponse
+    assert(
+      ventaPollo.total === 475 &&
+        ventaPollo.items[0].name === 'Pollo entero (Al carbón)' &&
+        ventaPollo.items[0].price === 190 &&
+        ventaPollo.items[0].note === 'bien dorado' &&
+        ventaPollo.items[1].note === null,
+      `venta con opciones (+$10 al carbón) y nota (${JSON.stringify(ventaPollo)})`
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 17.5,
+      `paquetes descuentan su contenido: 20 − 2 − 0.5 = 17.5 (${(await itemDe(pollo.id))?.stock})`
+    )
+
+    // Quitar "Al carbón": las demás se conservan (mismos ids) y la quitada ya no se vende.
+    const sinCarbon = (await (
+      await asAdmin(`/api/productos/${entero.id}`, 'PUT', {
+        name: entero.name,
+        price: 180,
+        categoryId: null,
+        options: [
+          { id: natural.id, groupName: 'Tipo de pollo', name: 'Natural', price: 0 },
+          { id: adobado.id, groupName: 'Tipo de pollo', name: 'Adobado', price: 0 }
+        ]
+      })
+    ).json()) as ProductWithCategory
+    assert(
+      sinCarbon.options.map((o) => o.id).join() === `${natural.id},${adobado.id}` &&
+        sinCarbon.components.length === 1,
+      `editar opciones conserva ids y no toca el contenido (${JSON.stringify(sinCarbon)})`
+    )
+    assert(
+      (await venderPollo([{ productId: entero.id, quantity: 1, optionIds: [carbon.id] }]))
+        .status === 400,
+      'una opción quitada ya no se puede vender'
+    )
+
+    // Encargo con anticipo en efectivo.
+    const lineaFamiliar = {
+      productId: familiar.id,
+      quantity: 1,
+      optionIds: [familiar.options[1].id],
+      note: 'sin cebolla'
+    }
+    const pickupAt = Math.floor(Date.now() / 1000) + 3 * 3600
+    assert(
+      (
+        await asCajero('/api/encargos', 'POST', {
+          customerName: 'Doña Rosa',
+          pickupAt,
+          items: [lineaFamiliar],
+          deposit: 300,
+          depositMethod: 'CASH',
+          amountPaid: 300
+        })
+      ).status === 400,
+      'anticipo mayor que el encargo -> 400'
+    )
+    assert(
+      (
+        await asCajero('/api/encargos', 'POST', {
+          customerName: 'Doña Rosa',
+          pickupAt: pickupAt - 86_400,
+          items: [lineaFamiliar]
+        })
+      ).status === 400,
+      'encargo para una hora que ya pasó -> 400'
+    )
+    const encargoRes = await asCajero('/api/encargos', 'POST', {
+      customerName: '  Doña   Rosa ',
+      phone: '555 123 4567',
+      pickupAt,
+      notes: 'Pasa su hijo',
+      items: [lineaFamiliar],
+      deposit: 100,
+      depositMethod: 'CASH',
+      amountPaid: 200,
+      clientRequestId: 'encargo-rosa-1'
+    })
+    const encargo = (await encargoRes.json()) as CreateOrderResponse
+    assert(
+      encargoRes.status === 201 &&
+        encargo.order.customerName === 'Doña Rosa' &&
+        encargo.order.total === 260 &&
+        encargo.order.deposit === 100 &&
+        encargo.order.status === 'PENDING' &&
+        encargo.order.items[0].name === 'Paquete familiar (Adobado)' &&
+        encargo.order.items[0].note === 'sin cebolla' &&
+        encargo.depositSale?.total === 100 &&
+        encargo.depositSale.change === 100,
+      `encargo con anticipo: venta de $100 con cambio de $100 (${JSON.stringify(encargo)})`
+    )
+    const encargoDup = await asCajero('/api/encargos', 'POST', {
+      customerName: 'Doña Rosa',
+      pickupAt,
+      items: [lineaFamiliar],
+      deposit: 100,
+      depositMethod: 'CASH',
+      amountPaid: 200,
+      clientRequestId: 'encargo-rosa-1'
+    })
+    assert(
+      encargoDup.status === 200 &&
+        ((await encargoDup.json()) as CreateOrderResponse).order.id === encargo.order.id,
+      'encargo repetido (doble clic) devuelve el mismo, sin cobrar dos veces'
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 17.5,
+      'el encargo no descuenta inventario hasta que se entrega'
+    )
+    const anticipoId = encargo.depositSale!.items[0].productId
+    assert(
+      (await venderPollo([{ productId: anticipoId, quantity: 1, price: 50 }])).status === 400,
+      'el producto de anticipos no se vende a mano'
+    )
+    const turnoAnticipo = ((await (await asCajero('/api/ventas/turno')).json()) as TurnSale[]).find(
+      (t) => t.id === encargo.depositSale!.id
+    )
+    assert(turnoAnticipo?.itemCount === 0, 'el anticipo no cuenta como producto vendido')
+    const pendientes = (await (await asCajero('/api/encargos')).json()) as Order[]
+    assert(
+      pendientes.length === 1 && pendientes[0].id === encargo.order.id,
+      'lista de encargos pendientes'
+    )
+
+    // Entrega: se cobra lo que resta (260 − 100) y se descuenta el inventario.
+    const entrega = (await (
+      await asCajero('/api/ventas', 'POST', {
+        items: [lineaFamiliar],
+        paymentMethod: 'CASH',
+        amountPaid: 200,
+        orderId: encargo.order.id
+      })
+    ).json()) as CreateSaleResponse
+    assert(
+      entrega.total === 160 &&
+        entrega.change === 40 &&
+        entrega.items.some((i) => i.subtotal === -100),
+      `entrega: cobra 160 y el anticipo va como renglón negativo (${JSON.stringify(entrega)})`
+    )
+    assert(
+      (await itemDe(pollo.id))?.stock === 16.5 && (await itemDe(tortillas.id))?.stock === 49,
+      'al entregar se descuenta el contenido del paquete'
+    )
+    const otraEntrega = await asCajero('/api/ventas', 'POST', {
+      items: [lineaFamiliar],
+      paymentMethod: 'CASH',
+      amountPaid: 300,
+      orderId: encargo.order.id
+    })
+    assert(
+      otraEntrega.status === 409,
+      `un encargo entregado no se cobra dos veces (${otraEntrega.status})`
+    )
+    const cerrados = (await (await asCajero('/api/encargos?status=CLOSED')).json()) as Order[]
+    assert(
+      cerrados[0]?.id === encargo.order.id &&
+        cerrados[0].status === 'DELIVERED' &&
+        cerrados[0].saleId === entrega.id,
+      'el encargo queda entregado con su venta'
+    )
+
+    // Entregar llevando menos de lo que ya se pagó: no se puede (el total quedaría negativo).
+    const chico = (await (
+      await asCajero('/api/encargos', 'POST', {
+        customerName: 'Pedro',
+        pickupAt,
+        items: [{ productId: medio.id, quantity: 2, optionIds: [medio.options[0].id] }],
+        deposit: 150,
+        depositMethod: 'TRANSFER'
+      })
+    ).json()) as CreateOrderResponse
+    assert(
+      (
+        await asCajero('/api/ventas', 'POST', {
+          items: [{ productId: medio.id, quantity: 1, optionIds: [medio.options[0].id] }],
+          paymentMethod: 'CASH',
+          amountPaid: 0,
+          orderId: chico.order.id
+        })
+      ).status === 400,
+      'entregar menos de lo anticipado -> 400'
+    )
+
+    // Cancelar devolviendo el anticipo: sale de la caja como retiro.
+    const cancelado = (await (
+      await asCajero(`/api/encargos/${chico.order.id}/cancelar`, 'POST', { refund: true })
+    ).json()) as Order
+    const movsEncargo = (await (await asCajero('/api/caja/movimientos')).json()) as CashMovement[]
+    assert(
+      cancelado.status === 'CANCELLED' &&
+        movsEncargo.some(
+          (m) => m.type === 'OUT' && m.amount === 150 && m.reason.includes(`#${chico.order.id}`)
+        ),
+      `cancelar con devolución registra el retiro de $150 (${JSON.stringify(movsEncargo)})`
+    )
+    assert(
+      (await asCajero(`/api/encargos/${chico.order.id}/cancelar`, 'POST', {})).status === 409,
+      'no se cancela dos veces'
+    )
+    const sinAnticipo = await asCajero('/api/encargos', 'POST', {
+      customerName: 'Luis',
+      pickupAt,
+      items: [{ productId: entero.id, quantity: 1, optionIds: [natural.id] }]
+    })
+    assert(
+      sinAnticipo.status === 201 &&
+        ((await sinAnticipo.json()) as CreateOrderResponse).depositSale === null,
+      'encargo sin anticipo: no hay venta todavía'
+    )
+
+    // ---- Cuentas abiertas (mesas) ----
+    const lata = await altaInv({
+      name: 'Refresco lata',
+      price: 20,
+      trackStock: true,
+      initialStock: 10
+    })
+    const abrirRes = await asCajero('/api/cuentas-abiertas', 'POST', {
+      name: ' Mesa   3 ',
+      items: [
+        { productId: entero.id, quantity: 1, optionIds: [adobado.id], note: 'sin chile' },
+        { productId: lata.id, quantity: 2 }
+      ]
+    })
+    const mesa = ((await abrirRes.json()) as TabResponse).order
+    assert(
+      abrirRes.status === 201 &&
+        mesa.type === 'CUENTA' &&
+        mesa.customerName === 'Mesa 3' &&
+        mesa.total === 220 &&
+        mesa.status === 'PENDING',
+      `abrir cuenta: Mesa 3 con $220 (${JSON.stringify(mesa)})`
+    )
+    assert(
+      (await asCajero('/api/cuentas-abiertas', 'POST', { name: 'mesa 3', items: [] })).status ===
+        409,
+      'no se abren dos cuentas con el mismo nombre'
+    )
+    const vacia = await asCajero('/api/cuentas-abiertas', 'POST', { name: 'Barra', items: [] })
+    assert(vacia.status === 201, 'una cuenta se puede abrir vacía')
+    assert(
+      (await itemDe(lata.id))?.stock === 10,
+      'la cuenta abierta no descuenta inventario hasta cobrarla'
+    )
+    const agregadoMesa = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [
+            { productId: lata.id, quantity: 1 },
+            { productId: entero.id, quantity: 1, optionIds: [adobado.id], note: 'sin chile' },
+            { productId: entero.id, quantity: 1, optionIds: [natural.id] }
+          ]
+        })
+      ).json()) as TabResponse
+    ).order
+    assert(
+      agregadoMesa.total === 600 &&
+        agregadoMesa.items.length === 3 &&
+        agregadoMesa.items.find((i) => i.productId === lata.id)?.quantity === 3 &&
+        agregadoMesa.items.find((i) => i.note === 'sin chile')?.quantity === 2,
+      `agregar junta lo igual (3 refrescos, 2 adobados) y suma $380 (${JSON.stringify(agregadoMesa)})`
+    )
+    const encargosSinMesas = (await (await asCajero('/api/encargos')).json()) as Order[]
+    const mesasAbiertas = (await (await asCajero('/api/cuentas-abiertas')).json()) as Order[]
+    assert(
+      !encargosSinMesas.some((o) => o.type === 'CUENTA') &&
+        mesasAbiertas.length === 2 &&
+        mesasAbiertas.every((o) => o.type === 'CUENTA'),
+      'cuentas abiertas y encargos van en listas separadas'
+    )
+    // Corregir sin cobrar: ya no quieren el natural.
+    const lineasDe = (o: Order): CartLineInput[] =>
+      o.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        note: i.note,
+        optionIds: i.optionIds
+      }))
+    const sinNatural = lineasDe(agregadoMesa).filter((l) => !l.optionIds?.includes(natural.id))
+    const corregida = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+          items: sinNatural,
+          version: agregadoMesa.version
+        })
+      ).json()) as TabResponse
+    ).order
+    assert(corregida.total === 420, `corregir la cuenta: queda en $420 (${corregida.total})`)
+    // Otra caja agrega algo mientras ésta tiene la cuenta en el carrito: cobrar o guardar la
+    // copia vieja perdería lo agregado.
+    const otraCaja = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).json()) as TabResponse
+    ).order
+    const cobrarMesa = (version?: number): Promise<Response> =>
+      asCajero('/api/ventas', 'POST', {
+        items: lineasDe(corregida),
+        paymentMethod: 'CARD',
+        orderId: mesa.id,
+        orderVersion: version
+      })
+    assert(
+      otraCaja.version === corregida.version + 1 &&
+        (await cobrarMesa(corregida.version)).status === 409 &&
+        (await cobrarMesa()).status === 409 &&
+        (
+          await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+            items: lineasDe(corregida),
+            version: corregida.version
+          })
+        ).status === 409,
+      'cobrar o guardar una copia vieja de la cuenta (o sin versión) -> 409'
+    )
+    // Se quita la lata que agregó la otra caja y se cobra la cuenta de $420.
+    const corregida2 = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+          items: lineasDe(corregida),
+          version: otraCaja.version
+        })
+      ).json()) as TabResponse
+    ).order
+    const cobroMesa = (await (await cobrarMesa(corregida2.version)).json()) as CreateSaleResponse
+    assert(
+      cobroMesa.total === 420 && (await itemDe(lata.id))?.stock === 7,
+      `cobrar la cuenta: venta de $420 y descuenta 3 refrescos (${cobroMesa.total})`
+    )
+    assert(
+      (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).status === 409,
+      'a una cuenta ya cobrada no se le agrega'
+    )
+    assert(
+      (
+        await asCajero(`/api/cuentas-abiertas/${encargo.order.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).status === 404,
+      'un encargo no se trata como cuenta abierta'
+    )
+
+    // Mesa trabada: le quitan al producto la opción que ya estaba en la cuenta a media comida.
+    const conOpcion = await altaInv({
+      name: 'Pechuga',
+      price: 90,
+      options: [
+        { groupName: 'Salsa', name: 'Verde', price: 0 },
+        { groupName: 'Salsa', name: 'Roja', price: 0 }
+      ]
+    })
+    const mesa9 = (
+      (await (
+        await asCajero('/api/cuentas-abiertas', 'POST', {
+          name: 'Mesa 9',
+          items: [{ productId: conOpcion.id, quantity: 1, optionIds: [conOpcion.options[0].id] }]
+        })
+      ).json()) as TabResponse
+    ).order
+    await asAdmin(`/api/productos/${conOpcion.id}`, 'PUT', {
+      name: 'Pechuga',
+      price: 100,
+      categoryId: null,
+      options: [{ id: conOpcion.options[1].id, groupName: 'Salsa', name: 'Roja', price: 0 }]
+    })
+    const mesa9Mas = await asCajero(`/api/cuentas-abiertas/${mesa9.id}/agregar`, 'POST', {
+      items: [
+        { productId: lata.id, quantity: 1 },
+        { productId: conOpcion.id, quantity: 1, optionIds: [conOpcion.options[1].id] }
+      ]
+    })
+    const mesa9Order = ((await mesa9Mas.json()) as TabResponse).order
+    assert(
+      mesa9Mas.status === 200 &&
+        mesa9Order.total === 90 + 20 + 100 &&
+        mesa9Order.items[0].name === 'Pechuga (Verde)',
+      `quitar una opción a media comida no traba la mesa; lo de antes conserva su precio (${mesa9Mas.status}, ${JSON.stringify(mesa9Order)})`
+    )
+
+    // Plantilla de pollería: sobre un catálogo que ya tiene "Pollo entero" (que aquí es paquete).
+    const plantillaPolleria = (await (
+      await asAdmin('/api/productos/plantillas/polleria', 'POST')
+    ).json()) as TemplateResult
+    const conPlantilla = (await (
+      await asAdmin('/api/productos?all=1')
+    ).json()) as ProductWithCategory[]
+    const cuarto = conPlantilla.find((p) => p.name === 'Cuarto de pollo')
+    const envio = conPlantilla.find((p) => p.name === 'Envío a domicilio')
+    assert(
+      plantillaPolleria.existing.includes('Pollo entero') &&
+        plantillaPolleria.created.includes('Tortillas 1/2 kg') &&
+        plantillaPolleria.failed.some((f) => f.name === 'Cuarto de pollo') &&
+        cuarto === undefined &&
+        envio?.openPrice === 1 &&
+        envio.categoryName === 'Servicio',
+      `plantilla: respeta lo existente y reporta lo que choca (${JSON.stringify(plantillaPolleria)})`
+    )
+    const otraVez = (await (
+      await asAdmin('/api/productos/plantillas/polleria', 'POST')
+    ).json()) as TemplateResult
+    assert(otraVez.created.length === 0, 'aplicar la plantilla dos veces no duplica')
+    assert(
+      (await asCajero('/api/productos/plantillas/polleria', 'POST')).status === 403 &&
+        (await asAdmin('/api/productos/plantillas/ferreteria', 'POST')).status === 404,
+      'plantilla: sólo admin y sólo las que existen'
     )
 
     console.log(

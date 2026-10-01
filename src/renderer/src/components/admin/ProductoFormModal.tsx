@@ -11,6 +11,13 @@ import {
   subirImagenProducto
 } from '@/api/admin'
 import { Modal } from '@/components/Modal'
+import { ContenidoEditor, OpcionesEditor } from '@/components/admin/ProductoExtras'
+import {
+  componentDrafts,
+  componentsPayload,
+  optionDrafts,
+  optionsPayload
+} from '@/lib/producto-extras'
 
 /** Categoría sugerida que todavía no existe: se crea al guardar. */
 const NEW_CATEGORY = -1
@@ -21,12 +28,15 @@ const LOOKUP_RE = /^\d{8,14}$/
 export function ProductoFormModal({
   product,
   categories,
+  products,
   initialBarcode,
   onClose,
   onSaved
 }: {
   product: ProductWithCategory | null
   categories: Category[]
+  /** Catálogo completo, para elegir el contenido de un paquete. */
+  products: ProductWithCategory[]
   /** Alta desde el lector: el código escaneado que no estaba registrado. */
   initialBarcode?: string
   onClose: () => void
@@ -45,6 +55,22 @@ export function ProductoFormModal({
   }>({ state: initialLookup ? 'loading' : 'idle' })
   const lookedUp = useRef<string | null>(null)
   const [active, setActive] = useState(product ? product.active === 1 : true)
+  const [openPrice, setOpenPrice] = useState(product?.openPrice === 1)
+  const wasTracked = product?.trackStock === 1
+  const [trackStock, setTrackStock] = useState(wasTracked)
+  const [initialStockText, setInitialStockText] = useState('')
+  const [minStockText, setMinStockText] = useState(
+    product?.minStock == null ? '' : String(product.minStock)
+  )
+  const [options, setOptions] = useState(() => optionDrafts(product))
+  const [contents, setContents] = useState(() => componentDrafts(product))
+  const [showExtras, setShowExtras] = useState(
+    () => (product?.options.length ?? 0) > 0 || (product?.components.length ?? 0) > 0
+  )
+  // Si este producto va dentro de un paquete, no puede ser paquete él mismo.
+  const insideOf = product
+    ? products.find((p) => p.components.some((c) => c.componentId === product.id))
+    : undefined
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -101,8 +127,31 @@ export function ProductoFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sólo al abrir
   }, [])
 
-  const price = Number.parseFloat(priceText.replace(',', '.'))
-  const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
+  // En precio libre el precio es sólo una sugerencia: vacío = 0.
+  const price =
+    openPrice && priceText.trim() === '' ? 0 : Number.parseFloat(priceText.replace(',', '.'))
+  const initialStock =
+    initialStockText.trim() === ''
+      ? undefined
+      : Number.parseFloat(initialStockText.replace(',', '.'))
+  const minStock =
+    minStockText.trim() === '' ? null : Number.parseFloat(minStockText.replace(',', '.'))
+  const stockValid =
+    !trackStock ||
+    ((initialStock === undefined ||
+      (Number.isFinite(initialStock) &&
+        initialStock >= 0 &&
+        (unit === 'KG' || Number.isInteger(initialStock)))) &&
+      (minStock === null || (Number.isFinite(minStock) && minStock >= 0)))
+  const optionsOut = openPrice ? [] : optionsPayload(options)
+  const contentsOut = componentsPayload(contents)
+  const valid =
+    name.trim().length > 0 &&
+    Number.isFinite(price) &&
+    price >= 0 &&
+    stockValid &&
+    optionsOut !== null &&
+    contentsOut !== null
 
   // Un solo object URL por archivo seleccionado; se libera al cambiarlo o cerrar.
   const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
@@ -133,6 +182,12 @@ export function ProductoFormModal({
         unit,
         categoryId: catId,
         barcode: barcode.trim(),
+        openPrice,
+        trackStock,
+        ...(trackStock ? { minStock } : {}),
+        ...(trackStock && !wasTracked && initialStock !== undefined ? { initialStock } : {}),
+        options: optionsOut ?? [],
+        components: contentsOut ?? [],
         active
       }
       const saved = product
@@ -164,7 +219,9 @@ export function ProductoFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1 block text-sm font-medium">Precio</span>
+            <span className="mb-1 block text-sm font-medium">
+              {openPrice ? 'Precio sugerido (opcional)' : 'Precio'}
+            </span>
             <input
               inputMode="decimal"
               value={priceText}
@@ -185,6 +242,22 @@ export function ProductoFormModal({
             </select>
           </label>
         </div>
+
+        <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={openPrice}
+            onChange={(e) => setOpenPrice(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Precio libre</span>
+            <span className="block text-xs text-muted-foreground">
+              El cajero escribe el importe al cobrar y, si quiere, qué fue (ej. Varios, engargolado,
+              impresión especial). Sin tope de precio ni límite de descuento.
+            </span>
+          </span>
+        </label>
 
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Código de barras (opcional)</span>
@@ -219,6 +292,127 @@ export function ProductoFormModal({
             </span>
           )}
         </label>
+
+        {!openPrice && (
+          <div className="space-y-2 rounded-lg border border-border px-3 py-2">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={trackStock}
+                onChange={(e) => setTrackStock(e.target.checked)}
+              />
+              Llevar inventario
+            </label>
+            {trackStock && (
+              <div className="grid grid-cols-2 gap-3">
+                {wasTracked ? (
+                  <div className="text-sm">
+                    <span className="mb-1 block font-medium">Existencia</span>
+                    <span className="block py-2">
+                      {product!.stock} {unit === 'KG' ? 'kg' : 'pz'}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Se cambia en Inventario.
+                    </span>
+                  </div>
+                ) : (
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium">¿Cuántos hay?</span>
+                    <input
+                      inputMode="decimal"
+                      value={initialStockText}
+                      onChange={(e) => setInitialStockText(e.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                    />
+                  </label>
+                )}
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Avisar al llegar a</span>
+                  <input
+                    inputMode="decimal"
+                    value={minStockText}
+                    onChange={(e) => setMinStockText(e.target.value)}
+                    placeholder="Sin aviso"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                  />
+                </label>
+              </div>
+            )}
+            {trackStock && !stockValid && (
+              <p className="text-xs text-pos-danger">
+                Revisa las cantidades: sin negativos
+                {unit === 'PIEZA' ? ' y en piezas enteras' : ''}.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!openPrice && (
+          <div className="rounded-lg border border-border px-3 py-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showExtras}
+                onChange={(e) => {
+                  setShowExtras(e.target.checked)
+                  if (!e.target.checked) {
+                    setOptions([])
+                    setContents([])
+                  }
+                }}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">Opciones y paquete</span>
+                <span className="block text-xs text-muted-foreground">
+                  Para comida: el cajero elige el tipo al cobrar (natural, adobado…) y los paquetes
+                  descuentan del inventario lo que llevan.
+                </span>
+              </span>
+            </label>
+            {showExtras && (
+              <div className="mt-3 space-y-4">
+                <div>
+                  <p className="text-sm font-medium">Opciones para elegir al vender</p>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    De cada grupo se elige una. Ej. grupo &quot;Tipo de pollo&quot;: Natural,
+                    Adobado, Al carbón (+$10).
+                  </p>
+                  <OpcionesEditor drafts={options} onChange={setOptions} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Lleva (paquete o presentación)</p>
+                  {insideOf ? (
+                    <p className="text-xs text-muted-foreground">
+                      Este producto va dentro de &quot;{insideOf.name}&quot;, así que no puede ser
+                      paquete.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Al venderlo se descuenta esto del inventario. Ej. &quot;Medio pollo&quot;
+                        lleva 0.5 de &quot;Pollo&quot;; el paquete lleva 1 pollo y 1 tortillas.
+                      </p>
+                      <ContenidoEditor
+                        drafts={contents}
+                        onChange={setContents}
+                        products={products}
+                        selfId={product?.id ?? null}
+                      />
+                    </>
+                  )}
+                </div>
+                {(optionsOut === null || contentsOut === null) && (
+                  <p className="text-xs text-pos-danger">
+                    Completa cada opción (grupo y nombre) y cada producto del paquete (con su
+                    cantidad), o quítalos.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Categoría</span>

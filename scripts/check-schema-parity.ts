@@ -54,6 +54,10 @@ const TABLES = [
   'creditAccounts',
   'creditPayments',
   'cashMovements',
+  'stockMovements',
+  'productOptions',
+  'productComponents',
+  'orders',
   'config',
   'license'
 ] as const

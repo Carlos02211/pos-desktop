@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 interface SocketState {
   connected: boolean
   /**
-   * Se incrementa con cada evento de negocio (venta, apertura/cierre de caja).
+   * Se incrementa con cada evento de negocio (venta, apertura/cierre de caja, inventario).
    * Úsalo como dependencia de `useEffect` para refrescar datos en vivo.
    */
   revision: number
@@ -30,6 +30,8 @@ socket.on('venta:actualizada', bump)
 socket.on('caja:apertura', bump)
 socket.on('caja:cierre', bump)
 socket.on('cuenta:abono', bump)
+socket.on('stock:update', bump)
+socket.on('encargo:update', bump)
 
 // Conecta el socket sólo mientras haya sesión iniciada.
 useAuthStore.subscribe((state, prev) => {
