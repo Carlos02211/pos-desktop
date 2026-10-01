@@ -92,11 +92,21 @@ export async function createSale(
       const [order] = await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1)
       if (!order) throw new HttpError(404, 'Encargo no encontrado.')
       if (order.status !== 'PENDING') {
+        const what =
+          order.type === 'CUENTA' ? `La cuenta "${order.customerName}"` : `El encargo #${order.id}`
         throw new HttpError(
           409,
           order.status === 'DELIVERED'
-            ? `El encargo #${order.id} ya se entregó.`
-            : `El encargo #${order.id} está cancelado.`
+            ? `${what} ya se ${order.type === 'CUENTA' ? 'cobró' : 'entregó'}.`
+            : `${what} está cancelad${order.type === 'CUENTA' ? 'a' : 'o'}.`
+        )
+      }
+      // Cuenta abierta: si otra caja le agregó algo desde que se cargó, cobrarla así perdería
+      // eso (quedaría cobrada sin incluirlo).
+      if (order.type === 'CUENTA' && input.orderVersion !== order.version) {
+        throw new HttpError(
+          409,
+          `Otra caja le agregó algo a "${order.customerName}" mientras la tenías abierta. Suéltala (Cancelar) y vuelve a abrirla desde Mesas.`
         )
       }
       if (order.deposit > 0) {

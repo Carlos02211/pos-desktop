@@ -1,11 +1,13 @@
 CREATE TABLE "orders" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "orders_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"type" text DEFAULT 'ENCARGO' NOT NULL,
 	"customer_name" text NOT NULL,
 	"phone" text,
 	"pickup_at" integer NOT NULL,
 	"notes" text,
 	"items" text NOT NULL,
 	"total" integer NOT NULL,
+	"version" integer DEFAULT 1 NOT NULL,
 	"deposit" integer DEFAULT 0 NOT NULL,
 	"deposit_sale_id" integer,
 	"status" text DEFAULT 'PENDING' NOT NULL,

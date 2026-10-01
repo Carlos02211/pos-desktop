@@ -32,8 +32,10 @@ import { startServer } from '../src/main/server'
 import { getHardwareFingerprint, publicKeyOf, signLicense } from '../src/main/services/license'
 import type {
   AddToSaleResponse,
+  CartLineInput,
   CreateOrderResponse,
   Order,
+  TabResponse,
   TemplateResult,
   InventoryItem,
   StockMovement,
@@ -2438,6 +2440,143 @@ async function main(): Promise<void> {
       sinAnticipo.status === 201 &&
         ((await sinAnticipo.json()) as CreateOrderResponse).depositSale === null,
       'encargo sin anticipo: no hay venta todavía'
+    )
+
+    // ---- Cuentas abiertas (mesas) ----
+    const lata = await altaInv({
+      name: 'Refresco lata',
+      price: 20,
+      trackStock: true,
+      initialStock: 10
+    })
+    const abrirRes = await asCajero('/api/cuentas-abiertas', 'POST', {
+      name: ' Mesa   3 ',
+      items: [
+        { productId: entero.id, quantity: 1, optionIds: [adobado.id], note: 'sin chile' },
+        { productId: lata.id, quantity: 2 }
+      ]
+    })
+    const mesa = ((await abrirRes.json()) as TabResponse).order
+    assert(
+      abrirRes.status === 201 &&
+        mesa.type === 'CUENTA' &&
+        mesa.customerName === 'Mesa 3' &&
+        mesa.total === 220 &&
+        mesa.status === 'PENDING',
+      `abrir cuenta: Mesa 3 con $220 (${JSON.stringify(mesa)})`
+    )
+    assert(
+      (await asCajero('/api/cuentas-abiertas', 'POST', { name: 'mesa 3', items: [] })).status ===
+        409,
+      'no se abren dos cuentas con el mismo nombre'
+    )
+    const vacia = await asCajero('/api/cuentas-abiertas', 'POST', { name: 'Barra', items: [] })
+    assert(vacia.status === 201, 'una cuenta se puede abrir vacía')
+    assert(
+      (await itemDe(lata.id))?.stock === 10,
+      'la cuenta abierta no descuenta inventario hasta cobrarla'
+    )
+    const agregadoMesa = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [
+            { productId: lata.id, quantity: 1 },
+            { productId: entero.id, quantity: 1, optionIds: [adobado.id], note: 'sin chile' },
+            { productId: entero.id, quantity: 1, optionIds: [natural.id] }
+          ]
+        })
+      ).json()) as TabResponse
+    ).order
+    assert(
+      agregadoMesa.total === 600 &&
+        agregadoMesa.items.length === 3 &&
+        agregadoMesa.items.find((i) => i.productId === lata.id)?.quantity === 3 &&
+        agregadoMesa.items.find((i) => i.note === 'sin chile')?.quantity === 2,
+      `agregar junta lo igual (3 refrescos, 2 adobados) y suma $380 (${JSON.stringify(agregadoMesa)})`
+    )
+    const encargosSinMesas = (await (await asCajero('/api/encargos')).json()) as Order[]
+    const mesasAbiertas = (await (await asCajero('/api/cuentas-abiertas')).json()) as Order[]
+    assert(
+      !encargosSinMesas.some((o) => o.type === 'CUENTA') &&
+        mesasAbiertas.length === 2 &&
+        mesasAbiertas.every((o) => o.type === 'CUENTA'),
+      'cuentas abiertas y encargos van en listas separadas'
+    )
+    // Corregir sin cobrar: ya no quieren el natural.
+    const lineasDe = (o: Order): CartLineInput[] =>
+      o.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        note: i.note,
+        optionIds: i.optionIds
+      }))
+    const sinNatural = lineasDe(agregadoMesa).filter((l) => !l.optionIds?.includes(natural.id))
+    const corregida = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+          items: sinNatural,
+          version: agregadoMesa.version
+        })
+      ).json()) as TabResponse
+    ).order
+    assert(corregida.total === 420, `corregir la cuenta: queda en $420 (${corregida.total})`)
+    // Otra caja agrega algo mientras ésta tiene la cuenta en el carrito: cobrar o guardar la
+    // copia vieja perdería lo agregado.
+    const otraCaja = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).json()) as TabResponse
+    ).order
+    const cobrarMesa = (version?: number): Promise<Response> =>
+      asCajero('/api/ventas', 'POST', {
+        items: lineasDe(corregida),
+        paymentMethod: 'CARD',
+        orderId: mesa.id,
+        orderVersion: version
+      })
+    assert(
+      otraCaja.version === corregida.version + 1 &&
+        (await cobrarMesa(corregida.version)).status === 409 &&
+        (await cobrarMesa()).status === 409 &&
+        (
+          await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+            items: lineasDe(corregida),
+            version: corregida.version
+          })
+        ).status === 409,
+      'cobrar o guardar una copia vieja de la cuenta (o sin versión) -> 409'
+    )
+    // Se quita la lata que agregó la otra caja y se cobra la cuenta de $420.
+    const corregida2 = (
+      (await (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}`, 'PUT', {
+          items: lineasDe(corregida),
+          version: otraCaja.version
+        })
+      ).json()) as TabResponse
+    ).order
+    const cobroMesa = (await (await cobrarMesa(corregida2.version)).json()) as CreateSaleResponse
+    assert(
+      cobroMesa.total === 420 && (await itemDe(lata.id))?.stock === 7,
+      `cobrar la cuenta: venta de $420 y descuenta 3 refrescos (${cobroMesa.total})`
+    )
+    assert(
+      (
+        await asCajero(`/api/cuentas-abiertas/${mesa.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).status === 409,
+      'a una cuenta ya cobrada no se le agrega'
+    )
+    assert(
+      (
+        await asCajero(`/api/cuentas-abiertas/${encargo.order.id}/agregar`, 'POST', {
+          items: [{ productId: lata.id, quantity: 1 }]
+        })
+      ).status === 404,
+      'un encargo no se trata como cuenta abierta'
     )
 
     // Plantilla de pollería: sobre un catálogo que ya tiene "Pollo entero" (que aquí es paquete).

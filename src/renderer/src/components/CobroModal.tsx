@@ -139,7 +139,8 @@ export function CobroModal({
         amountPaid: method === 'CASH' || method === 'CREDIT' ? paidNum : undefined,
         customerId: cId,
         clientRequestId,
-        orderId: delivery?.orderId
+        orderId: delivery?.orderId,
+        orderVersion: delivery?.version
       })
       onDone(sale)
     } catch (err) {
@@ -158,8 +159,16 @@ export function CobroModal({
       <div className="space-y-4">
         {delivery && (
           <p className="rounded-lg bg-pos-warning/15 px-3 py-2 text-xs">
-            Entrega del encargo <strong>#{delivery.orderId}</strong> de {delivery.customerName}
-            {delivery.deposit > 0 && <> · ya dejó {money(delivery.deposit)} de anticipo</>}
+            {delivery.type === 'CUENTA' ? (
+              <>
+                Cuenta de <strong>{delivery.customerName}</strong>
+              </>
+            ) : (
+              <>
+                Entrega del encargo <strong>#{delivery.orderId}</strong> de {delivery.customerName}
+                {delivery.deposit > 0 && <> · ya dejó {money(delivery.deposit)} de anticipo</>}
+              </>
+            )}
           </p>
         )}
         <div className="flex items-baseline justify-between rounded-lg bg-secondary/50 px-3 py-2">

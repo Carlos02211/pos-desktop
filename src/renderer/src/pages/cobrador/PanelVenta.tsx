@@ -12,7 +12,8 @@ import {
   PencilLine,
   Receipt,
   Search,
-  Trash2
+  Trash2,
+  UtensilsCrossed
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type {
@@ -25,7 +26,7 @@ import type {
 } from '@shared/types'
 import { getCategorias, getProductos } from '@/api/catalogo'
 import { abrirCajon, cajonActivo, getSesionActiva } from '@/api/caja'
-import { listarEncargos } from '@/api/encargos'
+import { guardarCuenta, listarCuentasAbiertas, listarEncargos } from '@/api/encargos'
 import { reimprimirVenta } from '@/api/ventas'
 import { ApiRequestError } from '@/api/client'
 import { AgregarCobroModal } from '@/components/AgregarCobroModal'
@@ -33,6 +34,7 @@ import { CarritoItem } from '@/components/CarritoItem'
 import { CobroModal } from '@/components/CobroModal'
 import { EncargoFormModal } from '@/components/EncargoFormModal'
 import { EncargosModal } from '@/components/EncargosModal'
+import { MesasModal } from '@/components/MesasModal'
 import { MovimientoCajaModal } from '@/components/MovimientoCajaModal'
 import { OpcionesModal } from '@/components/OpcionesModal'
 import { PrecioLibreModal } from '@/components/PrecioLibreModal'
@@ -42,7 +44,7 @@ import { useBarcodeScanner } from '@/lib/barcode-scanner'
 import { useNow } from '@/hooks/useNow'
 import { dateTime, money, timeOnly } from '@/lib/format'
 import { socket } from '@/lib/socket'
-import { type AppendTarget, cartTotal, useCartStore } from '@/stores/cart.store'
+import { type AppendTarget, cartLines, cartTotal, useCartStore } from '@/stores/cart.store'
 import { useSocketStore } from '@/stores/socket.store'
 
 type Load = 'loading' | 'no-caja' | 'ready' | 'error'
@@ -67,6 +69,9 @@ export default function PanelVenta(): React.JSX.Element {
   const [encargoOpen, setEncargoOpen] = useState(false)
   const [encargosOpen, setEncargosOpen] = useState(false)
   const [pendingOrders, setPendingOrders] = useState(0)
+  const [mesasOpen, setMesasOpen] = useState(false)
+  const [openTabs, setOpenTabs] = useState(0)
+  const [savingTab, setSavingTab] = useState(false)
   const revision = useSocketStore((s) => s.revision)
 
   // Selectores puntuales: la grilla de productos no se re-renderiza al cambiar el carrito.
@@ -125,6 +130,9 @@ export default function PanelVenta(): React.JSX.Element {
     if (load !== 'ready') return
     listarEncargos('PENDING')
       .then((list) => setPendingOrders(list.length))
+      .catch(() => {})
+    listarCuentasAbiertas('PENDING')
+      .then((list) => setOpenTabs(list.length))
       .catch(() => {})
   }, [load, revision])
 
@@ -194,7 +202,8 @@ export default function PanelVenta(): React.JSX.Element {
     libre !== null ||
     conOpciones !== null ||
     encargoOpen ||
-    encargosOpen
+    encargosOpen ||
+    mesasOpen
 
   // Con un modal abierto el lector no agrega nada detrás (el cobro ya está en curso).
   useBarcodeScanner(scan, load === 'ready' && !modalOpen)
@@ -238,7 +247,10 @@ export default function PanelVenta(): React.JSX.Element {
     setCobroOpen(false)
     if (delivered) {
       toast.success(
-        `Encargo #${delivered.orderId} entregado · venta #${sale.ticketNumber} por ${money(sale.total)}`
+        (delivered.type === 'CUENTA'
+          ? `Cuenta "${delivered.customerName}" cobrada`
+          : `Encargo #${delivered.orderId} entregado`) +
+          ` · venta #${sale.ticketNumber} por ${money(sale.total)}`
       )
     } else if (sale.creditAccountId) {
       const debt = sale.total - (sale.amountPaid ?? 0)
@@ -298,6 +310,7 @@ export default function PanelVenta(): React.JSX.Element {
   function startDelivery(order: Order): void {
     const missing = loadOrder(order, products)
     setEncargosOpen(false)
+    setMesasOpen(false)
     if (missing.length > 0) {
       toast.warning(
         `Ya no se venden: ${missing.join(', ')}. Agrega algo parecido o cóbralo con Varios.`,
@@ -305,6 +318,21 @@ export default function PanelVenta(): React.JSX.Element {
       )
     } else {
       toast.info(`Revisa el pedido de ${order.customerName} y toca "Cobrar".`)
+    }
+  }
+
+  /** Corrección de una cuenta abierta (quitaron algo) sin cobrarla: se guarda como quedó. */
+  async function saveTab(): Promise<void> {
+    if (!delivery) return
+    setSavingTab(true)
+    try {
+      const { order } = await guardarCuenta(delivery.orderId, cartLines(items), delivery.version)
+      clear()
+      toast.success(`Cuenta "${order.customerName}" guardada · lleva ${money(order.total)}`)
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo guardar la cuenta')
+    } finally {
+      setSavingTab(false)
     }
   }
 
@@ -397,6 +425,12 @@ export default function PanelVenta(): React.JSX.Element {
             )}
             <ToolButton icon={Receipt} label="Ventas" onClick={() => setVentasOpen(true)} />
             <ToolButton
+              icon={UtensilsCrossed}
+              label="Mesas"
+              badge={openTabs}
+              onClick={() => setMesasOpen(true)}
+            />
+            <ToolButton
               icon={ClipboardList}
               label="Encargos"
               badge={pendingOrders}
@@ -453,15 +487,38 @@ export default function PanelVenta(): React.JSX.Element {
         {delivery && (
           <div className="flex items-center justify-between gap-2 border-b border-border bg-pos-warning/15 px-4 py-2 text-xs">
             <span>
-              Entregando el encargo <strong>#{delivery.orderId}</strong> de {delivery.customerName}
-              {deposit > 0 && <> · ya dejó {money(deposit)}</>}
+              {delivery.type === 'CUENTA' ? (
+                <>
+                  Cuenta de <strong>{delivery.customerName}</strong>: cóbrala o corrígela y
+                  guárdala.
+                </>
+              ) : (
+                <>
+                  Entregando el encargo <strong>#{delivery.orderId}</strong> de{' '}
+                  {delivery.customerName}
+                  {deposit > 0 && <> · ya dejó {money(deposit)}</>}
+                </>
+              )}
             </span>
-            <button
-              onClick={clear}
-              className="shrink-0 rounded-md border border-border px-2 py-0.5 font-medium transition hover:bg-secondary"
-            >
-              Cancelar
-            </button>
+            <span className="flex shrink-0 gap-1">
+              {delivery.type === 'CUENTA' && (
+                <button
+                  onClick={() => void saveTab()}
+                  disabled={savingTab}
+                  title="Guardar la cuenta como quedó, sin cobrar"
+                  className="rounded-md border border-ring bg-primary px-2 py-0.5 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                >
+                  Guardar
+                </button>
+              )}
+              <button
+                onClick={clear}
+                title="Soltar sin cambios"
+                className="rounded-md border border-border px-2 py-0.5 font-medium transition hover:bg-secondary"
+              >
+                Cancelar
+              </button>
+            </span>
           </div>
         )}
 
@@ -503,11 +560,11 @@ export default function PanelVenta(): React.JSX.Element {
             </span>
             <span className="text-3xl font-bold tabular-nums">{money(toCharge)}</span>
           </div>
-          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-1.5">
             <button
               onClick={() => setCobroOpen(true)}
               disabled={items.length === 0}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-pos-success px-4 py-3.5 text-lg font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-pos-success px-3 py-3.5 text-lg font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
             >
               <Banknote size={22} />
               {appendTo ? `Agregar a #${appendTo.ticketNumber}` : 'Cobrar'}
@@ -516,16 +573,25 @@ export default function PanelVenta(): React.JSX.Element {
               onClick={() => setEncargoOpen(true)}
               disabled={items.length === 0 || !!appendTo || !!delivery}
               title="Guardar como encargo: pasan por él después (con o sin anticipo)"
-              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-3 py-2 text-xs font-medium transition hover:border-ring disabled:opacity-40"
+              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-2 py-2 text-xs font-medium transition hover:border-ring disabled:opacity-40"
             >
               <ClipboardList size={18} />
               Encargo
             </button>
             <button
+              onClick={() => setMesasOpen(true)}
+              disabled={items.length === 0 || !!appendTo || !!delivery}
+              title="Agregar a una mesa o cuenta abierta (se cobra al final)"
+              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-2 py-2 text-xs font-medium transition hover:border-ring disabled:opacity-40"
+            >
+              <UtensilsCrossed size={18} />
+              Mesa
+            </button>
+            <button
               onClick={clear}
               disabled={items.length === 0}
               title="Vaciar el carrito"
-              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-4 py-2 text-xs font-medium transition hover:border-destructive hover:text-destructive disabled:opacity-40"
+              className="inline-flex flex-col items-center justify-center gap-0.5 rounded-xl border border-input bg-secondary px-2 py-2 text-xs font-medium transition hover:border-destructive hover:text-destructive disabled:opacity-40"
             >
               <Trash2 size={18} />
               Vaciar
@@ -560,6 +626,7 @@ export default function PanelVenta(): React.JSX.Element {
           onDone={onOrderDone}
         />
       )}
+      {mesasOpen && <MesasModal onClose={() => setMesasOpen(false)} onCharge={startDelivery} />}
       {encargosOpen && (
         <EncargosModal
           cartBusy={items.length > 0}

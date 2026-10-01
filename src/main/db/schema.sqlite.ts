@@ -316,6 +316,11 @@ export const orders = sqliteTable(
   'orders',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    // ENCARGO = para recoger a cierta hora. CUENTA = cuenta abierta (mesa): se le van agregando
+    // productos y se cobra al final; `pickupAt` es cuándo se abrió.
+    type: text('type', { enum: ['ENCARGO', 'CUENTA'] })
+      .notNull()
+      .default('ENCARGO'),
     customerName: text('customer_name').notNull(),
     phone: text('phone'),
     pickupAt: integer('pickup_at').notNull(), // Unix (s): cuándo pasan por él
@@ -323,6 +328,9 @@ export const orders = sqliteTable(
     // Renglones del carrito (CartLineInput[] en JSON): se validan otra vez al entregarlo.
     items: text('items').notNull(),
     total: integer('total').notNull(), // centavos, con los precios del día en que se encargó
+    // Sube con cada cambio de renglones: quien cobra o corrige con una copia vieja recibe 409
+    // (otra caja agregó algo mientras tanto y se perdería).
+    version: integer('version').notNull().default(1),
     deposit: integer('deposit').notNull().default(0), // anticipo en centavos
     depositSaleId: integer('deposit_sale_id').references(() => sales.id),
     status: text('status', { enum: ['PENDING', 'DELIVERED', 'CANCELLED'] })

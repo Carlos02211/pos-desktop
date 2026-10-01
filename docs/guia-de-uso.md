@@ -62,6 +62,23 @@ domicilio:
 7. Si ya no lo quieren, toca **Cancelar**. Si dejó anticipo, eliges si se lo regresas (sale
    de la caja como retiro) o se queda.
 
+## 3b. Mesas y cuentas abiertas (comen en el lugar)
+
+Para ir anotando lo que piden y cobrar todo al final:
+
+1. Pon en el carrito lo que pidieron y toca **Mesa** (junto a Cobrar).
+2. Escribe la mesa o el nombre (**Mesa 3**, **Don Pepe**) y toca **Abrir con lo del carrito**.
+   Si la cuenta ya existe, toca **Agregar lo del carrito** en su tarjeta: lo igual se junta
+   (2 refrescos + 1 refresco = 3).
+3. Marca **Imprimir comanda** si quieres que salga para la cocina lo nuevo (sin precios).
+4. El botón **Mesas** (arriba) muestra cuántas cuentas hay abiertas. En cada una puedes
+   imprimir la **Cuenta** para que el cliente vea cuánto lleva.
+5. Para cobrar, toca **Cobrar** en la tarjeta: la cuenta pasa al carrito. Ahí puedes quitar o
+   corregir algo y cobrar como siempre. Si sólo querías corregirla, toca **Guardar** en el
+   aviso amarillo.
+6. Si otra caja le agregó algo mientras tú la tenías en el carrito, el sistema no te deja
+   cobrarla así (se perdería lo agregado): toca **Cancelar** en el aviso y vuelve a abrirla.
+
 ## 4. Sacar o meter efectivo de la caja
 
 Si durante el turno **sacas** dinero de la caja (comprar bolsas, un gasto, llevar

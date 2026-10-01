@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
+  CartLineInput,
   Order,
+  OrderType,
   PaymentMethod,
   ProductOption,
   ProductUnit,
@@ -32,9 +34,12 @@ export interface CartItem {
 
 type CartProduct = Pick<ProductWithCategory, 'id' | 'name' | 'price' | 'unit'>
 
-/** Encargo que se está entregando: al cobrar se descuenta su anticipo. */
+/** Encargo que se está entregando (o cuenta abierta que se cobra): al cobrar se descuenta su anticipo. */
 export interface DeliveryTarget {
   orderId: number
+  type: OrderType
+  /** Versión cargada: si otra caja la cambia, el servidor rechaza cobrar/guardar esta copia. */
+  version: number
   customerName: string
   deposit: number
 }
@@ -140,7 +145,13 @@ export const useCartStore = create<CartState>()(
         set({
           items,
           appendTo: null,
-          delivery: { orderId: order.id, customerName: order.customerName, deposit: order.deposit }
+          delivery: {
+            orderId: order.id,
+            type: order.type,
+            version: order.version,
+            customerName: order.customerName,
+            deposit: order.deposit
+          }
         })
         return missing
       },
@@ -265,4 +276,15 @@ export function cartTotal(items: CartItem[]): number {
 /** Artículos: las piezas por su cantidad; cada producto por peso cuenta como 1 (no 0.35). */
 export function cartCount(items: CartItem[]): number {
   return items.reduce((sum, i) => sum + (i.unit === 'KG' ? 1 : i.quantity), 0)
+}
+
+/** Renglones como los recibe el servidor. `price` sólo si el cajero lo editó (o es precio libre). */
+export function cartLines(items: CartItem[]): CartLineInput[] {
+  return items.map((i) => ({
+    productId: i.productId,
+    quantity: i.quantity,
+    price: i.openPrice || i.price !== i.originalPrice ? i.price : undefined,
+    note: i.note,
+    optionIds: i.optionIds
+  }))
 }

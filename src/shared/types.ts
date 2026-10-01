@@ -270,11 +270,15 @@ export interface CreateSaleInput {
   clientRequestId?: string
   /** Se está entregando este encargo: queda entregado y su anticipo se descuenta del total. */
   orderId?: number
+  /** Versión del encargo/cuenta que se cargó al carrito (obligatoria en cuentas abiertas). */
+  orderVersion?: number
 }
 
 /* ---- Encargos ---- */
 
 export type OrderStatus = 'PENDING' | 'DELIVERED' | 'CANCELLED'
+/** ENCARGO = pasan por él a cierta hora. CUENTA = cuenta abierta (mesa) que se cobra al final. */
+export type OrderType = 'ENCARGO' | 'CUENTA'
 
 /**
  * Renglón de un encargo: lo que se mandó del carrito (`price` sólo si el cajero lo rebajó) más
@@ -289,14 +293,18 @@ export interface OrderItem extends CartLineInput {
 
 export interface Order {
   id: number
+  type: OrderType
+  /** Encargo: a nombre de quién. Cuenta abierta: la mesa o el cliente ("Mesa 3"). */
   customerName: string
   phone: string | null
-  /** Unix (s): cuándo pasan por él. */
+  /** Unix (s): encargo = cuándo pasan por él; cuenta abierta = cuándo se abrió. */
   pickupAt: number
   notes: string | null
   items: OrderItem[]
   /** Total con los precios del día en que se encargó. */
   total: number
+  /** Sube con cada cambio: cobrar o corregir con una versión vieja da 409. */
+  version: number
   /** Anticipo que ya dejaron (0 = nada). */
   deposit: number
   depositSaleId: number | null
@@ -329,6 +337,27 @@ export interface CreateOrderResponse {
   /** Venta del anticipo (si dejaron), para el folio y el cambio. */
   depositSale: SaleWithItems | null
   print: PrintResult
+}
+
+/** Cuerpo de `POST /api/cuentas-abiertas`: abre una cuenta (mesa) con lo que ya pidieron. */
+export interface CreateTabInput {
+  name: string
+  items: CartLineInput[]
+  /** Imprimir la comanda de lo que se agrega (para la cocina, sin precios). */
+  printComanda?: boolean
+}
+
+/** Cuerpo de `POST /api/cuentas-abiertas/:id/agregar`. */
+export interface AddToTabInput {
+  items: CartLineInput[]
+  printComanda?: boolean
+}
+
+/** Respuesta al abrir una cuenta o agregarle productos. */
+export interface TabResponse {
+  order: Order
+  /** Sólo si se pidió la comanda. */
+  print?: PrintResult
 }
 
 /** Cuerpo de `POST /api/encargos/:id/cancelar`. */

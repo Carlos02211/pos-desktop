@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dbf9b2d1-06c9-4768-a821-14d9f9986c11",
+  "id": "751838d0-1066-4635-a459-f1fd9c37dad8",
   "prevId": "8846d7b6-00c8-402c-b857-f26bd2339b40",
   "tables": {
     "cash_movements": {
@@ -648,6 +648,14 @@
           "notNull": true,
           "autoincrement": true
         },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'ENCARGO'"
+        },
         "customer_name": {
           "name": "customer_name",
           "type": "text",
@@ -689,6 +697,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
         },
         "deposit": {
           "name": "deposit",

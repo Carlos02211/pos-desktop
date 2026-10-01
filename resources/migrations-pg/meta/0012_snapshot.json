@@ -1,5 +1,5 @@
 {
-  "id": "b3f6cd8a-c58c-44da-9435-f0246bc462d6",
+  "id": "69824f14-fc50-4c50-817d-140a653a1e1a",
   "prevId": "344ce3ce-3a39-4498-a38b-d2f198dd55af",
   "version": "7",
   "dialect": "postgresql",
@@ -792,6 +792,13 @@
             "cycle": false
           }
         },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ENCARGO'"
+        },
         "customer_name": {
           "name": "customer_name",
           "type": "text",
@@ -827,6 +834,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
         },
         "deposit": {
           "name": "deposit",

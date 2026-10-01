@@ -50,7 +50,8 @@ const createSaleSchema = z.object({
   /** Token del cliente para deduplicar reintentos de red / doble submit. */
   clientRequestId: z.string().min(8).max(64).optional(),
   /** Entrega de un encargo: se marca entregado y se descuenta su anticipo. */
-  orderId: z.number().int().positive().optional()
+  orderId: z.number().int().positive().optional(),
+  orderVersion: z.number().int().positive().optional()
 })
 
 const addToSaleSchema = z.object({

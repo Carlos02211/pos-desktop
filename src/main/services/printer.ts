@@ -472,6 +472,71 @@ function orderBlock(order: Order, config: ConfigMap): TicketLine[] {
   return lines
 }
 
+/** Pre-cuenta de una cuenta abierta (mesa): lo que lleva y el total. No es comprobante de pago. */
+export function tabTicketLines(order: Order, config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  const pair = (left: string, right: string, leftWidth?: number, bold = false): void => {
+    for (const t of pairText(left, right, leftWidth)) lines.push({ text: t, align: 'left', bold })
+  }
+  const rule = (): void => {
+    lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  }
+  const money = (n: number): string => fmtMoney(n, config.currency_symbol || '$')
+  add((config.business_name || 'Mi Negocio').toUpperCase(), 'center', true)
+  if (config.business_address) add(config.business_address, 'center')
+  rule()
+  add(`CUENTA: ${order.customerName}`, 'left', true)
+  add(`Abierta: ${ticketDate(order.pickupAt, config)}`)
+  add(`Impresa: ${ticketDate(Math.floor(Date.now() / 1000), config)}`)
+  rule()
+  for (const item of order.items) {
+    const label = `${fmtQty(item.quantity, item.unit)} x ${item.name}`
+    if (label.length > 32) {
+      add(label)
+      pair('', money(item.subtotal), 0.7)
+    } else {
+      pair(label, money(item.subtotal), 0.7)
+    }
+  }
+  rule()
+  pair('TOTAL', money(order.total), 0.5, true)
+  rule()
+  add('Esta cuenta no es comprobante de pago', 'center')
+  return lines
+}
+
+/** Comanda para la cocina: qué preparar y para quién, sin precios. */
+export function comandaLines(name: string, items: Order['items'], config: ConfigMap): TicketLine[] {
+  const lines: TicketLine[] = []
+  const add = (text: string, align: TicketLine['align'] = 'left', bold = false): void => {
+    for (const t of wrap(text)) lines.push({ text: t, align, bold })
+  }
+  add('COMANDA', 'center', true)
+  add(name, 'center', true)
+  add(ticketDate(Math.floor(Date.now() / 1000), config), 'center')
+  lines.push({ text: '-'.repeat(TICKET_COLS), align: 'left', bold: false })
+  for (const item of items) {
+    add(`${fmtQty(item.quantity, item.unit)} x ${item.name}`, 'left', true)
+    if (item.note) add(`   > ${item.note}`)
+  }
+  return lines
+}
+
+export async function printTabTicket(order: Order, config: ConfigMap): Promise<PrintResult> {
+  return printLines(tabTicketLines(order, config), config, false)
+}
+
+export async function printComanda(
+  name: string,
+  items: Order['items'],
+  config: ConfigMap
+): Promise<PrintResult> {
+  return printLines(comandaLines(name, items, config), config, false)
+}
+
 /** Comprobante de un encargo sin anticipo (no hay venta: sólo el pedido). */
 export function orderTicketLines(order: Order, config: ConfigMap): TicketLine[] {
   const lines: TicketLine[] = []
