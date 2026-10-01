@@ -11,6 +11,7 @@ import {
   UserRound,
   Users,
   Wallet,
+  Warehouse,
   X
 } from 'lucide-react'
 import { SessionBar } from '@/components/SessionBar'
@@ -18,6 +19,7 @@ import { SessionBar } from '@/components/SessionBar'
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/admin/productos', label: 'Productos', icon: Boxes, end: false },
+  { to: '/admin/inventario', label: 'Inventario', icon: Warehouse, end: false },
   { to: '/admin/categorias', label: 'Categorías', icon: Tags, end: false },
   { to: '/admin/usuarios', label: 'Usuarios', icon: Users, end: false },
   { to: '/admin/clientes', label: 'Clientes', icon: UserRound, end: false },

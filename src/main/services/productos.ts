@@ -3,13 +3,27 @@ import type { ProductInput, ProductWithCategory } from '../../shared/types'
 import type { ProductRow } from '../db/schema'
 import { categories, products } from '../db/schema'
 import type { DB } from '../db'
+import { withTx } from '../db/tx'
 import { isUniqueViolation } from '../lib/db-errors'
 import { HttpError } from '../lib/http-error'
-import { fromCents, toCents } from '../lib/money'
+import { fromCents, round3, toCents } from '../lib/money'
+import { setProductTracking } from './inventario'
 
 /** Fila de producto con el precio ya en pesos, lista para la API. */
-function toApi<T extends { price: number }>(row: T): T {
-  return { ...row, price: fromCents(row.price) }
+function toApi<T extends { price: number; stock: number; minStock: number | null }>(row: T): T {
+  return {
+    ...row,
+    price: fromCents(row.price),
+    stock: round3(Number(row.stock)),
+    minStock: row.minStock == null ? null : Number(row.minStock)
+  }
+}
+
+/** Mínimo para el aviso "por agotarse": vacío/null = sin aviso. */
+function checkMinStock(minStock: number | null | undefined): void {
+  if (minStock != null && (!Number.isFinite(minStock) || minStock < 0)) {
+    throw new HttpError(400, 'La existencia mínima no puede ser negativa.')
+  }
 }
 
 const selection = {
@@ -21,6 +35,9 @@ const selection = {
   imagePath: products.imagePath,
   barcode: products.barcode,
   openPrice: products.openPrice,
+  trackStock: products.trackStock,
+  stock: products.stock,
+  minStock: products.minStock,
   active: products.active,
   createdAt: products.createdAt,
   updatedAt: products.updatedAt,
@@ -113,35 +130,51 @@ async function validateCategory(db: DB, categoryId: number | null): Promise<void
   if (!cat) throw new HttpError(400, 'La categoría indicada no existe.')
 }
 
-export async function createProduct(db: DB, input: ProductInput): Promise<ProductRow> {
+export async function createProduct(
+  db: DB,
+  input: ProductInput,
+  userId: number
+): Promise<ProductRow> {
   if (input.price < 0) throw new HttpError(400, 'El precio no puede ser negativo.')
+  checkMinStock(input.minStock)
   await validateCategory(db, input.categoryId)
   const barcode = normalizeBarcode(input.barcode)
   if (barcode) await assertBarcodeFree(db, barcode)
   const name = normalizeName(input.name)
   if (input.active !== false) await assertNameFree(db, name)
   const now = Math.floor(Date.now() / 1000)
-  const [row] = await db
-    .insert(products)
-    .values({
-      name,
-      price: toCents(input.price),
-      unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
-      categoryId: input.categoryId,
-      barcode,
-      openPrice: input.openPrice ? 1 : 0,
-      active: input.active === false ? 0 : 1,
-      createdAt: now,
-      updatedAt: now
-    })
-    .returning()
-    .catch((err: unknown) => barcodeClash(err, barcode))
-  return toApi(row)
+  return withTx(db, async (tx) => {
+    const [row] = await tx
+      .insert(products)
+      .values({
+        name,
+        price: toCents(input.price),
+        unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
+        categoryId: input.categoryId,
+        barcode,
+        openPrice: input.openPrice ? 1 : 0,
+        minStock: input.minStock ?? null,
+        active: input.active === false ? 0 : 1,
+        createdAt: now,
+        updatedAt: now
+      })
+      .returning()
+      .catch((err: unknown) => barcodeClash(err, barcode))
+    if (!input.trackStock) return toApi(row)
+    await setProductTracking(tx, userId, row.id, true, input.initialStock)
+    return toApi(await getProduct(tx, row.id))
+  })
 }
 
-export async function updateProduct(db: DB, id: number, input: ProductInput): Promise<ProductRow> {
+export async function updateProduct(
+  db: DB,
+  id: number,
+  input: ProductInput,
+  userId: number
+): Promise<ProductRow> {
   await getProduct(db, id)
   if (input.price < 0) throw new HttpError(400, 'El precio no puede ser negativo.')
+  checkMinStock(input.minStock)
   await validateCategory(db, input.categoryId)
   // `barcode` omitido = se conserva (clientes que no conocen el campo no lo borran).
   const barcode = input.barcode === undefined ? undefined : normalizeBarcode(input.barcode)
@@ -149,22 +182,27 @@ export async function updateProduct(db: DB, id: number, input: ProductInput): Pr
   const name = normalizeName(input.name)
   if (input.active !== false) await assertNameFree(db, name, id)
   // El cambio de precio aplica a ventas futuras; `sale_items` conserva el snapshot histórico.
-  const [row] = await db
-    .update(products)
-    .set({
-      name,
-      price: toCents(input.price),
-      unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
-      categoryId: input.categoryId,
-      ...(barcode === undefined ? {} : { barcode }),
-      ...(input.openPrice === undefined ? {} : { openPrice: input.openPrice ? 1 : 0 }),
-      active: input.active === false ? 0 : 1,
-      updatedAt: Math.floor(Date.now() / 1000)
-    })
-    .where(eq(products.id, id))
-    .returning()
-    .catch((err: unknown) => barcodeClash(err, barcode ?? null))
-  return toApi(row)
+  return withTx(db, async (tx) => {
+    await tx
+      .update(products)
+      .set({
+        name,
+        price: toCents(input.price),
+        unit: input.unit === 'KG' ? 'KG' : 'PIEZA',
+        categoryId: input.categoryId,
+        ...(barcode === undefined ? {} : { barcode }),
+        ...(input.openPrice === undefined ? {} : { openPrice: input.openPrice ? 1 : 0 }),
+        ...(input.minStock === undefined ? {} : { minStock: input.minStock }),
+        active: input.active === false ? 0 : 1,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
+      .where(eq(products.id, id))
+      .catch((err: unknown) => barcodeClash(err, barcode ?? null))
+    if (input.trackStock !== undefined) {
+      await setProductTracking(tx, userId, id, input.trackStock, input.initialStock)
+    }
+    return toApi(await getProduct(tx, id))
+  })
 }
 
 /** Soft delete: nunca se borra un producto (el historial de ventas lo referencia). */

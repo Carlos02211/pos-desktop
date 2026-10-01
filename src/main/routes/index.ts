@@ -7,6 +7,7 @@ import { configRoutes } from './config'
 import { cuentasRoutes } from './cuentas'
 import { dashboardRoutes } from './dashboard'
 import { importarRoutes } from './importar'
+import { inventarioRoutes } from './inventario'
 import { licenseRoutes } from './license'
 import { pingRoutes } from './ping'
 import { productosRoutes } from './productos'
@@ -23,6 +24,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(usuariosRoutes)
   await app.register(productosRoutes)
   await app.register(importarRoutes)
+  await app.register(inventarioRoutes)
   await app.register(categoriasRoutes)
   await app.register(clientesRoutes)
   await app.register(cajaRoutes)

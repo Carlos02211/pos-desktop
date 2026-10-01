@@ -27,6 +27,7 @@ export const {
   creditAccounts,
   creditPayments,
   cashMovements,
+  stockMovements,
   config,
   license
 } = active
@@ -42,5 +43,6 @@ export type CustomerRow = typeof customers.$inferSelect
 export type CreditAccountRow = typeof creditAccounts.$inferSelect
 export type CreditPaymentRow = typeof creditPayments.$inferSelect
 export type CashMovementRow = typeof cashMovements.$inferSelect
+export type StockMovementRow = typeof stockMovements.$inferSelect
 export type ConfigRow = typeof config.$inferSelect
 export type LicenseRow = typeof license.$inferSelect

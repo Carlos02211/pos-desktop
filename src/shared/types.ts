@@ -42,6 +42,12 @@ export interface Product {
   barcode: string | null
   /** 1 = precio libre ("Varios", servicios): el cajero escribe el importe al cobrar. */
   openPrice: number
+  /** 1 = se lleva inventario de este producto. */
+  trackStock: number
+  /** Existencia actual (piezas o kg). Sólo tiene sentido si `trackStock`; puede ser negativa. */
+  stock: number
+  /** Existencia mínima: al llegar a ella el producto sale "por agotarse". null = sin aviso. */
+  minStock: number | null
   active: number
   createdAt: number
   updatedAt: number
@@ -180,6 +186,12 @@ export interface ProductInput {
   barcode?: string | null
   /** Precio libre: el cajero escribe el importe al cobrar. Omitido = no se toca. */
   openPrice?: boolean
+  /** Llevar inventario. Omitido = no se toca. */
+  trackStock?: boolean
+  /** Existencia mínima para el aviso "por agotarse"; null = sin aviso. Omitido = no se toca. */
+  minStock?: number | null
+  /** Existencia con la que arranca el inventario: sólo se usa al activarlo (alta o edición). */
+  initialStock?: number
   active?: boolean
 }
 
@@ -559,6 +571,8 @@ export interface DashboardData {
   byPaymentMethod: PaymentBreakdown
   /** Total adeudado (saldo de todas las cuentas por cobrar abiertas). */
   cuentasPorCobrar: number
+  /** Productos con inventario en su mínimo o por debajo (incluye agotados). */
+  lowStockCount: number
   openSessions: OpenSessionInfo[]
   recentSales: SaleListItem[]
 }
@@ -652,4 +666,53 @@ export interface PingResponse {
 export interface ApiError {
   error: string
   details?: unknown
+}
+
+/* ---- Inventario ---- */
+
+export type StockStatus = 'OK' | 'LOW' | 'OUT'
+
+export interface InventoryItem {
+  id: number
+  name: string
+  unit: ProductUnit
+  barcode: string | null
+  categoryName: string | null
+  stock: number
+  minStock: number | null
+  /** OUT = sin existencia (0 o menos); LOW = en el mínimo o debajo; OK = el resto. */
+  status: StockStatus
+}
+
+export type StockMovementType = 'ENTRY' | 'ADJUST' | 'SALE'
+
+export interface StockMovement {
+  id: number
+  type: StockMovementType
+  /** Cambio en la existencia (+ entra, − sale). */
+  quantity: number
+  stockAfter: number
+  reason: string | null
+  saleId: number | null
+  /** Folio de la venta (si `type` = SALE). */
+  ticketNumber: number | null
+  userName: string
+  createdAt: number
+}
+
+/** Cuerpo de `POST /api/inventario/:id/entrada` (llegó mercancía). */
+export interface StockEntryInput {
+  quantity: number
+  reason?: string
+}
+
+/** Cuerpo de `POST /api/inventario/:id/ajuste` (conteo físico: lo que hay de verdad). */
+export interface StockAdjustInput {
+  counted: number
+  reason?: string
+}
+
+/** Cuerpo de `POST /api/inventario/activar`: empezar a llevar inventario de varios productos. */
+export interface StockEnableInput {
+  productIds: number[]
 }

@@ -14,7 +14,7 @@ export const EVENTS = {
   CAJA_CIERRE: 'caja:cierre', // { cashSessionId, userId, total, difference }
   PRODUCTO_UPDATE: 'producto:update', // { productId }
   CUENTA_ABONO: 'cuenta:abono', // { creditAccountId, customerId, balance, settled }
-  STOCK_UPDATE: 'stock:update' // reservado para Fase 3 (inventario)
+  STOCK_UPDATE: 'stock:update' // { productId } — entrada/ajuste; null = varios productos
 } as const
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS]
@@ -31,5 +31,5 @@ export interface EventPayloads {
     balance: number
     settled: boolean
   }
-  'stock:update': { productId: number }
+  'stock:update': { productId: number | null }
 }

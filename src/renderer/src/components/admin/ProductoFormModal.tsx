@@ -46,6 +46,12 @@ export function ProductoFormModal({
   const lookedUp = useRef<string | null>(null)
   const [active, setActive] = useState(product ? product.active === 1 : true)
   const [openPrice, setOpenPrice] = useState(product?.openPrice === 1)
+  const wasTracked = product?.trackStock === 1
+  const [trackStock, setTrackStock] = useState(wasTracked)
+  const [initialStockText, setInitialStockText] = useState('')
+  const [minStockText, setMinStockText] = useState(
+    product?.minStock == null ? '' : String(product.minStock)
+  )
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -105,7 +111,20 @@ export function ProductoFormModal({
   // En precio libre el precio es sólo una sugerencia: vacío = 0.
   const price =
     openPrice && priceText.trim() === '' ? 0 : Number.parseFloat(priceText.replace(',', '.'))
-  const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0
+  const initialStock =
+    initialStockText.trim() === ''
+      ? undefined
+      : Number.parseFloat(initialStockText.replace(',', '.'))
+  const minStock =
+    minStockText.trim() === '' ? null : Number.parseFloat(minStockText.replace(',', '.'))
+  const stockValid =
+    !trackStock ||
+    ((initialStock === undefined ||
+      (Number.isFinite(initialStock) &&
+        initialStock >= 0 &&
+        (unit === 'KG' || Number.isInteger(initialStock)))) &&
+      (minStock === null || (Number.isFinite(minStock) && minStock >= 0)))
+  const valid = name.trim().length > 0 && Number.isFinite(price) && price >= 0 && stockValid
 
   // Un solo object URL por archivo seleccionado; se libera al cambiarlo o cerrar.
   const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
@@ -137,6 +156,9 @@ export function ProductoFormModal({
         categoryId: catId,
         barcode: barcode.trim(),
         openPrice,
+        trackStock,
+        ...(trackStock ? { minStock } : {}),
+        ...(trackStock && !wasTracked && initialStock !== undefined ? { initialStock } : {}),
         active
       }
       const saved = product
@@ -241,6 +263,61 @@ export function ProductoFormModal({
             </span>
           )}
         </label>
+
+        {!openPrice && (
+          <div className="space-y-2 rounded-lg border border-border px-3 py-2">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={trackStock}
+                onChange={(e) => setTrackStock(e.target.checked)}
+              />
+              Llevar inventario
+            </label>
+            {trackStock && (
+              <div className="grid grid-cols-2 gap-3">
+                {wasTracked ? (
+                  <div className="text-sm">
+                    <span className="mb-1 block font-medium">Existencia</span>
+                    <span className="block py-2">
+                      {product!.stock} {unit === 'KG' ? 'kg' : 'pz'}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Se cambia en Inventario.
+                    </span>
+                  </div>
+                ) : (
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium">¿Cuántos hay?</span>
+                    <input
+                      inputMode="decimal"
+                      value={initialStockText}
+                      onChange={(e) => setInitialStockText(e.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                    />
+                  </label>
+                )}
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Avisar al llegar a</span>
+                  <input
+                    inputMode="decimal"
+                    value={minStockText}
+                    onChange={(e) => setMinStockText(e.target.value)}
+                    placeholder="Sin aviso"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                  />
+                </label>
+              </div>
+            )}
+            {trackStock && !stockValid && (
+              <p className="text-xs text-pos-danger">
+                Revisa las cantidades: sin negativos
+                {unit === 'PIEZA' ? ' y en piezas enteras' : ''}.
+              </p>
+            )}
+          </div>
+        )}
 
         <label className="block">
           <span className="mb-1 block text-sm font-medium">Categoría</span>

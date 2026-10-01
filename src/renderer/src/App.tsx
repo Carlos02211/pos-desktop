@@ -19,6 +19,7 @@ import { useLicenseStore } from '@/stores/license.store'
 const Dashboard = lazy(() => import('@/pages/admin/Dashboard'))
 const Productos = lazy(() => import('@/pages/admin/Productos'))
 const ImportarProductos = lazy(() => import('@/pages/admin/ImportarProductos'))
+const Inventario = lazy(() => import('@/pages/admin/Inventario'))
 const Categorias = lazy(() => import('@/pages/admin/Categorias'))
 const Usuarios = lazy(() => import('@/pages/admin/Usuarios'))
 const Ventas = lazy(() => import('@/pages/admin/Ventas'))
@@ -99,6 +100,7 @@ function App(): React.JSX.Element {
             <Route index element={<Dashboard />} />
             <Route path="productos" element={<Productos />} />
             <Route path="productos/importar" element={<ImportarProductos />} />
+            <Route path="inventario" element={<Inventario />} />
             <Route path="categorias" element={<Categorias />} />
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="ventas" element={<Ventas />} />

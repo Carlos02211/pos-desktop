@@ -46,6 +46,11 @@ export const products = pgTable(
     barcode: text('barcode'),
     // 1 = precio libre ("Varios", servicios): el cajero escribe el importe al cobrar.
     openPrice: integer('open_price').notNull().default(0),
+    // Inventario (opcional por producto). Existencia en piezas o kg; puede quedar negativa si se
+    // vendió algo que no estaba registrado (la venta nunca se bloquea por inventario).
+    trackStock: integer('track_stock').notNull().default(0),
+    stock: doublePrecision('stock').notNull().default(0),
+    minStock: doublePrecision('min_stock'),
     active: integer('active').notNull().default(1),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now)
@@ -211,6 +216,31 @@ export const cashMovements = pgTable(
     createdAt: integer('created_at').notNull().default(now)
   },
   (t) => [index('cash_movements_session_idx').on(t.cashSessionId)]
+)
+
+/** Historial de inventario: cada entrada, ajuste (conteo) y venta de un producto con inventario. */
+export const stockMovements = pgTable(
+  'stock_movements',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    type: text('type', { enum: ['ENTRY', 'ADJUST', 'SALE'] }).notNull(),
+    // Cambio en la existencia (+ entra, − sale), en piezas o kg.
+    quantity: doublePrecision('quantity').notNull(),
+    stockAfter: doublePrecision('stock_after').notNull(),
+    reason: text('reason'),
+    saleId: integer('sale_id').references(() => sales.id),
+    createdAt: integer('created_at').notNull().default(now)
+  },
+  (t) => [
+    index('stock_movements_product_idx').on(t.productId),
+    index('stock_movements_created_idx').on(t.createdAt)
+  ]
 )
 
 export const config = pgTable('config', {
