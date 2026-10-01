@@ -2579,6 +2579,43 @@ async function main(): Promise<void> {
       'un encargo no se trata como cuenta abierta'
     )
 
+    // Mesa trabada: le quitan al producto la opción que ya estaba en la cuenta a media comida.
+    const conOpcion = await altaInv({
+      name: 'Pechuga',
+      price: 90,
+      options: [
+        { groupName: 'Salsa', name: 'Verde', price: 0 },
+        { groupName: 'Salsa', name: 'Roja', price: 0 }
+      ]
+    })
+    const mesa9 = (
+      (await (
+        await asCajero('/api/cuentas-abiertas', 'POST', {
+          name: 'Mesa 9',
+          items: [{ productId: conOpcion.id, quantity: 1, optionIds: [conOpcion.options[0].id] }]
+        })
+      ).json()) as TabResponse
+    ).order
+    await asAdmin(`/api/productos/${conOpcion.id}`, 'PUT', {
+      name: 'Pechuga',
+      price: 100,
+      categoryId: null,
+      options: [{ id: conOpcion.options[1].id, groupName: 'Salsa', name: 'Roja', price: 0 }]
+    })
+    const mesa9Mas = await asCajero(`/api/cuentas-abiertas/${mesa9.id}/agregar`, 'POST', {
+      items: [
+        { productId: lata.id, quantity: 1 },
+        { productId: conOpcion.id, quantity: 1, optionIds: [conOpcion.options[1].id] }
+      ]
+    })
+    const mesa9Order = ((await mesa9Mas.json()) as TabResponse).order
+    assert(
+      mesa9Mas.status === 200 &&
+        mesa9Order.total === 90 + 20 + 100 &&
+        mesa9Order.items[0].name === 'Pechuga (Verde)',
+      `quitar una opción a media comida no traba la mesa; lo de antes conserva su precio (${mesa9Mas.status}, ${JSON.stringify(mesa9Order)})`
+    )
+
     // Plantilla de pollería: sobre un catálogo que ya tiene "Pollo entero" (que aquí es paquete).
     const plantillaPolleria = (await (
       await asAdmin('/api/productos/plantillas/polleria', 'POST')

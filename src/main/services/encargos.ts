@@ -14,7 +14,7 @@ import type {
 import type { DB } from '../db'
 import type { OrderRow } from '../db/schema'
 import { cashMovements, orders, users } from '../db/schema'
-import { lockRow, withTx } from '../db/tx'
+import { lockKey, lockRow, withTx } from '../db/tx'
 import { HttpError } from '../lib/http-error'
 import { fromCents, toCents } from '../lib/money'
 import {
@@ -258,34 +258,28 @@ export function tabChangedMessage(name: string): string {
   return `Otra caja le agregó algo a "${name}" mientras la tenías abierta. Suéltala (Cancelar) y vuelve a abrirla desde Mesas.`
 }
 
-/** Renglones del pedido como se mandan del carrito (para revalidarlos). */
-function asCartLines(items: OrderItem[]): CartLineInput[] {
-  return items.map((i) => ({
-    productId: i.productId,
-    quantity: i.quantity,
-    ...(i.price != null ? { price: i.price } : {}),
-    ...(i.note ? { note: i.note } : {}),
-    ...(i.optionIds?.length ? { optionIds: i.optionIds } : {})
-  }))
-}
-
 /**
  * Junta lo nuevo con lo que ya llevaba: el mismo producto, con las mismas opciones, nota y
- * precio suma cantidad ("2 refrescos" y luego "1 refresco" = 3) en vez de repetir renglón.
+ * precio por unidad suma cantidad ("2 refrescos" y luego "1 refresco" = 3) en vez de repetir
+ * renglón. Si el precio cambió entre una ronda y otra, quedan en renglones separados.
  */
-function mergeLines(current: CartLineInput[], added: CartLineInput[]): CartLineInput[] {
-  const key = (l: CartLineInput): string =>
+function mergeItems(current: OrderItem[], added: OrderItem[]): OrderItem[] {
+  const key = (l: OrderItem): string =>
     [
       l.productId,
-      [...(l.optionIds ?? [])].sort().join(','),
-      l.note?.trim() ?? '',
-      l.price ?? ''
+      [...(l.optionIds ?? [])].sort((a, b) => a - b).join(','),
+      l.note ?? '',
+      l.price ?? '',
+      l.unitPrice,
+      l.name
     ].join('|')
   const out = current.map((l) => ({ ...l }))
   for (const line of added) {
     const same = out.find((l) => key(l) === key(line))
-    if (same) same.quantity = Math.round((same.quantity + line.quantity) * 1000) / 1000
-    else out.push({ ...line })
+    if (same) {
+      same.quantity = Math.round((same.quantity + line.quantity) * 1000) / 1000
+      same.subtotal = fromCents(toCents(same.subtotal) + toCents(line.subtotal))
+    } else out.push({ ...line })
   }
   return out
 }
@@ -315,6 +309,8 @@ export async function createTab(db: DB, userId: number, input: CreateTabInput): 
   const name = cleanText(input.name)
   if (!name) throw new HttpError(400, 'Escribe la mesa o el nombre de la cuenta.')
   return withTx(db, async (tx) => {
+    // Dos cajas abriendo la misma mesa a la vez: la segunda espera y ve la primera.
+    await lockKey(tx, `cuenta:${name.toLowerCase()}`)
     const [same] = await tx
       .select({ id: orders.id })
       .from(orders)
@@ -357,9 +353,12 @@ export async function addToTab(
   if (input.items.length === 0) throw new HttpError(400, 'No hay productos para agregar.')
   return withTx(db, async (tx) => {
     const row = await lockOpenTab(tx, id)
+    // Sólo se valida lo nuevo: lo que ya estaba conserva su precio y nombre del momento. Si se
+    // revalidara todo, quitar una opción o un producto del catálogo a media comida trabaría
+    // la mesa (ya no se le podría agregar nada).
     const added = (await priceTab(tx, input.items)).items
-    const current = asCartLines(JSON.parse(row.items) as OrderItem[])
-    const { items, totalCents } = await priceTab(tx, mergeLines(current, input.items))
+    const items = mergeItems(JSON.parse(row.items) as OrderItem[], added)
+    const totalCents = items.reduce((sum, i) => sum + toCents(i.subtotal), 0)
     await tx
       .update(orders)
       .set({ items: JSON.stringify(items), total: totalCents, version: row.version + 1 })

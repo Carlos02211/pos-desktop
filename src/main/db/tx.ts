@@ -14,13 +14,19 @@ import { DIALECT, type DB } from './index'
 /**
  * Serializa las transacciones que tocan una misma fila.
  *
- * - PostgreSQL: `SELECT ... FOR UPDATE` — la segunda transacción espera a que la
+ * - PostgreSQL: `SELECT ... FOR NO KEY UPDATE` — la segunda transacción espera a que la
  *   primera haga commit/rollback antes de leer la fila. Evita el "lost update"
  *   en saldos de cuentas y las carreras de folio de venta.
  * - SQLite: no-op (better-sqlite3 es síncrono y serializa todas las escrituras).
  *
  * `table` es un nombre físico de tabla escrito en el propio código (no entra
  * input del usuario). Devuelve `true` si la fila existe.
+ *
+ * Es `NO KEY UPDATE` y no `UPDATE` a propósito: insertar un renglón que apunta a la fila
+ * (llave foránea: `sale_items` → `products`, `sales` → `cash_sessions`) toma un `KEY SHARE`
+ * que choca con `FOR UPDATE`. Dos ventas con los mismos productos se bloqueaban en cruz
+ * (deadlock) bajo carga; `NO KEY UPDATE` serializa igual a quien cambia existencia o folio
+ * y no choca con las llaves foráneas (nunca se cambia el `id`).
  */
 export type LockableTable = 'cash_sessions' | 'credit_accounts' | 'products' | 'orders'
 
@@ -28,7 +34,7 @@ export async function lockRow(tx: DB, table: LockableTable, id: number): Promise
   if (DIALECT !== 'pg') return true
   const runner = tx as unknown as { execute: (q: unknown) => Promise<{ rows: unknown[] }> }
   const res = await runner.execute(
-    sql`select 1 from ${sql.identifier(table)} where id = ${id} for update`
+    sql`select 1 from ${sql.identifier(table)} where id = ${id} for no key update`
   )
   return res.rows.length > 0
 }
@@ -45,9 +51,20 @@ export async function lockOpenSession(tx: DB, sessionId: number): Promise<boolea
   if (DIALECT !== 'pg') return true
   const runner = tx as unknown as { execute: (q: unknown) => Promise<{ rows: unknown[] }> }
   const res = await runner.execute(
-    sql`select status from cash_sessions where id = ${sessionId} for update`
+    sql`select status from cash_sessions where id = ${sessionId} for no key update`
   )
   return (res.rows[0] as { status?: string } | undefined)?.status === 'OPEN'
+}
+
+/**
+ * Candado por nombre hasta que termine la transacción (PostgreSQL: advisory lock). Sirve
+ * cuando no hay fila que bloquear todavía, p. ej. dos cajas abriendo "Mesa 1" a la vez: la
+ * segunda espera, ve la cuenta que creó la primera y la rechaza. SQLite: no-op.
+ */
+export async function lockKey(tx: DB, key: string): Promise<void> {
+  if (DIALECT !== 'pg') return
+  const runner = tx as unknown as { execute: (q: unknown) => Promise<unknown> }
+  await runner.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`)
 }
 
 export async function withTx<T>(db: DB, fn: (tx: DB) => Promise<T>): Promise<T> {
