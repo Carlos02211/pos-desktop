@@ -31,6 +31,7 @@ socket.on('caja:apertura', bump)
 socket.on('caja:cierre', bump)
 socket.on('cuenta:abono', bump)
 socket.on('stock:update', bump)
+socket.on('encargo:update', bump)
 
 // Conecta el socket sólo mientras haya sesión iniciada.
 useAuthStore.subscribe((state, prev) => {

@@ -26,16 +26,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         .send({ error: 'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.' })
     }
 
-    try {
-      const result = await login(getDb(), username, password)
-      loginThrottle.clear(ipKey)
-      loginThrottle.clear(userKey)
-      return result
-    } catch (err) {
-      loginThrottle.recordFailure(ipKey)
-      loginThrottle.recordFailure(userKey)
-      throw err
-    }
+    // El intento se cuenta ANTES de revisar la contraseña (bcrypt tarda): si se contara al
+    // fallar, una ráfaga de intentos en paralelo pasaría completa el chequeo de arriba antes
+    // de que se anotara el primero. Si sale bien, se borra.
+    loginThrottle.recordFailure(ipKey)
+    loginThrottle.recordFailure(userKey)
+    const result = await login(getDb(), username, password)
+    loginThrottle.clear(ipKey)
+    loginThrottle.clear(userKey)
+    return result
   })
 
   // JWT stateless: el servidor no guarda sesión. El cliente descarta el token.

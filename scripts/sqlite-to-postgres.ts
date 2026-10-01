@@ -50,6 +50,9 @@ const TABLE_ORDER = [
   'credit_payments',
   'cash_movements',
   'stock_movements',
+  'product_options',
+  'product_components',
+  'orders',
   'config',
   'license'
 ] as const

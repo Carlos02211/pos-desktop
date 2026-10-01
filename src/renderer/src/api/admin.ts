@@ -1,41 +1,42 @@
 import type {
   BackupRunResponse,
   BackupStatus,
+  BarcodeLookup,
   CashHistoryQuery,
   CashMovementWithUser,
   CashSessionListItem,
+  CatalogInfo,
+  CatalogItem,
   Category,
   CategoryInput,
   CategoryWithCount,
   ConfigInput,
   ConfigResponse,
-  PingResponse,
   CreateUserInput,
-  DrawerResult,
   DashboardData,
+  DrawerResult,
   FolderListing,
+  ImportProductsRequest,
+  ImportProductsResult,
+  InventoryItem,
+  ParsedImportSheet,
+  PingResponse,
   PrintResult,
   Product,
   ProductInput,
   ProductWithCategory,
   ReportType,
-  SalesReport,
   SaleWithItems,
   SalesPage,
   SalesQuery,
-  SystemPrintersResponse,
-  UpdateUserInput,
-  UserListItem,
-  BarcodeLookup,
-  CatalogInfo,
-  CatalogItem,
-  ImportProductsRequest,
-  ImportProductsResult,
-  ParsedImportSheet,
-  InventoryItem,
+  SalesReport,
   StockAdjustInput,
   StockEntryInput,
-  StockMovement
+  StockMovement,
+  SystemPrintersResponse,
+  TemplateResult,
+  UpdateUserInput,
+  UserListItem
 } from '@shared/types'
 import { api, ApiRequestError } from './client'
 
@@ -114,6 +115,11 @@ export function leerArchivoImportacion(file: File): Promise<ParsedImportSheet> {
 
 export function importarProductos(input: ImportProductsRequest): Promise<ImportProductsResult> {
   return api.post<ImportProductsResult>('/api/productos/importar', input)
+}
+
+/** Da de alta el catálogo de ejemplo de un giro (pollería). Lo que ya existe no se toca. */
+export function aplicarPlantilla(id: 'polleria'): Promise<TemplateResult> {
+  return api.post<TemplateResult>(`/api/productos/plantillas/${id}`)
 }
 
 export function listCatalogos(): Promise<CatalogInfo[]> {

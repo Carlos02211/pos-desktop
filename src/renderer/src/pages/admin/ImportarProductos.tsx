@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Download,
+  Drumstick,
   FileSpreadsheet,
   Loader2,
   PackageSearch,
@@ -16,7 +17,13 @@ import type {
   ImportProductsResult,
   ProductUnit
 } from '@shared/types'
-import { getCatalogo, importarProductos, leerArchivoImportacion, listCatalogos } from '@/api/admin'
+import {
+  aplicarPlantilla,
+  getCatalogo,
+  importarProductos,
+  leerArchivoImportacion,
+  listCatalogos
+} from '@/api/admin'
 import { ApiRequestError } from '@/api/client'
 import { Modal } from '@/components/Modal'
 import { actionButtonClass } from '@/components/admin/SettingsCard'
@@ -338,6 +345,8 @@ export default function ImportarProductos(): React.JSX.Element {
         ))}
       </div>
 
+      <PlantillaPolleria />
+
       {loading && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
@@ -605,5 +614,63 @@ export default function ImportarProductos(): React.JSX.Element {
         </Modal>
       )}
     </div>
+  )
+}
+
+/**
+ * Pollería / rosticería de un clic: pollo entero, medio y cuarto con "Tipo de pollo", paquetes
+ * que descuentan el pollo del inventario, complementos, bebidas y envío a domicilio.
+ */
+function PlantillaPolleria(): React.JSX.Element {
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+
+  async function apply(): Promise<void> {
+    setBusy(true)
+    try {
+      const r = await aplicarPlantilla('polleria')
+      if (r.created.length === 0) {
+        toast.info('Ya tenías todos los productos de la plantilla: no se cambió nada.')
+        return
+      }
+      toast.success(
+        `Se dieron de alta ${r.created.length} productos` +
+          (r.existing.length ? ` (${r.existing.length} ya existían y no se tocaron)` : '') +
+          '. Ahora pon tus precios.',
+        { duration: 8000 }
+      )
+      for (const f of r.failed) toast.warning(`${f.name}: ${f.reason}`, { duration: 10_000 })
+      navigate('/admin/productos')
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'No se pudo aplicar la plantilla')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mb-6 rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 font-semibold">
+        <Drumstick className="h-5 w-5 text-primary" /> Plantilla para pollería o rosticería
+      </div>
+      <p className="mb-1 text-sm text-muted-foreground">
+        Pollo entero, medio y cuarto con tipo (natural, adobado, al carbón); paquetes con guarnición
+        a elegir; tortillas, salsas, complementos, refrescos y envío a domicilio.
+      </p>
+      <p className="mb-4 text-xs text-muted-foreground">
+        El inventario se lleva en &quot;Pollo entero&quot;: el medio pollo y los paquetes lo
+        descuentan solos. Los precios son de ejemplo; cámbialos en Productos. Lo que ya tengas con
+        el mismo nombre no se toca.
+      </p>
+      <button
+        type="button"
+        onClick={() => void apply()}
+        disabled={busy}
+        className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Drumstick className="h-4 w-4" />}
+        Cargar plantilla de pollería
+      </button>
+    </section>
   )
 }

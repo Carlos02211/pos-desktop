@@ -86,6 +86,9 @@ export function VentaDetalleModal({
                           agregado {timeOnly(it.addedAt)}
                         </span>
                       )}
+                      {it.note && (
+                        <span className="block text-xs text-pos-warning italic">› {it.note}</span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right">{money(it.subtotal)}</td>
                   </tr>

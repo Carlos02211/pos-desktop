@@ -36,6 +36,7 @@ export function CobroModal({
   onDone: (sale: CreateSaleResponse) => void
 }): React.JSX.Element {
   const items = useCartStore((s) => s.items)
+  const delivery = useCartStore((s) => s.delivery)
   // Un id por apertura del modal: si el POST se reintenta (timeout / doble clic),
   // el servidor devuelve la misma venta en vez de duplicarla.
   const [clientRequestId] = useState(() => randomId())
@@ -93,7 +94,8 @@ export function CobroModal({
       method === 'CASH' && Number.isFinite(paid) ? Math.round((paid - total) * 100) / 100 : null,
     [method, paid, total]
   )
-  const cashShort = method === 'CASH' && (!Number.isFinite(paid) || paid < total)
+  // Encargo ya pagado con el anticipo: total 0, no hay nada que recibir.
+  const cashShort = method === 'CASH' && total > 0 && (!Number.isFinite(paid) || paid < total)
   const creditDebt =
     method === 'CREDIT' ? Math.round((total - Math.min(paidNum, total)) * 100) / 100 : 0
   const hasCustomer = clienteId != null || clienteQuery.trim().length >= 2
@@ -130,12 +132,15 @@ export function CobroModal({
           quantity: i.quantity,
           // Precio libre: el importe siempre lo pone el cajero.
           price: i.openPrice || i.price !== i.originalPrice ? i.price : undefined,
-          note: i.note
+          note: i.note,
+          optionIds: i.optionIds
         })),
         paymentMethod: method,
         amountPaid: method === 'CASH' || method === 'CREDIT' ? paidNum : undefined,
         customerId: cId,
-        clientRequestId
+        clientRequestId,
+        orderId: delivery?.orderId,
+        orderVersion: delivery?.version
       })
       onDone(sale)
     } catch (err) {
@@ -152,8 +157,24 @@ export function CobroModal({
   return (
     <Modal title="Cobrar" onClose={onClose} busy={submitting || creatingCustomer}>
       <div className="space-y-4">
+        {delivery && (
+          <p className="rounded-lg bg-pos-warning/15 px-3 py-2 text-xs">
+            {delivery.type === 'CUENTA' ? (
+              <>
+                Cuenta de <strong>{delivery.customerName}</strong>
+              </>
+            ) : (
+              <>
+                Entrega del encargo <strong>#{delivery.orderId}</strong> de {delivery.customerName}
+                {delivery.deposit > 0 && <> · ya dejó {money(delivery.deposit)} de anticipo</>}
+              </>
+            )}
+          </p>
+        )}
         <div className="flex items-baseline justify-between rounded-lg bg-secondary/50 px-3 py-2">
-          <span className="text-sm text-muted-foreground">Total</span>
+          <span className="text-sm text-muted-foreground">
+            {delivery && delivery.deposit > 0 ? 'Resta por pagar' : 'Total'}
+          </span>
           <span className="text-2xl font-bold">{money(total)}</span>
         </div>
 

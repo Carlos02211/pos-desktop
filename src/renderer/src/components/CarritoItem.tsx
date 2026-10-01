@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Minus, Plus, X } from 'lucide-react'
+import { MessageSquareText, Minus, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CartItem } from '@/stores/cart.store'
 import { money } from '@/lib/format'
@@ -14,13 +14,24 @@ export function CarritoItem({
   item,
   onQty,
   onPrice,
-  onRemove
+  onRemove,
+  onNote
 }: {
   item: CartItem
   onQty: (key: string, quantity: number) => void
   onPrice: (key: string, price: number) => void
   onRemove: (key: string) => void
+  /** Nota para quien despacha ("sin chile"); no aplica a precio libre (su nota es el nombre). */
+  onNote?: (key: string, note: string) => void
 }): React.JSX.Element {
+  const [editingNote, setEditingNote] = useState(false)
+  const [noteDraft, setNoteDraft] = useState(item.note ?? '')
+  const canNote = !!onNote && !item.openPrice
+
+  function commitNote(): void {
+    setEditingNote(false)
+    if (noteDraft.trim() !== (item.note ?? '')) onNote?.(item.key, noteDraft)
+  }
   // En precio libre no hay precio de catálogo contra el cual marcar un descuento.
   const edited = !item.openPrice && item.price !== item.originalPrice
   const isKg = item.unit === 'KG'
@@ -122,6 +133,43 @@ export function CarritoItem({
             </span>
           )}
         </div>
+
+        {canNote && editingNote && (
+          <input
+            autoFocus
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onBlur={commitNote}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                setNoteDraft(item.note ?? '')
+                setEditingNote(false)
+              }
+            }}
+            maxLength={60}
+            placeholder="Ej. sin chile, bien dorado"
+            className="mt-1 w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs outline-none focus:border-ring"
+          />
+        )}
+        {canNote && !editingNote && (
+          // En su propio renglón: junto al precio no cabe en el carrito angosto.
+          <button
+            type="button"
+            onClick={() => {
+              setNoteDraft(item.note ?? '')
+              setEditingNote(true)
+            }}
+            title="Nota para quien despacha (sale en el ticket)"
+            aria-label={item.note ? `Editar nota: ${item.note}` : 'Agregar nota'}
+            className={`mt-0.5 inline-flex max-w-full items-start gap-1 rounded px-1 py-0.5 text-left text-[11px] transition hover:bg-secondary ${
+              item.note ? 'text-pos-warning italic' : 'text-muted-foreground'
+            }`}
+          >
+            <MessageSquareText size={12} className="shrink-0" />
+            <span className="line-clamp-2 break-words">{item.note ?? '+ Nota'}</span>
+          </button>
+        )}
 
         {isKg && (
           <div className="mt-1 flex flex-wrap gap-1">

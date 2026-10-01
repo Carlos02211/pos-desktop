@@ -54,6 +54,11 @@ export const products = sqliteTable(
     trackStock: integer('track_stock').notNull().default(0),
     stock: real('stock').notNull().default(0),
     minStock: real('min_stock'),
+    // ANTICIPO = producto interno con el que se cobran los anticipos de encargos: no sale en el
+    // catálogo ni se vende a mano (ver services/encargos.ts). Todo lo demás es NORMAL.
+    kind: text('kind', { enum: ['NORMAL', 'ANTICIPO'] })
+      .notNull()
+      .default('NORMAL'),
     active: integer('active').notNull().default(1),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now)
@@ -140,6 +145,8 @@ export const saleItems = sqliteTable(
       .default('PIEZA'),
     quantity: real('quantity').notNull(),
     subtotal: integer('subtotal').notNull(),
+    // Indicación para quien despacha ("sin chile", "bien dorado"); sale en el ticket.
+    note: text('note'),
     // Cuándo se agregó la línea a una venta ya cobrada (cliente que olvidó algo); null = venta original.
     addedAt: integer('added_at')
   },
@@ -253,6 +260,90 @@ export const stockMovements = sqliteTable(
     index('stock_movements_product_idx').on(t.productId),
     index('stock_movements_created_idx').on(t.createdAt)
   ]
+)
+
+/**
+ * Opciones de un producto para elegir al venderlo ("Tipo de pollo": Natural / Adobado). Cada
+ * grupo es de "elige uno" y obligatorio. `price` es lo que se suma al precio del producto
+ * (0 = mismo precio). Soft delete: una opción vendida no se borra.
+ */
+export const productOptions = sqliteTable(
+  'product_options',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    groupName: text('group_name').notNull(),
+    name: text('name').notNull(),
+    price: integer('price').notNull().default(0),
+    sortOrder: integer('sort_order').notNull().default(0),
+    active: integer('active').notNull().default(1)
+  },
+  (t) => [index('product_options_product_idx').on(t.productId)]
+)
+
+/**
+ * Contenido de un paquete o presentación: qué productos lleva y cuánto de cada uno
+ * ("Paquete familiar" = 1 Pollo + 1 Tortillas + 1 Arroz; "Medio pollo" = 0.5 Pollo).
+ * Al venderlo se descuenta del inventario de cada componente.
+ */
+export const productComponents = sqliteTable(
+  'product_components',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id),
+    componentId: integer('component_id')
+      .notNull()
+      .references(() => products.id),
+    quantity: real('quantity').notNull()
+  },
+  (t) => [
+    uniqueIndex('product_components_unique').on(t.productId, t.componentId),
+    index('product_components_component_idx').on(t.componentId)
+  ]
+)
+
+/**
+ * Encargos ("apártame 2 pollos para las 2"): el pedido se guarda con lo que lleva y, si dejan
+ * anticipo, se cobra como una venta aparte (producto ANTICIPO). Al entregarlo se cobra como
+ * venta normal y el anticipo se descuenta con un renglón negativo, así cortes y reportes
+ * cuadran sin casos especiales.
+ */
+export const orders = sqliteTable(
+  'orders',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // ENCARGO = para recoger a cierta hora. CUENTA = cuenta abierta (mesa): se le van agregando
+    // productos y se cobra al final; `pickupAt` es cuándo se abrió.
+    type: text('type', { enum: ['ENCARGO', 'CUENTA'] })
+      .notNull()
+      .default('ENCARGO'),
+    customerName: text('customer_name').notNull(),
+    phone: text('phone'),
+    pickupAt: integer('pickup_at').notNull(), // Unix (s): cuándo pasan por él
+    notes: text('notes'),
+    // Renglones del carrito (CartLineInput[] en JSON): se validan otra vez al entregarlo.
+    items: text('items').notNull(),
+    total: integer('total').notNull(), // centavos, con los precios del día en que se encargó
+    // Sube con cada cambio de renglones: quien cobra o corrige con una copia vieja recibe 409
+    // (otra caja agregó algo mientras tanto y se perdería).
+    version: integer('version').notNull().default(1),
+    deposit: integer('deposit').notNull().default(0), // anticipo en centavos
+    depositSaleId: integer('deposit_sale_id').references(() => sales.id),
+    status: text('status', { enum: ['PENDING', 'DELIVERED', 'CANCELLED'] })
+      .notNull()
+      .default('PENDING'),
+    saleId: integer('sale_id').references(() => sales.id), // venta con la que se entregó
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer('created_at').notNull().default(now),
+    closedAt: integer('closed_at')
+  },
+  (t) => [index('orders_status_idx').on(t.status), index('orders_pickup_idx').on(t.pickupAt)]
 )
 
 export const config = sqliteTable('config', {

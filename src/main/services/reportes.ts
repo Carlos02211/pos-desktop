@@ -8,7 +8,7 @@ import type {
   TopProduct
 } from '../../shared/types'
 import type { DB } from '../db'
-import { saleItems, sales } from '../db/schema'
+import { products, saleItems, sales } from '../db/schema'
 import { HttpError } from '../lib/http-error'
 import { fromCents, round3 } from '../lib/money'
 import { businessOffsetMinutes, dayStartUnix, partsFor } from '../lib/timezone'
@@ -141,7 +141,9 @@ export async function buildReport(
       })
       .from(saleItems)
       .innerJoin(sales, eq(sales.id, saleItems.saleId))
-      .where(inPeriod)
+      // Los anticipos de encargos no son un producto vendido (se compensan al entregar).
+      .innerJoin(products, eq(products.id, saleItems.productId))
+      .where(and(inPeriod, eq(products.kind, 'NORMAL')))
       .groupBy(saleItems.productId, saleItems.name, saleItems.unit)
       .orderBy(desc(sql`sum(${saleItems.subtotal})`))
       .limit(5)

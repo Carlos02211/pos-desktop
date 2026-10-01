@@ -6,6 +6,7 @@ import { parse } from '../lib/validate'
 import { requireRole } from '../middleware/auth'
 import { emit } from '../socket'
 import { getConfigMap } from '../services/config'
+import { orderForDepositSale } from '../services/encargos'
 import { printTicket, ticketLines } from '../services/printer'
 import {
   addToSale,
@@ -26,7 +27,7 @@ const salesQuerySchema = z.object({
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'CREDIT']).optional()
 })
 
-const saleLinesSchema = z
+export const saleLinesSchema = z
   .array(
     z.object({
       productId: z.number().int().positive(),
@@ -34,10 +35,12 @@ const saleLinesSchema = z
       // que es quien conoce la unidad del producto.
       quantity: z.number().positive().max(9_999),
       price: z.number().positive().max(1_000_000).optional(),
-      note: z.string().trim().max(60).optional()
+      note: z.string().trim().max(60).optional(),
+      optionIds: z.array(z.number().int().positive()).max(10).optional()
     })
   )
   .min(1)
+  .max(200)
 
 const createSaleSchema = z.object({
   items: saleLinesSchema,
@@ -45,7 +48,10 @@ const createSaleSchema = z.object({
   amountPaid: z.number().nonnegative().max(1_000_000).optional(),
   customerId: z.number().int().positive().optional(),
   /** Token del cliente para deduplicar reintentos de red / doble submit. */
-  clientRequestId: z.string().min(8).max(64).optional()
+  clientRequestId: z.string().min(8).max(64).optional(),
+  /** Entrega de un encargo: se marca entregado y se descuenta su anticipo. */
+  orderId: z.number().int().positive().optional(),
+  orderVersion: z.number().int().positive().optional()
 })
 
 const addToSaleSchema = z.object({
@@ -110,6 +116,8 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       userId: request.authUser!.id,
       cashSessionId: sale.cashSessionId
     })
+    if (input.orderId != null)
+      emit('encargo:update', { orderId: input.orderId, status: 'DELIVERED' })
 
     if (sale.creditAccountId) {
       emit('cuenta:abono', {
@@ -217,7 +225,9 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
         creditBalance:
           sale.paymentMethod === 'CREDIT'
             ? ((await creditBalanceForSale(db, sale.id)) ?? undefined)
-            : undefined
+            : undefined,
+        // Venta de un anticipo: la copia lleva otra vez el comprobante del encargo.
+        order: await orderForDepositSale(db, sale.id)
       })
     }
   })
@@ -236,7 +246,9 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
         creditBalance:
           sale.paymentMethod === 'CREDIT'
             ? ((await creditBalanceForSale(db, sale.id)) ?? undefined)
-            : undefined
+            : undefined,
+        // Venta de un anticipo: la copia lleva otra vez el comprobante del encargo.
+        order: await orderForDepositSale(db, sale.id)
       })
       if (print.skipped) {
         return reply
