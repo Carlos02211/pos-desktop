@@ -7,6 +7,12 @@ Sistema de Punto de Venta para Windows 10/11 (React + Fastify + Drizzle).
   contra PostgreSQL, sirviendo la SPA a varias tabletas en la red local. El swap
   lo decide `DATABASE_URL`; no se reescribe nada de negocio.
 
+**Para quién es:** negocios de mostrador (abarrotes, papelerías, cremerías, carnicerías,
+fruterías, tortillerías), pollerías / rosticerías y comida para llevar (opciones, paquetes,
+encargos y mesas sencillas) y tiendas con inventario (ferreterías, farmacias pequeñas, ropa).
+No es para restaurantes formales, CFDI frecuente ni multisucursal. Detalle en
+[`docs/que-hace-el-pos.md`](docs/que-hace-el-pos.md).
+
 ## Estado
 
 ### Sprint 0 — Scaffold ✅
@@ -156,6 +162,25 @@ abonos parciales o liquidación total.
 | Los builds congelan la clave pública (no se puede sustituir vía entorno)        | ✅     |
 | Freno de 5 intentos fallidos/minuto por IP en `POST /api/licencia/activar`      | ✅     |
 
+### Módulo extra — Catálogo, Varios e inventario ✅
+
+| Entregable                                                                                | Estado |
+| ----------------------------------------------------------------------------------------- | ------ |
+| Importar productos desde Excel/CSV y catálogo de abarrotes MX (7,160, Open Food Facts)    | ✅     |
+| Alta escaneando un código no registrado (catálogo local o internet)                       | ✅     |
+| **Varios** / precio libre (F2) con descripción en el ticket; cantidad escrita a mano      | ✅     |
+| Inventario opcional por producto: entradas, conteos, historial, mínimo y aviso en tablero | ✅     |
+
+### Módulo extra — Pollería, encargos y mesas ✅
+
+| Entregable                                                                                      | Estado |
+| ----------------------------------------------------------------------------------------------- | ------ |
+| Opciones por producto (grupos "elige uno" con precio extra) y nota por renglón en el ticket     | ✅     |
+| Paquetes / presentaciones que descuentan el inventario de lo que llevan                         | ✅     |
+| Encargos con hora de entrega y anticipo (venta aparte; al entregar se descuenta)                | ✅     |
+| Mesas / cuentas abiertas: agregar desde cualquier caja, comanda, pre-cuenta, control de versión | ✅     |
+| Plantilla de pollería de un clic · `scripts/demo-polleria.ts` (datos de prueba por la API)      | ✅     |
+
 ### Sprint 8 — QA, Pulido y Empaquetado 🚧
 
 | Entregable                                                                         | Estado     |
@@ -249,6 +274,15 @@ aperturas y doble envío simultáneos, abonos concurrentes a la misma cuenta, ve
 mismo instante del cierre (ninguna se cuela en un corte ya calculado) y códigos de barras
 repetidos.
 
+```bash
+DATABASE_URL=postgres://pos:pos@127.0.0.1:55432/pos pnpm verify:estres
+```
+
+QA de estrés: todas las rutas sin sesión, como cobrador y como admin (ningún 500, ninguna
+fuga de permisos); datos basura en cada POST/PUT; ventas simultáneas con opciones y paquetes
+(inventario, folios y totales contra la BD); mesas y encargos en carrera; cortes; 1,000
+ventas con 25 en paralelo y fuerza bruta en el login. También corre en el CI.
+
 ## Empaquetado
 
 - **Licencias:** el par Ed25519 se generó UNA vez con `pnpm license:keygen`. La clave privada
@@ -271,6 +305,9 @@ pnpm build:win            # build + instalador NSIS en dist-electron/  (Windows)
 pnpm db:studio            # Drizzle Studio contra .data/pos.dev.db
 pnpm license:gen <fp>     # genera la clave de licencia para un fingerprint (uso interno)
 pnpm license:keygen       # crea el par Ed25519 de licencias (una sola vez)
+
+# Datos de prueba de una pollería en un servidor de PRUEBA (nunca en un cliente real)
+POS_URL=https://<ip>:3000 POS_ADMIN_PASS='…' node_modules/.bin/tsx scripts/demo-polleria.ts
 
 # Fase 2 (servidor en red)
 pnpm db:generate:pg       # regenera resources/migrations-pg si cambia schema.pg.ts

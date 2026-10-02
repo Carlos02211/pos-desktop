@@ -8,13 +8,14 @@ llena durante la instalación siguiendo [`fase-2-instalacion-windows.md`](fase-2
 
 ## Cliente
 
-| Dato                 | Valor                       |
-| -------------------- | --------------------------- |
-| Negocio              |                             |
-| Contacto / teléfono  |                             |
-| Dirección            |                             |
-| Fecha de instalación |                             |
-| Versión instalada    | (commit / fecha del bundle) |
+| Dato                 | Valor                                                                            |
+| -------------------- | -------------------------------------------------------------------------------- |
+| Negocio              |                                                                                  |
+| Giro                 | (abarrotes, pollería, papelería… ver [`que-hace-el-pos.md`](que-hace-el-pos.md)) |
+| Contacto / teléfono  |                                                                                  |
+| Dirección            |                                                                                  |
+| Fecha de instalación |                                                                                  |
+| Versión instalada    | (commit / fecha del bundle)                                                      |
 
 ## PC servidor
 
@@ -81,11 +82,11 @@ Si cambian disco, placa de red o **nombre del equipo**, el ID cambia: emitir una
 
 ## Respaldos e impresora
 
-| Dato                                    | Valor   |
-| --------------------------------------- | ------- |
+| Dato                                                                  | Valor   |
+| --------------------------------------------------------------------- | ------- |
 | Carpeta de respaldos (otro disco / USB, **no** `Z:` ni unidad de red) |         |
-| `icacls` aplicado a esa carpeta         | sí / no |
-| Impresora (modelo / USB o red / IP)     |         |
+| `icacls` aplicado a esa carpeta                                       | sí / no |
+| Impresora (modelo / USB o red / IP)                                   |         |
 
 ## Usuarios
 
